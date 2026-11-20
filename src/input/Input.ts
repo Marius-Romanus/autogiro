@@ -92,7 +92,12 @@ export class Input {
   constructor(settings: Settings, el: HTMLElement) {
     this.settings = settings
     window.addEventListener('keydown', (e) => {
-      if ((e.target as HTMLElement)?.tagName === 'INPUT') return
+      const target = e.target as HTMLElement | null
+      if (target?.tagName === 'INPUT') return
+      // Con el desplegable abierto, sus teclas (Esc, flechas, letras) son suyas
+      // (con la lista abierta el foco está en la <option>, no en el <select>)
+      const sel = target?.closest?.('select')
+      if (sel && selectOpen(sel)) return
       if (!this.keys.has(e.code)) {
         const a = ACTION_KEYS[e.code]
         if (a) this.actions.push(a)
@@ -333,4 +338,13 @@ function approach(v: number, target: number, step: number): number {
 
 function expo(v: number): number {
   return 0.45 * v + 0.55 * v * v * v
+}
+
+/** ¿Está abierto el desplegable de este <select>? (`:open` no existe en navegadores viejos) */
+function selectOpen(el: HTMLElement): boolean {
+  try {
+    return el.matches(':open')
+  } catch {
+    return false
+  }
 }
