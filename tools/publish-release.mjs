@@ -45,12 +45,10 @@ const body = `${notes || 'Mejoras y correcciones.'}
 
 ### [⬇️ Autogiro para Windows](${download(exe)})
 
-Instalador de ${mb} MB para Windows 10 y 11, sin permisos de administrador. Necesita Internet (el paisaje
-se descarga en directo) y va mejor con una tarjeta gráfica dedicada.
+Instalador de ${mb} MB para Windows 10 y 11, sin permisos de administrador. Necesita Internet (el paisaje se descarga en directo) y va mejor con una tarjeta gráfica dedicada.
 
 - **¿Ya lo tienes instalado?** Al abrir el juego te ofrecerá actualizarse solo.
-- **La primera vez** Windows puede avisar con «Windows protegió su PC» porque el instalador no está
-  firmado: pulsa *Más información → Ejecutar de todas formas*.
+- **La primera vez** Windows puede avisar con «Windows protegió su PC» porque el instalador no está firmado: pulsa *Más información → Ejecutar de todas formas*.
 - **F11** pone la pantalla completa.
 
 <sub>Hecho con ❤️ por [Mario](https://creativecode.es/) · [☕ Invítame a un café](https://ko-fi.com/mario_creativecode)</sub>
