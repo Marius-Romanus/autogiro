@@ -3,6 +3,7 @@ name = "autogiro"
 version = "0.1.0"
 description = "Simulador de autogiro sobre el mundo real"
 authors = ["Mario · creativecode.es"]
+license = "PolyForm-Noncommercial-1.0.0"
 edition = "2021"
 
 # App de escritorio (Tauri): sirve el juego compilado (dist/) y las salas multijugador

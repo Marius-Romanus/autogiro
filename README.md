@@ -209,6 +209,15 @@ si te gusta, [invítame a un café en Ko-fi](https://ko-fi.com/mario_creativecod
   [NACA Aircraft Circular 196](https://ntrs.nasa.gov/citations/19930090361), datos de vuelo de los
   ensayos de la RAE (ARC R&M 1859 y 1727) y decoración de la réplica del Museo del Aire de Madrid.
 
+## Licencia
+
+Autogiro es gratis para jugar, estudiar y modificar con cualquier fin **no comercial**: uso personal,
+aficionados, clubes, escuelas y asociaciones sin ánimo de lucro. **No se permite venderlo ni usarlo para
+ganar dinero** (tampoco versiones modificadas) sin permiso del autor. Si lo compartes o publicas una versión
+modificada, tiene que ir con la licencia y el aviso de autoría: *Copyright (c) 2026 Mario (creativecode.es)*.
+Texto completo en [LICENSE](LICENSE) ([PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0)).
+Para un uso comercial, escríbeme a través de [creativecode.es](https://creativecode.es/).
+
 ---
 
 <a name="english"></a>
@@ -409,3 +418,12 @@ if you like it, [buy me a coffee on Ko-fi](https://ko-fi.com/mario_creativecode)
 - Cierva C.30A: three-view drawing from *Flight* (1934) reproduced in
   [NACA Aircraft Circular 196](https://ntrs.nasa.gov/citations/19930090361), flight data from the RAE
   tests (ARC R&M 1859 and 1727) and colour scheme of the replica at the Museo del Aire in Madrid.
+
+## License
+
+Autogiro is free to play, study and modify for any **non-commercial** purpose: personal use, hobbyists,
+clubs, schools and non-profits. **You may not sell it or use it to make money** (modified versions included)
+without the author's permission. If you share it or publish a modified version, it must carry the license and
+the copyright notice: *Copyright (c) 2026 Mario (creativecode.es)*.
+Full text in [LICENSE](LICENSE) ([PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0)).
+For commercial use, get in touch through [creativecode.es](https://creativecode.es/).

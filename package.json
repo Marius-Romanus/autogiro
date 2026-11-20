@@ -2,6 +2,7 @@
   "name": "autogiro",
   "version": "0.1.0",
   "private": true,
+  "license": "PolyForm-Noncommercial-1.0.0",
   "description": "Simulador de autogiro sobre el mundo real (Three.js + Google Photorealistic 3D Tiles)",
   "type": "module",
   "scripts": {
