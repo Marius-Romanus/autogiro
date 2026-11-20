@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Autogiro · Simulador sobre el mundo real</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23ff5a1f'/%3E%3Cpath d='M4 26 L60 20' stroke='white' stroke-width='4'/%3E%3Ccircle cx='32' cy='38' r='8' fill='white'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <canvas id="hud"></canvas>
+
+    <div id="topbar">
+      <div id="brand">AUTOGIRO</div>
+      <div id="status"></div>
+      <button id="btn-lights" type="button" aria-pressed="false" title="Luces exteriores (O)" data-i18n-attr="title:lights.title"><span class="lamp" aria-hidden="true"></span><span data-i18n="lights.label">Luces</span><kbd>O</kbd></button>
+    </div>
+    <div id="attribution"></div>
+    <div id="toast"></div>
+
+    <div id="tips" class="card hidden">
+      <button class="close" data-close="tips" aria-label="Cerrar" data-i18n-attr="aria-label:common.close">×</button>
+      <h3 data-i18n="tips.title">Despegue en autogiro</h3>
+      <ol data-i18n="tips.steps">
+        <li>Freno de rotor quitado (<kbd>B</kbd>) y freno de parking puesto (<kbd>L</kbd>).</li>
+        <li>Palanca <b>adelante</b> (mantén <kbd>W</kbd>) y gas a ~40 % (<kbd>R</kbd>/<kbd>F</kbd>, unas 3000 rpm de motor).</li>
+        <li>Mantén el <b>prerrotador</b> (<kbd>P</kbd>) hasta 200-220 rpm de rotor.</li>
+        <li>Suelta a la vez <kbd>P</kbd> y el parking (<kbd>L</kbd>), palanca <b>toda atrás</b> (mantén <kbd>S</kbd>) y gas <b>a fondo</b>.</li>
+        <li>Se va al aire solo a ~75 km/h tras unos 110 m (155 con pasajero). Entonces <b>cede palanca</b> (toques de <kbd>W</kbd>) para acelerar a 90-100 km/h y subir.</li>
+      </ol>
+      <p class="muted" data-i18n="tips.stick">La palanca <b>se queda donde la dejas</b> (mírala en el recuadro de la derecha): su posición fija la velocidad y el gas, la altura. Toques cortos = ajuste fino. <kbd>Inicio</kbd> la centra.</p>
+      <p class="muted" data-i18n="tips.engineOff"><b>Sin motor</b> planea a ~100 km/h bajando unos 6 m/s. Para tomar: a unos 6-8 m del suelo (20-25 ft AGL) mantén <kbd>S</kbd> hasta posarte.</p>
+      <p class="muted" data-i18n="tips.flapping">Cuidado: correr con pocas RPM de rotor provoca <b>batimiento de palas</b>, y empujar la palanca bruscamente descarga el rotor.</p>
+    </div>
+
+    <div id="help" class="card hidden">
+      <button class="close" data-close="help" aria-label="Cerrar" data-i18n-attr="aria-label:common.close">×</button>
+      <h3 data-i18n="help.title">Mandos</h3>
+      <div class="keys" data-i18n="help.keys">
+        <div><kbd>W</kbd><kbd>S</kbd> / <kbd>↑</kbd><kbd>↓</kbd></div><div>Palanca adelante / atrás (mantiene la posición; <kbd>Inicio</kbd> centra)</div>
+        <div><kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd></div><div>Palanca izquierda / derecha</div>
+        <div><kbd>Q</kbd><kbd>E</kbd> (<kbd>Z</kbd><kbd>X</kbd>)</div><div>Pedales (timón y rueda de morro)</div>
+        <div><kbd>R</kbd><kbd>F</kbd> · <kbd>1</kbd>…<kbd>0</kbd></div><div>Gas (− / +) · posiciones fijas</div>
+        <div><kbd>T</kbd><kbd>G</kbd></div><div>Compensador (morro abajo / arriba)</div>
+        <div><kbd>P</kbd> (mantener)</div><div>Prerrotador</div>
+        <div><kbd>B</kbd></div><div>Freno de rotor</div>
+        <div><kbd>Espacio</kbd> · <kbd>L</kbd></div><div>Frenos de ruedas · freno de parking</div>
+        <div><kbd>M</kbd></div><div>Motor encendido / apagado</div>
+        <div><kbd>O</kbd></div><div>Luces exteriores (navegación, destellos y aterrizaje)</div>
+        <div><kbd>Tab</kbd></div><div>Etiquetas y flechas de los demás pilotos (multijugador)</div>
+        <div><kbd>C</kbd> · <kbd>V</kbd></div><div>Cambiar cámara · mirar atrás</div>
+        <div>Ratón (arrastrar) · rueda</div><div>Mirar alrededor · zoom</div>
+        <div><kbd>K</kbd> · botón central</div><div>Ratón como palanca · en ese modo, rueda = zoom / gas</div>
+        <div><kbd>I</kbd> · <kbd>H</kbd></div><div>Ocultar instrumentos · esta ayuda</div>
+        <div><kbd>Retroceso</kbd> · <kbd>Esc</kbd></div><div>Reiniciar · menú</div>
+      </div>
+      <p class="muted" data-i18n="help.pad">Mando tipo Xbox: stick izquierdo = palanca, stick derecho = pedales, gatillos = gas, A = prerrotador, B = frenos, LB/RB = compensador. Joystick: ejes configurables en el menú.</p>
+    </div>
+
+    <div id="loading" class="hidden">
+      <div class="spinner"></div>
+      <div id="loading-text">Cargando escenario…</div>
+      <div class="bar"><div id="loading-bar"></div></div>
+    </div>
+
+    <div id="crash" class="overlay hidden">
+      <div class="card wide">
+        <div class="eyebrow" data-i18n="crash.eyebrow">Accidente</div>
+        <h2 id="crash-title"></h2>
+        <p id="crash-detail"></p>
+        <div class="row">
+          <button id="crash-retry" class="primary" data-i18n="crash.retry">Reintentar</button>
+          <button id="crash-menu" data-i18n="crash.menu">Menú</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="menu" class="overlay">
+      <div class="menu-inner">
+        <header>
+          <div class="logo">
+            <svg viewBox="0 0 64 64" width="44" height="44" aria-hidden="true">
+              <ellipse cx="29" cy="13" rx="27" ry="3" fill="currentColor" opacity=".9" />
+              <rect x="27.5" y="13" width="3" height="20" fill="currentColor" />
+              <path d="M6 39 Q12 30 28 32 L38 35 L38 43 L10 45 Z" fill="currentColor" />
+              <path d="M36 36 L55 36 L55 39.5 L36 41 Z" fill="currentColor" />
+              <path d="M51 39.5 L55 25 L61 25 L60 41.5 L52 41.5 Z" fill="currentColor" />
+              <rect x="47" y="41.5" width="14" height="2.2" rx="1.1" fill="currentColor" />
+              <circle cx="13" cy="51" r="3.5" fill="currentColor" />
+              <circle cx="33" cy="51" r="3.5" fill="currentColor" />
+            </svg>
+            <div>
+              <h1>AUTOGIRO</h1>
+              <p data-i18n="menu.tagline">Vuela un autogiro sobre el mundo real</p>
+              <p class="credit" data-i18n="menu.credit">Hecho con ❤️ por <a href="https://creativecode.es/" target="_blank" rel="noopener noreferrer"><strong>Mario</strong></a> · <a href="https://ko-fi.com/mario_creativecode" target="_blank" rel="noopener noreferrer">☕ Invítame a un café</a></p>
+            </div>
+          </div>
+          <div class="seg lang-switch" role="radiogroup" aria-label="Idioma · Language" title="Idioma · Language">
+            <label><input type="radio" name="lang" value="es" /><span>ES</span></label>
+            <label><input type="radio" name="lang" value="en" /><span>EN</span></label>
+          </div>
+          <button id="btn-fly" class="primary big">Volar</button>
+        </header>
+
+        <div class="grid">
+          <section>
+            <h4 data-i18n="menu.scenery">Escenario</h4>
+            <label class="choice"><input type="radio" name="scenery" value="google" /><span data-i18n="menu.google"><b>Fotorrealista 3D de Google</b><small>Edificios, árboles y relieve reales en 3D. Necesita una clave de Google Maps Platform.</small></span></label>
+            <label class="choice"><input type="radio" name="scenery" value="terrain" /><span data-i18n="menu.terrain"><b>Ortofoto + relieve</b><small>Sin clave. Ortofoto PNOA sobre el relieve de 5 m del IGN, con los edificios de OpenStreetMap en 3D (fuera de España: Esri y relieve global).</small></span></label>
+            <div class="field">
+              <label for="googleKey" data-i18n="menu.googleKey">Clave API de Google (Map Tiles API)</label>
+              <input id="googleKey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…" />
+              <details>
+                <summary data-i18n="menu.keyHow">¿Cómo consigo la clave?</summary>
+                <ol data-i18n="menu.keySteps">
+                  <li>Entra en <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">console.cloud.google.com</a> y crea un proyecto.</li>
+                  <li>Activa la facturación (hay cuota gratuita mensual).</li>
+                  <li>En «APIs y servicios», habilita <b>Map Tiles API</b>.</li>
+                  <li>En «Credenciales», crea una <b>clave de API</b>; restríngela a la Map Tiles API y, si quieres, a <code>http://localhost:5173</code>.</li>
+                  <li>Pégala aquí. Se guarda solo en este navegador.</li>
+                </ol>
+              </details>
+            </div>
+            <div class="field">
+              <label for="imagery" data-i18n="menu.imagery">Ortofoto (modo sin clave)</label>
+              <select id="imagery">
+                <option value="auto" data-i18n="menu.imagery.auto">Automática (PNOA en España)</option>
+                <option value="pnoa" data-i18n="menu.imagery.pnoa">PNOA · IGN (España)</option>
+                <option value="esri">Esri World Imagery</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="elevation" data-i18n="menu.elevation">Relieve (modo sin clave)</label>
+              <select id="elevation">
+                <option value="auto" data-i18n="menu.elevation.auto">Automático (MDT de 5 m del IGN en España)</option>
+                <option value="global" data-i18n="menu.elevation.global">Global de ~30 m (Mapzen/AWS)</option>
+              </select>
+            </div>
+            <label class="check"><input id="buildings" type="checkbox" /> <span data-i18n="menu.buildings">Edificios 3D de OpenStreetMap (modo sin clave)</span></label>
+            <label class="check"><input id="trees" type="checkbox" /> <span data-i18n="menu.trees">Árboles 3D sacados de la ortofoto (modo sin clave)</span></label>
+          </section>
+
+          <section>
+            <h4 data-i18n="menu.start">Salida</h4>
+            <div class="field">
+              <label for="aircraft" data-i18n="menu.aircraft">Aparato</label>
+              <select id="aircraft"></select>
+              <small id="aircraftNote" class="muted"></small>
+            </div>
+            <div class="field">
+              <label for="location" data-i18n="menu.location">Lugar</label>
+              <select id="location"></select>
+            </div>
+            <div class="field two" id="custom-coords">
+              <div><label for="customLat" data-i18n="menu.lat">Latitud</label><input id="customLat" type="number" step="0.0001" /></div>
+              <div><label for="customLon" data-i18n="menu.lon">Longitud</label><input id="customLon" type="number" step="0.0001" /></div>
+            </div>
+            <div class="seg" role="radiogroup" aria-label="Inicio" data-i18n-attr="aria-label:menu.start">
+              <label><input type="radio" name="start" value="runway" /><span data-i18n="menu.onRunway">En pista</span></label>
+              <label><input type="radio" name="start" value="air" /><span data-i18n="menu.inFlight">En vuelo</span></label>
+            </div>
+            <label class="check"><input id="passenger" type="checkbox" /> <span data-i18n="menu.passenger">Con pasajero (MTOW)</span></label>
+          </section>
+
+          <section>
+            <h4 data-i18n="menu.conditions">Condiciones</h4>
+            <div class="field">
+              <label for="hour"><span data-i18n="menu.hour">Hora</span> <output id="hourOut"></output></label>
+              <input id="hour" type="range" min="5" max="21.5" step="0.25" />
+            </div>
+            <div class="field">
+              <label for="dayOfYear"><span data-i18n="menu.date">Fecha</span> <output id="dayOut"></output></label>
+              <input id="dayOfYear" type="range" min="1" max="365" step="1" />
+            </div>
+            <div class="field">
+              <label for="windFrom"><span data-i18n="menu.windFrom">Viento desde</span> <output id="windFromOut"></output></label>
+              <input id="windFrom" type="range" min="0" max="355" step="5" />
+            </div>
+            <div class="field">
+              <label for="windSpeed"><span data-i18n="menu.windSpeed">Intensidad</span> <output id="windSpeedOut"></output></label>
+              <input id="windSpeed" type="range" min="0" max="25" step="1" />
+            </div>
+            <div class="field">
+              <label for="turbulence"><span data-i18n="menu.turbulence">Turbulencia</span> <output id="turbOut"></output></label>
+              <input id="turbulence" type="range" min="0" max="1" step="0.05" />
+            </div>
+            <div class="field">
+              <label for="clouds" data-i18n="menu.clouds">Nubes</label>
+              <select id="clouds">
+                <option value="clear" data-i18n="menu.clouds.clear">Despejado</option>
+                <option value="fair" data-i18n="menu.clouds.fair">Cúmulos de buen tiempo</option>
+                <option value="scattered" data-i18n="menu.clouds.scattered">Nubes dispersas</option>
+                <option value="overcast" data-i18n="menu.clouds.overcast">Cubierto</option>
+              </select>
+            </div>
+          </section>
+
+          <section>
+            <h4 data-i18n="menu.gfx">Gráficos y mandos</h4>
+            <div class="field">
+              <label for="quality" data-i18n="menu.quality">Calidad</label>
+              <select id="quality">
+                <option value="auto" data-i18n="menu.quality.auto">Automática (según tu GPU)</option>
+                <option value="low" data-i18n="menu.quality.low">Baja (gráfica integrada)</option>
+                <option value="medium" data-i18n="menu.quality.medium">Media</option>
+                <option value="high" data-i18n="menu.quality.high">Alta</option>
+                <option value="ultra" data-i18n="menu.quality.ultra">Ultra (GPU potente)</option>
+              </select>
+              <div id="gpuInfo" class="muted"></div>
+            </div>
+            <div class="field">
+              <label for="exposure"><span data-i18n="menu.exposure">Exposición</span> <output id="expOut"></output></label>
+              <input id="exposure" type="range" min="0.5" max="8" step="0.1" />
+            </div>
+            <div class="field">
+              <label for="volume"><span data-i18n="menu.volume">Volumen</span> <output id="volOut"></output></label>
+              <input id="volume" type="range" min="0" max="1" step="0.05" />
+            </div>
+            <label class="check"><input id="assist" type="checkbox" /> <span data-i18n="menu.assist">Ayuda al pilotaje (amortigua el fugoide, nivela alas, coordina pedales y modera la recogida)</span></label>
+            <label class="check"><input id="invertPitch" type="checkbox" /> <span data-i18n="menu.invertPitch">Invertir cabeceo</span></label>
+            <label class="check"><input id="mouseStick" type="checkbox" /> <span data-i18n="menu.mouseStick">Ratón como palanca (<kbd>K</kbd>)</span></label>
+            <details class="joy">
+              <summary>Joystick / HOTAS <span id="padName"></span></summary>
+              <div class="field two">
+                <div><label for="axisPitch" data-i18n="menu.axisPitch">Eje cabeceo</label><input id="axisPitch" type="number" min="-1" max="9" /></div>
+                <div><label for="axisRoll" data-i18n="menu.axisRoll">Eje alabeo</label><input id="axisRoll" type="number" min="-1" max="9" /></div>
+              </div>
+              <div class="field two">
+                <div><label for="axisYaw" data-i18n="menu.axisYaw">Eje pedales</label><input id="axisYaw" type="number" min="-1" max="9" /></div>
+                <div><label for="axisThrottle" data-i18n="menu.axisThrottle">Eje gas</label><input id="axisThrottle" type="number" min="-1" max="9" /></div>
+              </div>
+              <label class="check"><input id="invertThrottle" type="checkbox" /> <span data-i18n="menu.invertThrottle">Invertir eje de gas</span></label>
+              <div id="axesLive" class="mono muted"></div>
+            </details>
+          </section>
+        </div>
+        <footer>
+          <span data-i18n="menu.footer"><kbd>H</kbd> mandos · <kbd>Esc</kbd> este menú · <kbd>C</kbd> cámaras</span>
+          <a class="blog-link" href="https://creativecode.es/" target="_blank" rel="noopener noreferrer" data-i18n="menu.blog">Más proyectos en <b>creativecode.es</b> <span aria-hidden="true">↗</span></a>
+          <button id="btn-help" data-i18n="menu.viewControls">Ver mandos</button>
+        </footer>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

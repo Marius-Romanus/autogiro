@@ -1,0 +1,13 @@
+node_modules
+dist
+.env.local
+*.blend1
+src-tauri/target
+src-tauri/gen
+.claude/
+blender/__pycache__/
+*.blend@
+release-notes.md
+release-body.md
+latest.json
+Autogiro-Setup.exe

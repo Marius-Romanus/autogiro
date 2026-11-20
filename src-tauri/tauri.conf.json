@@ -1,0 +1,64 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Autogiro",
+  "version": "../package.json",
+  "identifier": "es.creativecode.autogiro",
+  "build": {
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "ui"
+  },
+  "app": {
+    "windows": [],
+    "withGlobalTauri": false,
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "publisher": "Mario · creativecode.es",
+    "copyright": "Hecho con ❤️ por Mario · creativecode.es",
+    "homepage": "https://creativecode.es/",
+    "category": "SimulationGame",
+    "shortDescription": "Simulador de autogiro sobre el mundo real",
+    "longDescription": "Simulador de autogiro con física realista sobre el relieve, las ortofotos y los edificios reales, con multijugador.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../dist/": "dist/"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "Spanish",
+          "English"
+        ],
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico"
+      }
+    },
+    "createUpdaterArtifacts": false
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ0QzQ1OUFFMjNFRERGRUUKUldUdTMrMGpybG5FUktvMERSazlRVEkwRER6UjdPMmZhYzZrb0p5WVByWUxtbW53NFIzbGRmUjYK",
+      "endpoints": [
+        "https://github.com/Marius-Romanus/autogiro/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

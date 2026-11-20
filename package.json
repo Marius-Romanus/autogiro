@@ -1,0 +1,46 @@
+{
+  "name": "autogiro",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Simulador de autogiro sobre el mundo real (Three.js + Google Photorealistic 3D Tiles)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:lan": "vite --host",
+    "build": "tsc --noEmit && tsc -p tsconfig.server.json && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json",
+    "server": "node --experimental-strip-types server/index.ts",
+    "app:build": "tauri build",
+    "release": "node tools/release.mjs",
+    "fdm-test": "node --experimental-strip-types tools/fdm-validate.ts && node --experimental-strip-types tools/fdm-scenarios.ts",
+    "fdm-test:ela07": "node --experimental-strip-types tools/fdm-validate.ts af=ela07 && node --experimental-strip-types tools/fdm-scenarios.ts af=ela07",
+    "fdm-test:ela10": "node --experimental-strip-types tools/fdm-validate.ts af=ela10 && node --experimental-strip-types tools/fdm-scenarios.ts af=ela10",
+    "fdm-test:cierva": "node --experimental-strip-types tools/fdm-validate.ts af=cierva && node --experimental-strip-types tools/fdm-scenarios.ts af=cierva",
+    "fdm-test:all": "npm run fdm-test && npm run fdm-test:ela07 && npm run fdm-test:ela10 && npm run fdm-test:cierva",
+    "crash-test": "node --experimental-strip-types tools/crash-test.ts && node --experimental-strip-types tools/crash-test-3blade.ts",
+    "mp-test": "node --experimental-strip-types tools/mp-test.ts",
+    "mp-bot": "node --experimental-strip-types tools/mp-bot.ts"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "~0.21.0",
+    "@mapbox/vector-tile": "^3.0.0",
+    "@takram/three-atmosphere": "^0.19.1",
+    "@takram/three-clouds": "^0.7.6",
+    "@takram/three-geospatial": "^0.9.1",
+    "3d-tiles-renderer": "^0.5.4",
+    "pbf": "^5.2.0",
+    "postprocessing": "^6.39.6",
+    "three": "^0.187.0",
+    "three-mesh-bvh": "^0.9.18",
+    "ws": "^8.23.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.6",
+    "@types/node": "^26.6.6",
+    "@types/three": "^0.187.0",
+    "@types/ws": "^8.18.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  }
+}

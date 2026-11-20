@@ -1,0 +1,60 @@
+# Publica una versión nueva: compila el instalador de Windows en GitHub y crea la release
+# con el .exe y el latest.json que usan las apps instaladas para actualizarse solas.
+#
+# No hace falta tocar nada aquí: `npm run release -- "novedad 1" "novedad 2"` (tools/release.mjs)
+# sube la versión, crea la etiqueta vX.Y.Z y la empuja; eso lanza este flujo.
+# Necesita el secreto TAURI_SIGNING_PRIVATE_KEY (clave privada de ~/.tauri/autogiro-updater.key).
+
+name: Publicar versión
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  windows:
+    name: Instalador de Windows
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Notas de la versión (mensaje de la etiqueta)
+        shell: bash
+        run: |
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          git tag -l --format='%(contents)' "$TAG" > release-notes.md
+          cat release-notes.md
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Compilar el juego y el instalador
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        run: npx tauri build --ci --config src-tauri/tauri.release.conf.json
+
+      - name: Publicar la release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node tools/publish-release.mjs

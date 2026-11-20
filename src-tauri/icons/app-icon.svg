@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Icono de la app (fuente de `npx tauri icon`): autogiro de perfil sobre el naranja del juego -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff8a4c" />
+      <stop offset="1" stop-color="#e2430c" />
+    </linearGradient>
+    <mask id="cut">
+      <rect width="1024" height="1024" fill="#fff" />
+      <!-- parabrisas -->
+      <path d="M318 548 C340 515 378 498 425 494 L438 548 Z" fill="#000" />
+    </mask>
+  </defs>
+  <rect x="40" y="40" width="944" height="944" rx="210" fill="url(#bg)" />
+  <g fill="#fff" stroke="#fff" stroke-linecap="round" stroke-linejoin="round">
+    <!-- pala del rotor, disco inclinado hacia atrás -->
+    <path d="M118 262 L906 330" stroke-width="34" fill="none" />
+    <circle cx="526" cy="296" r="30" stroke="none" />
+    <!-- mástil -->
+    <path d="M526 300 L552 520" stroke-width="34" fill="none" />
+    <!-- quilla y cola -->
+    <path d="M560 612 L830 612" stroke-width="26" fill="none" />
+    <path d="M800 628 L822 452 L878 452 L892 628 Z" stroke-width="10" />
+    <path d="M770 630 L912 630" stroke-width="22" fill="none" />
+    <!-- hélice propulsora -->
+    <ellipse cx="664" cy="560" rx="16" ry="124" stroke="none" />
+    <!-- tren -->
+    <path d="M500 630 L566 720" stroke-width="20" fill="none" />
+    <path d="M300 630 L300 708" stroke-width="18" fill="none" />
+    <circle cx="566" cy="734" r="44" stroke="none" />
+    <circle cx="300" cy="722" r="32" stroke="none" />
+    <!-- cabina -->
+    <path mask="url(#cut)" stroke="none"
+      d="M226 612 C236 548 312 492 420 482 C520 474 616 500 632 548 L630 612 C578 650 340 662 226 612 Z" />
+  </g>
+</svg>

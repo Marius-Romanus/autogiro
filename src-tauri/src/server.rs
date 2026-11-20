@@ -1,0 +1,114 @@
+//! Servidor HTTP local de la app: hace lo mismo que `server/index.ts` (sirve el juego
+//! compilado y las salas multijugador en /mp en el mismo puerto), sin Node.
+
+use std::io;
+use std::net::{Ipv4Addr, SocketAddr, TcpListener};
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use axum::extract::ws::WebSocketUpgrade;
+use axum::extract::State;
+use axum::http::{header, StatusCode, Uri};
+use axum::response::{IntoResponse, Response};
+use axum::routing::get;
+use axum::Router;
+use percent_encoding::percent_decode_str;
+
+use crate::rooms::{handle_socket, Rooms, MAX_PAYLOAD};
+
+#[derive(Clone)]
+struct AppState {
+    root: Arc<PathBuf>,
+    rooms: Rooms,
+}
+
+/// Abre el primer puerto libre de la lista en todas las interfaces (para que entren amigos
+/// de la misma red o un túnel). Escucha desde ya: la ventana puede cargar aunque el bucle
+/// de `serve` aún no haya arrancado.
+pub fn bind(ports: &[u16]) -> io::Result<(TcpListener, u16)> {
+    let mut last = io::Error::new(io::ErrorKind::AddrInUse, "sin puertos");
+    for &port in ports {
+        match TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, port))) {
+            Ok(l) => {
+                l.set_nonblocking(true)?;
+                return Ok((l, port));
+            }
+            Err(e) => last = e,
+        }
+    }
+    Err(last)
+}
+
+pub async fn serve(listener: TcpListener, root: PathBuf, rooms: Rooms) {
+    let listener = match tokio::net::TcpListener::from_std(listener) {
+        Ok(l) => l,
+        Err(e) => return log(&format!("no se pudo escuchar: {e}")),
+    };
+    let state = AppState { root: Arc::new(root), rooms };
+    let app = Router::new().route("/mp", get(mp)).fallback(static_file).with_state(state);
+    if let Err(e) = axum::serve(listener, app).await {
+        log(&format!("servidor detenido: {e}"));
+    }
+}
+
+async fn mp(State(s): State<AppState>, ws: WebSocketUpgrade) -> Response {
+    ws.max_message_size(MAX_PAYLOAD)
+        .max_frame_size(MAX_PAYLOAD)
+        .on_upgrade(move |socket| handle_socket(s.rooms, socket))
+}
+
+async fn static_file(State(s): State<AppState>, uri: Uri) -> Response {
+    let Ok(path) = percent_decode_str(uri.path()).decode_utf8() else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    let root = s.root.as_path();
+    let mut file = root.to_path_buf();
+    let mut in_assets = false;
+    for (i, seg) in path.split('/').filter(|x| !x.is_empty() && *x != ".").enumerate() {
+        if seg == ".." || seg.contains(['\\', ':', '\0']) {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+        in_assets |= i == 0 && seg == "assets";
+        file.push(seg);
+    }
+    // lo que no existe es una ruta de la página: index.html (como server/index.ts)
+    if !tokio::fs::metadata(&file).await.is_ok_and(|m| m.is_file()) {
+        file = root.join("index.html");
+        in_assets = false;
+    }
+    let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    let mime = match ext.as_str() {
+        "html" => "text/html; charset=utf-8",
+        "js" | "mjs" => "text/javascript; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "json" => "application/json",
+        "wasm" => "application/wasm",
+        "glb" => "model/gltf-binary",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
+        _ => "application/octet-stream",
+    };
+    let cache = if in_assets { "public, max-age=31536000, immutable" } else { "no-cache" };
+    match tokio::fs::read(&file).await {
+        Ok(bytes) => ([(header::CONTENT_TYPE, mime), (header::CACHE_CONTROL, cache)], bytes).into_response(),
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// IP de este ordenador en la red local (la de la interfaz que sale a Internet), si la hay.
+pub fn lan_ip() -> Option<String> {
+    let sock = std::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).ok()?;
+    sock.connect((Ipv4Addr::new(192, 0, 2, 1), 9)).ok()?; // no envía nada
+    match sock.local_addr().ok()?.ip() {
+        std::net::IpAddr::V4(ip) if !ip.is_loopback() && !ip.is_unspecified() => Some(ip.to_string()),
+        _ => None,
+    }
+}
+
+fn log(msg: &str) {
+    use std::io::Write;
+    let _ = writeln!(io::stderr(), "[servidor] {msg}");
+}

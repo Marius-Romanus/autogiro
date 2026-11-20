@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Autogiro</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #0f1722;
+        color: #e8eef6;
+        font: 15px/1.5 system-ui, sans-serif;
+      }
+      main {
+        max-width: 34rem;
+        padding: 24px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 20px;
+        color: #ff8a5c;
+      }
+      code {
+        display: block;
+        margin-top: 12px;
+        padding: 8px 10px;
+        border-radius: 6px;
+        background: #1b2635;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Solo se ve si la app no puede arrancar el juego (src-tauri/src/main.rs) -->
+    <main>
+      <h1 id="title">No se ha podido abrir el juego</h1>
+      <p id="text">Prueba a cerrar Autogiro y abrirlo otra vez. Si sigue pasando, reinstálalo.</p>
+      <code id="detail"></code>
+    </main>
+    <script>
+      document.getElementById('detail').textContent = window.__AUTOGIRO_ERROR__ || ''
+      if (!/^(es|ca|gl|eu)\b/i.test(navigator.language)) {
+        document.documentElement.lang = 'en'
+        document.getElementById('title').textContent = 'The game could not be opened'
+        document.getElementById('text').textContent = 'Try closing Autogiro and opening it again. If it keeps happening, reinstall it.'
+      }
+    </script>
+  </body>
+</html>

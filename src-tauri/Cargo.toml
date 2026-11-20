@@ -1,0 +1,32 @@
+[package]
+name = "autogiro"
+version = "0.1.0"
+description = "Simulador de autogiro sobre el mundo real"
+authors = ["Mario · creativecode.es"]
+edition = "2021"
+
+# App de escritorio (Tauri): sirve el juego compilado (dist/) y las salas multijugador
+# en un puerto local y lo abre en una ventana WebView2. Ver src/main.rs.
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-single-instance = "2"
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "ws"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "fs", "time", "sync", "macros"] }
+serde_json = "1"
+percent-encoding = "2"
+fastrand = "2"
+open = "5"
+tauri-plugin-updater = "2"
+tauri-plugin-dialog = "2"
+sys-locale = "0.3"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
