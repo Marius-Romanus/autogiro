@@ -36,10 +36,28 @@ const DEG = Math.PI / 180
  * Haz del foco de aterrizaje: semiapertura, penumbra, inclinación hacia abajo e intensidades
  * (ya expuestas). El terreno usa una intensidad mayor con compresión (`groundKnee`, ver
  * LandingLightEffect): imita al ojo adaptado a la noche, que la exposición fija no tiene.
- * Aparato, edificios y árboles reciben la del SpotLight, sin comprimir. De día (sol alto) el
- * terreno también recibe la física, sin compresión: con sol el foco apenas se nota.
+ * Aparato, edificios y árboles reciben la del SpotLight, sin comprimir. De día (sol alto) todo
+ * recibe la intensidad física (`realCandela`, sin exposición ni compresión), en la misma escala
+ * que el sol: con sol el foco apenas se nota. (Antes de día se usaba `candela` ya expuesta, unas
+ * 30 000 veces el valor físico: dejaba un chorro blanco en la pista delante del morro.)
  */
-export const BEAM = { angle: 15 * DEG, penumbra: 0.75, down: 4 * DEG, candela: 1e5, groundCandela: 2.5e6, groundKnee: 0.5 }
+export const BEAM = {
+  angle: 15 * DEG,
+  penumbra: 0.75,
+  down: 4 * DEG,
+  candela: 1e5,
+  groundCandela: 2.5e6,
+  groundKnee: 0.5,
+  /** foco LED de aterrizaje real, en candelas */
+  realCandela: 1e5,
+}
+
+/**
+ * Lux por unidad de iluminancia de la escena: takram guarda la luminancia relativa a la del sol
+ * con radiancia unidad (LUMINANCE_COEFFS · sunRadianceToLuminance de AtmosphereParameters).
+ * El sol de mediodía da ~1,3 unidades (~100 000 lux).
+ */
+const LUX_PER_UNIT = 75718
 
 type Kind = 'navL' | 'navR' | 'tail' | 'strobeL' | 'strobeR' | 'beacon' | 'landing'
 
@@ -189,11 +207,13 @@ export class AircraftLights {
     this.points.visible = this.on && this.lamps.length > 0
     const on = this.on && this.hasLanding
     const ex = Math.max(exposure, 1e-3)
-    this.spot.intensity = on ? BEAM.candela / ex : 0
-    // haz sobre el terreno: de noche (sol < −6°) adaptado; de día (sol > 3°) físico
+    // de noche (sol < −6°) adaptado; de día (sol > 3°) físico. Entre medias, interpolación
+    // geométrica: los dos extremos se llevan más de cuatro órdenes de magnitud.
     const day = smoothstep(-0.1, 0.05, sunY)
+    const phys = BEAM.realCandela / LUX_PER_UNIT
+    this.spot.intensity = on ? geo(BEAM.candela / ex, phys, day) : 0
     const b = this.beam
-    b.intensity = on && shown(this.points.parent) ? lerp(BEAM.groundCandela, BEAM.candela, day) / ex : 0
+    b.intensity = on && shown(this.points.parent) ? geo(BEAM.groundCandela / ex, phys, day) : 0
     this.knee = lerp(BEAM.groundKnee, 1e7, day * day) / ex
     if (b.intensity > 0) {
       this.points.updateWorldMatrix(true, false)
@@ -254,6 +274,8 @@ export class AircraftLights {
 }
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t
+/** interpolación geométrica (a, b > 0) */
+const geo = (a: number, b: number, t: number) => a * Math.pow(b / a, t)
 
 /** El objeto está en la escena y se dibuja (él y todos sus padres visibles). */
 function shown(o: Object3D | null): boolean {

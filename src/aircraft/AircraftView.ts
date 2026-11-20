@@ -82,6 +82,10 @@ export class AircraftView {
   private propBlur!: Mesh
   private rotorAngle = 0
   private propAngle = 0
+  // giro lento propio de los discos de desenfoque (no derivado de rotorAngle/propAngle, que
+  // se reinician en cada vuelta y harían saltar el disco)
+  private rotorBlurAngle = 0
+  private propBlurAngle = 0
   private wheelAngle = 0
   readonly eyeLocal = new Vector3(0.7 - CG.x, 0.47 - CG.y, 0)
   loaded = false
@@ -310,7 +314,8 @@ export class AircraftView {
       const blur = smooth(110, 230, (ac.rotor.rpm * this.vis.rotorBlades) / 2)
       ;(this.rotorBlur.material as MeshBasicMaterial).opacity = 0.85 * blur
       this.rotorBlur.visible = blur > 0
-      this.rotorBlur.rotation.z = -this.rotorAngle * 0.07
+      this.rotorBlurAngle = (this.rotorBlurAngle + ac.rotor.omega * 0.07 * dt) % (Math.PI * 2)
+      this.rotorBlur.rotation.z = -this.rotorBlurAngle
       const showBlades = blur < 0.85
       if (showBlades !== this.bladesVisible && this.rotorSpin) {
         this.bladesVisible = showBlades
@@ -329,7 +334,9 @@ export class AircraftView {
       // Rotax: gira en sentido negativo sobre +X (vista desde atrás antihoraria); el radial
       // del Cierva, al revés (`propSpin` = 1)
       this.propSpin.quaternion.setFromAxisAngle(X, vis.propSpin * this.propAngle)
-      this.propBlur.rotation.z = -vis.propSpin * this.propAngle * 0.9
+      // a 0.9× la velocidad real el disco saltaba casi media vuelta por fotograma: deriva lenta
+      this.propBlurAngle = (this.propBlurAngle + propOmega * 0.03 * dt) % (Math.PI * 2)
+      this.propBlur.rotation.z = -vis.propSpin * this.propBlurAngle
       ;(this.propBlur.material as MeshBasicMaterial).opacity = 0.45 * blur
       this.propBlur.visible = blur > 0
     }
@@ -466,20 +473,43 @@ function makeBlurTexture(blades: number, size: number, rotor: boolean): CanvasTe
   g.beginPath()
   g.arc(cx, cx, cx, 0, Math.PI * 2)
   g.fill()
-  // estelas de las palas
-  for (let b = 0; b < blades; b++) {
-    const a0 = (b / blades) * Math.PI * 2
-    for (let i = 0; i < 26; i++) {
-      const a = a0 - i * 0.035
-      const alpha = (rotor ? 0.3 : 0.32) * Math.pow(1 - i / 26, 2)
-      g.strokeStyle = rotor ? `rgba(170,175,180,${alpha})` : `rgba(15,15,15,${alpha})`
-      g.lineWidth = rotor ? size * 0.012 : size * 0.05
-      g.beginPath()
-      g.moveTo(cx + Math.cos(a) * cx * 0.12, cx + Math.sin(a) * cx * 0.12)
-      g.lineTo(cx + Math.cos(a) * cx * 0.99, cx + Math.sin(a) * cx * 0.99)
-      g.stroke()
+  // estelas de las palas: degradado angular continuo. Con rayas sueltas, el giro del disco
+  // avanzaba más que su separación en cada fotograma y parpadeaban (efecto estroboscópico).
+  const TAU = Math.PI * 2
+  const trail = 26 * 0.035 // largo de la estela (rad)
+  const lead = 0.03 // borde de ataque suavizado (rad)
+  const peak = rotor ? 0.3 : 0.32
+  const [cr, cgr, cb] = rotor ? [170, 175, 180] : [15, 15, 15]
+  const st = document.createElement('canvas')
+  st.width = st.height = size
+  const sg = st.getContext('2d')!
+  const img = sg.createImageData(size, size)
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = x + 0.5 - cx
+      const dy = y + 0.5 - cx
+      const r = Math.hypot(dx, dy) / cx
+      if (r < 0.1 || r > 1) continue
+      // raíz y punta con un borde suave de ~1 píxel
+      const radial = Math.min(1, (r - 0.1) * 40, (0.995 - r) * cx)
+      if (radial <= 0) continue
+      const a = Math.atan2(dy, dx)
+      let alpha = 0
+      for (let b = 0; b < blades; b++) {
+        // la pala está en a0 y la estela queda detrás (ángulos menores)
+        const d = ((((b / blades) * TAU - a) % TAU) + TAU) % TAU
+        const k = d < trail ? (1 - d / trail) ** 2 : d > TAU - lead ? (d - (TAU - lead)) / lead : 0
+        alpha = Math.max(alpha, peak * k)
+      }
+      const o = (y * size + x) * 4
+      img.data[o] = cr
+      img.data[o + 1] = cgr
+      img.data[o + 2] = cb
+      img.data[o + 3] = Math.round(255 * alpha * radial)
     }
   }
+  sg.putImageData(img, 0, 0)
+  g.drawImage(st, 0, 0)
   const t = new CanvasTexture(c)
   t.colorSpace = SRGBColorSpace
   t.anisotropy = 8
