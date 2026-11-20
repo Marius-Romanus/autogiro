@@ -27,6 +27,7 @@ pub fn check_in_background(app: AppHandle) {
 
 async fn check(app: &AppHandle) -> Result<(), Error> {
     let Some(update) = app.updater()?.check().await? else { return Ok(()) };
+    log(&format!("versión nueva {} disponible (esta es la {})", update.version, update.current_version));
     let es = spanish();
     let mut notes = update.body.clone().unwrap_or_default().trim().to_string();
     if notes.chars().count() > 700 {
