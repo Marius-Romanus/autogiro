@@ -1,6 +1,6 @@
 // Catálogo de aparatos (modelos 3D) que se pueden elegir en el menú.
 //
-// Todos cumplen el contrato de nodos del README (rotor, rotor_head, prop, rudder, ruedas,
+// Todos cumplen el contrato de nodos de DESARROLLO.md, «Modelos externos» (rotor, rotor_head, prop, rudder, ruedas,
 // stick, pilotos, eye_front) y comparten buje, rotor y centro de gravedad. La posición de
 // ruedas, hélice y cola de cada uno, y su peso, resistencia y motor (el que anuncia su `note`),
 // están en src/sim/airframes.ts (misma `id`): si se
