@@ -1,8 +1,14 @@
+<a name="espanol"></a>
+
 <p align="center">
   <img src="docs/img/icono.png" width="112" alt="" />
 </p>
 
 <h1 align="center">Autogiro</h1>
+
+<p align="center">
+  <b>Español</b> · <a href="#english"><b>English</b></a>
+</p>
 
 <p align="center">
   <b>Vuela un autogiro sobre el mundo real</b><br />
@@ -14,7 +20,7 @@
 </p>
 
 <p align="center">
-  Gratis · Windows 10 y 11 · se actualiza solo ·
+  Gratis · Windows 10 y 11 · en español e inglés · se actualiza solo ·
   <a href="https://github.com/Marius-Romanus/autogiro/releases">novedades</a>
 </p>
 
@@ -49,6 +55,8 @@ autogiro no se pilota como un avión ni como un helicóptero.
 - **Accidentes realistas.** Si te la pegas, el aparato se rompe por piezas según los golpes.
 - **Teclado, ratón, mando o joystick/HOTAS**, con una ayuda al pilotaje opcional para volar con
   teclado sin pelearte con el fugoide.
+- **En español e inglés.** El juego se pone en el idioma de tu Windows y se cambia en el menú
+  (botones `ES` / `EN`, arriba).
 
 <table>
   <tr>
@@ -200,3 +208,204 @@ si te gusta, [invítame a un café en Ko-fi](https://ko-fi.com/mario_creativecod
 - Cierva C.30A: plano de tres vistas de *Flight* (1934) reproducido en la
   [NACA Aircraft Circular 196](https://ntrs.nasa.gov/citations/19930090361), datos de vuelo de los
   ensayos de la RAE (ARC R&M 1859 y 1727) y decoración de la réplica del Museo del Aire de Madrid.
+
+---
+
+<a name="english"></a>
+
+<h1 align="center">Autogiro · English</h1>
+
+<p align="center">
+  <a href="#espanol"><b>Español</b></a> · <b>English</b>
+</p>
+
+<p align="center">
+  <b>Fly a gyrocopter over the real world</b><br />
+  Real autogyro physics · Spanish IGN terrain and orthophotos · 3D buildings and trees · multiplayer
+</p>
+
+<p align="center">
+  <a href="https://github.com/Marius-Romanus/autogiro/releases/latest/download/Autogiro-Setup.exe"><img src="https://img.shields.io/github/v/release/Marius-Romanus/autogiro?style=for-the-badge&label=Download%20for%20Windows&color=ff5a1f" alt="Download for Windows" /></a>
+</p>
+
+<p align="center">
+  Free · Windows 10 and 11 · in English and Spanish · updates itself ·
+  <a href="https://github.com/Marius-Romanus/autogiro/releases">release notes</a> (in Spanish)
+</p>
+
+<p align="center">
+  Made with ❤️ by <a href="https://creativecode.es/"><b>Mario</b></a> · more projects at
+  <a href="https://creativecode.es/"><b>creativecode.es</b></a> ·
+  <a href="https://ko-fi.com/mario_creativecode">☕ buy me a coffee</a>
+</p>
+
+A simulator for anyone who wants to know how a real autogyro (gyrocopter, gyroplane) flies. Take off
+from your airfield, fly over your town or the mountains you know, and learn why a gyro is flown neither
+like an aeroplane nor like a helicopter.
+
+- **Gyro physics, not an aeroplane with a propeller on top.** The rotor spins freely in
+  autorotation, you have to pre-rotate it to take off, its RPM depends on the load, and it warns you
+  about blade flapping and low-g. Performance has been checked against real data for each aircraft.
+- **The real world.** All over Spain you fly over the IGN's PNOA orthophotos and 5 m terrain model,
+  with OpenStreetMap buildings and trees detected in the photo itself. Outside Spain you get Esri
+  satellite imagery, and with a Google key you can use Google's photorealistic 3D anywhere on Earth.
+- **A real sky.** Physical atmosphere, volumetric clouds with their shadows, any time and date,
+  wind and turbulence, and night flying with navigation and landing lights.
+- **Airfields and airports.** Casarrubios (LEMT), Cuatro Vientos, Madrid-Barajas, Barcelona,
+  Palma, Málaga, Seville, Valencia, Bilbao, Tenerife North and Gran Canaria, starting on the runway or
+  on final, plus scenic spots: Madrid, Toledo, El Escorial, Segovia, Gredos, Montserrat, Ordesa…
+  or any coordinates you like.
+- **With friends.** Create a room, share the code and fly together, up to 8 pilots, with chat.
+- **Realistic crashes.** If you crash, the aircraft breaks apart piece by piece depending on the impacts.
+- **Keyboard, mouse, gamepad or joystick/HOTAS**, with an optional flying assist so you can fly with
+  the keyboard without fighting the phugoid.
+- **In English and Spanish.** The game follows your Windows language, and you can switch it in the
+  menu (`ES` / `EN` buttons at the top).
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/img/instrumentos.jpg" alt="Flying over Toledo with the instruments" /></td>
+    <td width="50%"><img src="docs/img/ciudad.jpg" alt="3D buildings from OpenStreetMap" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Rotor, engine, airspeed and vertical speed gauges</sub></td>
+    <td align="center"><sub>Real buildings in 3D, with their heights</sub></td>
+  </tr>
+</table>
+
+## The aircraft
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/img/ela07.jpg" alt="ELA 07 Cougar" /></td>
+    <td width="50%"><img src="docs/img/ela10.jpg" alt="ELA 10 Eclipse" /></td>
+  </tr>
+  <tr>
+    <td><b>ELA 07 Cougar</b> · open tandem by ELA Aviación (Córdoba, Spain), Rotax 914 turbo.</td>
+    <td><b>ELA 10 Eclipse</b> · sleek enclosed cabin, the fastest one, Rotax 914 turbo.</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/img/generico.jpg" alt="Generic two-seat gyrocopter" /></td>
+    <td width="50%"><img src="docs/img/cierva.jpg" alt="Cierva C.30A" /></td>
+  </tr>
+  <tr>
+    <td><b>Two-seat tandem</b> · the classic MTOsport-style trainer, Rotax 912.</td>
+    <td><b>Cierva C.30A (1934)</b> · a tribute to Juan de la Cierva, the inventor of the autogyro:
+    tractor propeller, three-blade rotor, 7-cylinder radial engine and tailwheel. You fly it the way
+    it was flown back then.</td>
+  </tr>
+</table>
+
+All of them can be flown solo or with a passenger, and each one has its own weights, engine, rotor
+and tail: they don't fly the same.
+
+## Install
+
+1. **[Download the installer](https://github.com/Marius-Romanus/autogiro/releases/latest/download/Autogiro-Setup.exe)**
+   (about 20 MB) and run it. It shows up in English or Spanish depending on your Windows.
+2. The first time, Windows may show *“Windows protected your PC”* because the installer isn't signed:
+   click **More info → Run anyway**.
+3. It installs by itself, without administrator rights, and adds a shortcut to your desktop.
+
+When a new version comes out, the game tells you when you open it and updates with one click.
+
+**You need:** Windows 10 or 11, an Internet connection (the scenery is downloaded as you fly) and,
+ideally, a dedicated graphics card. The game always uses the laptop's powerful GPU and picks the
+quality by itself; you can change it in the menu (*Graphics & controls → Quality*). **F11** toggles
+full screen.
+
+## Your first flight
+
+1. Release the **rotor brake** (`B`) and the **parking brake** (`L`).
+2. **Stick forward** (hold `W`) and **40 % throttle** (`R`), about 3000 engine rpm.
+3. Hold the **pre-rotator** (`P`) until the rotor reaches **200–220 rpm**.
+4. All at once: let go of the pre-rotator, **full back stick** (hold `S`) and **full throttle**.
+5. The rotor speeds up as you gain speed and you lift off at about **70–80 km/h**. Then ease the
+   stick forward to accelerate to 90–100 km/h close to the ground, and climb.
+
+To land: approach at 80–90 km/h and, about 6–8 m above the ground, pull the stick back and hold it
+(the “FLARE” warning appears). Press `H` for the on-screen help at any time.
+
+## How to fly a gyro (and why it's different)
+
+- **Stick = speed, throttle = height.** The stick tilts the rotor disc; the throttle makes you
+  climb or descend.
+- **No engine, no panic:** the rotor keeps turning and you glide at ~100 km/h, sinking about 6 m/s.
+  With full back stick you come down almost vertically: stable, but too fast to land.
+- **Blade flapping:** taxiing fast with low rotor RPM makes the advancing blade hit its stops. Crash.
+- **Low-g:** pushing the stick forward abruptly unloads the rotor, it loses RPM and you can lose
+  control. Always keep positive load.
+- Keep an eye on the **rotor tachometer** (yellow = pre-rotation, green = flight) and, in the
+  cockpit, on the **yaw string** on the windscreen.
+
+## Controls
+
+| Key | Action |
+|---|---|
+| `W` `S` / `↑` `↓` | Stick forward / back. **It stays where you leave it**; `Home` centres it |
+| `A` `D` / `←` `→` | Stick left / right |
+| `Q` `E` | Pedals (rudder and nose wheel) |
+| `R` `F`, `1`…`0` | Throttle |
+| `T` `G` | Trim |
+| `P` (hold) | Pre-rotator |
+| `B` | Rotor brake |
+| `Space` / `L` | Brakes / parking brake |
+| `M` | Start or stop the engine |
+| `O` | Lights |
+| `C` / `V` | Change camera / look back |
+| Mouse (drag, wheel) | Look around, zoom |
+| `K` | Mouse as stick |
+| `Enter` | Chat (multiplayer) |
+| `I` / `H` / `Esc` / `Backspace` | Instruments / help / menu / restart |
+| `F11` | Full screen |
+
+**Xbox-style gamepad:** left stick = cyclic stick, right stick = pedals, triggers = throttle,
+A = pre-rotator, B = brakes. **Joystick or HOTAS:** the axes are set up in the menu and shown live.
+
+The **flying assist** (on by default) does with its hands what a pilot does without thinking: it
+damps the pitch oscillations, levels the wings and moderates the flare when landing. It doesn't
+change the physics. Turn it off in the menu to fly 100 % by hand.
+
+## Flying with friends
+
+In the menu, **Multiplayer**: type your name and click **Create room**. You get a 4-letter code;
+your friends type it and click **Join**. Whoever creates the room picks the place, time and weather
+for everyone, and each pilot picks their own aircraft.
+
+- **On the same Wi-Fi** they join straight away with the address the game shows them.
+- **Over the Internet**, the game explains step by step how to open a free Cloudflare tunnel
+  (*Multiplayer → Play over the Internet*). Your friends can even join without installing anything,
+  from Chrome or Edge.
+
+## Scenery
+
+| Mode | What you see | Needs |
+|---|---|---|
+| **Orthophoto + terrain** (default) | In Spain, PNOA orthophotos and the IGN 5 m terrain model, OpenStreetMap buildings in 3D and 3D trees. Outside Spain, Esri satellite imagery. | Nothing |
+| **Google Photorealistic 3D** | Photorealistic 3D cities, trees and mountains all over the world. | A free Google key |
+
+<details>
+<summary><b>How to get the Google key</b></summary>
+
+1. Go to <https://console.cloud.google.com/> and create a project.
+2. Enable billing (there is a generous free monthly quota).
+3. *APIs & Services → Library* → enable the **Map Tiles API**.
+4. *Credentials → Create credentials → API key*.
+5. Paste it into the game menu. It is only stored on your computer.
+
+</details>
+
+## Credits
+
+Created by **Mario** · blog and other projects at [creativecode.es](https://creativecode.es/) ·
+if you like it, [buy me a coffee on Ko-fi](https://ko-fi.com/mario_creativecode) ☕
+
+- PNOA orthophoto and MDT05 © Instituto Geográfico Nacional ([scne.es](https://www.scne.es)), CC BY 4.0 ·
+  Esri World Imagery · global terrain Mapzen / AWS Terrain Tiles · Google Photorealistic 3D Tiles © Google.
+- Buildings © OpenStreetMap contributors (ODbL), tiles by [OpenFreeMap](https://openfreemap.org) / OpenMapTiles.
+- [3d-tiles-renderer](https://github.com/NASA-AMMOS/3DTilesRendererJS) (NASA-AMMOS),
+  [three-geospatial](https://github.com/takram-design-engineering/three-geospatial) (takram) for
+  atmosphere and clouds, [Three.js](https://threejs.org), [Rapier](https://rapier.rs) and [Tauri](https://tauri.app).
+- Cierva C.30A: three-view drawing from *Flight* (1934) reproduced in
+  [NACA Aircraft Circular 196](https://ntrs.nasa.gov/citations/19930090361), flight data from the RAE
+  tests (ARC R&M 1859 and 1727) and colour scheme of the replica at the Museo del Aire in Madrid.

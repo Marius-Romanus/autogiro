@@ -41,15 +41,26 @@ writeFileSync(
 
 const body = `${notes || 'Mejoras y correcciones.'}
 
-## Descargar
+## Descargar · Download
 
-### [⬇️ Autogiro para Windows](${download(exe)})
+### [⬇️ Autogiro para Windows · for Windows](${download(exe)})
 
-Instalador de ${mb} MB para Windows 10 y 11, sin permisos de administrador. Necesita Internet (el paisaje se descarga en directo) y va mejor con una tarjeta gráfica dedicada.
+Instalador de ${mb} MB para Windows 10 y 11, sin permisos de administrador. El juego está en español e inglés. Necesita Internet (el paisaje se descarga en directo) y va mejor con una tarjeta gráfica dedicada.
 
 - **¿Ya lo tienes instalado?** Al abrir el juego te ofrecerá actualizarse solo.
 - **La primera vez** Windows puede avisar con «Windows protegió su PC» porque el instalador no está firmado: pulsa *Más información → Ejecutar de todas formas*.
 - **F11** pone la pantalla completa.
+
+<details>
+<summary><b>English</b></summary>
+
+${mb} MB installer for Windows 10 and 11, no administrator rights needed. The game is in English and Spanish (the release notes above are in Spanish). It needs an Internet connection (the scenery is downloaded as you fly) and works best with a dedicated graphics card.
+
+- **Already installed?** The game will offer to update itself when you open it.
+- **The first time** Windows may show “Windows protected your PC” because the installer isn't signed: click *More info → Run anyway*.
+- **F11** toggles full screen.
+
+</details>
 
 <sub>Hecho con ❤️ por [Mario](https://creativecode.es/) · [☕ Invítame a un café](https://ko-fi.com/mario_creativecode)</sub>
 `
