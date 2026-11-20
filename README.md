@@ -151,6 +151,7 @@ Para tomar: aproximación a 80–90 km/h y, a unos 6–8 m del suelo, tira de pa
 | `Espacio` / `L` | Frenos / freno de parking |
 | `M` | Arrancar o parar el motor |
 | `O` | Luces |
+| `J` | Guía de pilotaje lateral (despegue, vuelo y aterrizaje); también con el botón «Guía» |
 | `C` / `V` | Cambiar de cámara / mirar atrás |
 | Ratón (arrastrar, rueda) | Mirar, zoom |
 | `K` | Ratón como palanca |
@@ -361,6 +362,7 @@ To land: approach at 80–90 km/h and, about 6–8 m above the ground, pull the 
 | `Space` / `L` | Brakes / parking brake |
 | `M` | Start or stop the engine |
 | `O` | Lights |
+| `J` | Side flying guide (takeoff, flight and landing); also the «Guide» button |
 | `C` / `V` | Change camera / look back |
 | Mouse (drag, wheel) | Look around, zoom |
 | `K` | Mouse as stick |

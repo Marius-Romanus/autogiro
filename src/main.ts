@@ -29,6 +29,7 @@ import { airframeById } from './sim/airframes.ts'
 import { Input } from './input/Input.ts'
 import { camName, CameraRig, headingOf } from './camera/CameraRig.ts'
 import { Hud, type HudData } from './hud/Hud.ts'
+import { Guide } from './hud/Guide.ts'
 import { gpuHelpHtml } from './hud/gpuHelp.ts'
 import { Sound } from './audio/Sound.ts'
 import { Multiplayer } from './net/Multiplayer.ts'
@@ -70,6 +71,7 @@ class App {
   input: Input
   rig: CameraRig
   hud: Hud
+  guide: Guide
   sound = new Sound()
   mp: Multiplayer
   wind = new WindModel()
@@ -121,6 +123,11 @@ class App {
     this.input = new Input(this.settings, this.gfx.renderer.domElement)
     this.rig = new CameraRig(this.gfx.camera)
     this.hud = new Hud($('hud') as HTMLCanvasElement)
+    this.guide = new Guide(this.settings.guide, (v) => {
+      this.settings.guide = v
+      saveSettings(this.settings)
+      this.toast(t(v ? 'toast.guideOn' : 'toast.guideOff'))
+    })
     this.env = { rho: 1.15, wind: this.wv, ground: this.ground }
     this.pmrem = new PMREMGenerator(this.gfx.renderer)
     this.cubeCam = new CubeCamera(0.1, 10, this.cubeRT)
@@ -226,13 +233,8 @@ class App {
     this.input.parkBrake = true
     this.rotorBrake = true
     this.ctl = defaultControls()
-    $('tips').classList.toggle('hidden', !(s.start === 'runway' && loc.runway))
-    // el Cierva C.30A despega de otra manera (prerrotador por embrague, rueda de cola, sin timón)
-    for (const el of $('tips').querySelectorAll<HTMLElement>('[data-i18n^="tips."]')) {
-      const part = el.dataset.i18n!.split('.').pop()!
-      el.dataset.i18n = s.aircraft === 'cierva' ? `tips.cierva.${part}` : `tips.${part}`
-    }
-    applyI18n($('tips'))
+    // guía lateral: en pista, pasos del despegue; en el aire, cómo volar
+    this.guide.reset(s.start === 'runway' && (Boolean(loc.runway) || loc.id === 'custom'))
   }
 
   /** Coloca el aparato en el punto de salida con la mejor altura de suelo conocida. */
@@ -398,6 +400,13 @@ class App {
     this.gfx.render(dt)
 
     this.updateHud(dt)
+    this.guide.update(dt, {
+      active: !this.menuOpen && this.state !== 'crashed' && Boolean(this.world),
+      onGround: this.state === 'loading' ? this.guide.phase !== 'flight' : ac.onGround,
+      groundSpeed: ac.groundSpeed,
+      throttle: this.input.throttle,
+      cierva: this.settings.aircraft === 'cierva',
+    })
     this.updateSound(dt)
     this.toastTimer -= dt
     if (this.toastTimer <= 0) $('toast').classList.remove('show')
@@ -641,6 +650,9 @@ class App {
           break
         case 'lights':
           this.toggleLights()
+          break
+        case 'guide':
+          if (!this.menuOpen) this.guide.toggle()
           break
         case 'mouseStick':
           this.input.mouseStick = !this.input.mouseStick
@@ -922,6 +934,7 @@ class App {
     for (const r of document.querySelectorAll<HTMLInputElement>('input[name=lang]'))
       r.addEventListener('change', () => r.checked && setLang(r.value as Lang))
     onLangChange(() => {
+      this.guide.refresh()
       this.localizeMenu()
       this.refreshMenu()
     })

@@ -17,24 +17,16 @@
     <div id="topbar">
       <div id="brand">AUTOGIRO</div>
       <div id="status"></div>
+      <button id="btn-guide" type="button" aria-pressed="true" title="Guía de pilotaje (J)" data-i18n-attr="title:guide.title"><span data-i18n="guide.label">Guía</span><kbd>J</kbd></button>
       <button id="btn-lights" type="button" aria-pressed="false" title="Luces exteriores (O)" data-i18n-attr="title:lights.title"><span class="lamp" aria-hidden="true"></span><span data-i18n="lights.label">Luces</span><kbd>O</kbd></button>
     </div>
     <div id="attribution"></div>
     <div id="toast"></div>
 
+    <!-- guía de pilotaje lateral: el contenido lo pone src/hud/Guide.ts según la fase -->
     <div id="tips" class="card hidden">
-      <button class="close" data-close="tips" aria-label="Cerrar" data-i18n-attr="aria-label:common.close">×</button>
-      <h3 data-i18n="tips.title">Despegue en autogiro</h3>
-      <ol data-i18n="tips.steps">
-        <li>Freno de rotor quitado (<kbd>B</kbd>) y freno de parking puesto (<kbd>L</kbd>).</li>
-        <li>Palanca <b>adelante</b> (mantén <kbd>W</kbd>) y gas a ~40 % (<kbd>R</kbd>/<kbd>F</kbd>, unas 3000 rpm de motor).</li>
-        <li>Mantén el <b>prerrotador</b> (<kbd>P</kbd>) hasta 200-220 rpm de rotor.</li>
-        <li>Suelta a la vez <kbd>P</kbd> y el parking (<kbd>L</kbd>), palanca <b>toda atrás</b> (mantén <kbd>S</kbd>) y gas <b>a fondo</b>.</li>
-        <li>Se va al aire solo a ~75 km/h tras unos 110 m (155 con pasajero). Entonces <b>cede palanca</b> (toques de <kbd>W</kbd>) para acelerar a 90-100 km/h y subir.</li>
-      </ol>
-      <p class="muted" data-i18n="tips.stick">La palanca <b>se queda donde la dejas</b> (mírala en el recuadro de la derecha): su posición fija la velocidad y el gas, la altura. Toques cortos = ajuste fino. <kbd>Inicio</kbd> la centra.</p>
-      <p class="muted" data-i18n="tips.engineOff"><b>Sin motor</b> planea a ~100 km/h bajando unos 6 m/s. Para tomar: a unos 6-8 m del suelo (20-25 ft AGL) mantén <kbd>S</kbd> hasta posarte.</p>
-      <p class="muted" data-i18n="tips.flapping">Cuidado: correr con pocas RPM de rotor provoca <b>batimiento de palas</b>, y empujar la palanca bruscamente descarga el rotor.</p>
+      <button class="close" type="button" aria-label="Ocultar guía (J)" data-i18n-attr="aria-label:guide.title">×</button>
+      <div class="guide-body"></div>
     </div>
 
     <div id="help" class="card hidden">
@@ -55,6 +47,7 @@
         <div><kbd>C</kbd> · <kbd>V</kbd></div><div>Cambiar cámara · mirar atrás</div>
         <div>Ratón (arrastrar) · rueda</div><div>Mirar alrededor · zoom</div>
         <div><kbd>K</kbd> · botón central</div><div>Ratón como palanca · en ese modo, rueda = zoom / gas</div>
+        <div><kbd>J</kbd></div><div>Guía de pilotaje lateral (despegue, vuelo y aterrizaje)</div>
         <div><kbd>I</kbd> · <kbd>H</kbd></div><div>Ocultar instrumentos · esta ayuda</div>
         <div><kbd>Retroceso</kbd> · <kbd>Esc</kbd></div><div>Reiniciar · menú</div>
       </div>

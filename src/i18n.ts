@@ -16,17 +16,75 @@ const STORE = 'autogiro.lang'
 type Dict = Record<string, string>
 
 const es: Dict = {
-  // consejos de despegue del Cierva C.30A (los del resto están en index.html)
-  'tips.cierva.title': "Despegue en el Cierva C.30A",
-  'tips.cierva.steps': `
+  // guía de pilotaje lateral (src/hud/Guide.ts): en tierra, en vuelo y tras aterrizar.
+  // Las claves guide.cierva.* sustituyen a las generales con el Cierva C.30A.
+  'guide.label': 'Guía',
+  'guide.title': 'Guía de pilotaje (J)',
+  'guide.foot': '<kbd>J</kbd> oculta o muestra esta guía · <kbd>H</kbd> todos los mandos',
+  'toast.guideOn': 'Guía de pilotaje: VISIBLE',
+  'toast.guideOff': 'Guía de pilotaje: OCULTA (J para volver a verla)',
+  'guide.ground.title': 'Despegue en autogiro',
+  'guide.ground.steps': `
+        <li>Freno de rotor quitado (<kbd>B</kbd>) y freno de parking puesto (<kbd>L</kbd>).</li>
+        <li>Palanca <b>adelante</b> (mantén <kbd>W</kbd>) y gas a ~40 % (<kbd>R</kbd>/<kbd>F</kbd>, unas 3000 rpm de motor).</li>
+        <li>Mantén el <b>prerrotador</b> (<kbd>P</kbd>) hasta 200-220 rpm de rotor.</li>
+        <li>Suelta a la vez <kbd>P</kbd> y el parking (<kbd>L</kbd>), palanca <b>toda atrás</b> (mantén <kbd>S</kbd>) y gas <b>a fondo</b>.</li>
+        <li>Se va al aire solo a ~75 km/h tras unos 110 m (155 con pasajero). Entonces <b>cede palanca</b> (toques de <kbd>W</kbd>) para acelerar a 90-100 km/h y subir.</li>`,
+  'guide.ground.note':
+    'La palanca <b>se queda donde la dejas</b> (mírala en el recuadro de la derecha): su posición fija la velocidad y el gas, la altura. Toques cortos = ajuste fino. <kbd>Inicio</kbd> la centra.',
+  'guide.ground.warn':
+    'Cuidado: correr con pocas RPM de rotor provoca <b>batimiento de palas</b>, y empujar la palanca bruscamente descarga el rotor.',
+  'guide.flight.title': 'En vuelo',
+  'guide.flight.tips': `
+        <li><b>Velocidad con la palanca</b>: adelante (<kbd>W</kbd>) acelera, atrás (<kbd>S</kbd>) frena. Sube a 90-100 km/h y no bajes de 60 km/h.</li>
+        <li><b>Altura con el gas</b> (<kbd>R</kbd>/<kbd>F</kbd>): más gas sube, menos gas baja.</li>
+        <li><b>Virajes</b>: palanca hacia el lado (<kbd>A</kbd>/<kbd>D</kbd>) con un poco de pedal hacia el mismo lado (<kbd>Q</kbd>/<kbd>E</kbd>) para centrar la bola.</li>
+        <li><b>Nunca empujes la palanca de golpe</b>: descarga el rotor, pierde vueltas y puedes perder el control.</li>
+        <li><b>Sin motor</b> planea a ~100 km/h bajando unos 6 m/s.</li>`,
+  'guide.flight.landTitle': 'Para aterrizar',
+  'guide.flight.land': `
+        <li>Alinéate con la pista desde lejos y reduce gas (<kbd>F</kbd>; <kbd>1</kbd> = ralentí).</li>
+        <li>Mantén ~100 km/h con la palanca hasta cerca del suelo.</li>
+        <li>A 6-8 m del suelo (20-25 ft) haz la <b>recogida</b>: mantén <kbd>S</kbd> hasta posarte, con el gas cortado.</li>`,
+  'guide.landing.title': 'En tierra: ¿parar o volver a despegar?',
+  'guide.landing.choose': 'Lo decide el gas: <b>ralentí</b> para parar, <b>a fondo</b> para una toma y despegue. Se resalta lo que estás haciendo.',
+  'guide.landing.stopTitle': 'Para parar',
+  'guide.landing.stop': `
+        <li>Gas a ralentí (<kbd>1</kbd>) y <b>palanca toda atrás</b> (<kbd>S</kbd>): el disco frena como un paracaídas.</li>
+        <li>Recto con los pedales (<kbd>Q</kbd>/<kbd>E</kbd>); frena (<kbd>Espacio</kbd>) cuando apoye la rueda de morro.</li>
+        <li>Parado: parking (<kbd>L</kbd>), palanca al centro (<kbd>Inicio</kbd>) y freno de rotor (<kbd>B</kbd>).</li>`,
+  'guide.landing.goTitle': 'Para volver a despegar',
+  'guide.landing.go': `
+        <li>Palanca <b>toda atrás</b> (<kbd>S</kbd>) y gas <b>a fondo</b> (<kbd>0</kbd>), sin frenos.</li>
+        <li>El rotor ya gira: vuelve al aire a ~75 km/h. Luego <b>cede palanca</b> (toques de <kbd>W</kbd>) hasta 90-100 km/h.</li>
+        <li>Si el rotor ha bajado de ~200 rpm, mejor para y prerrota (<kbd>P</kbd>): con pocas vueltas las palas baten.</li>`,
+  'guide.cierva.ground.title': "Despegue en el Cierva C.30A",
+  'guide.cierva.ground.steps': `
         <li>Freno de rotor quitado (<kbd>B</kbd>) y freno de parking puesto (<kbd>L</kbd>).</li>
         <li>Palanca <b>adelante</b> (mantén <kbd>W</kbd>) y gas a ~40 % (<kbd>R</kbd>/<kbd>F</kbd>, unas 1200 rpm de motor).</li>
         <li>Mantén el <b>prerrotador</b> (<kbd>P</kbd>): el embrague lleva el rotor hasta unas 180 rpm.</li>
         <li>Suelta <kbd>P</kbd> y el parking (<kbd>L</kbd>) —en el C.30 una sola palanca soltaba a la vez frenos y embrague— y gas <b>a fondo</b>, con la palanca aún <b>adelante</b>: el disco frena lo mínimo y acelera, aunque el rotor pierda vueltas.</li>
         <li>Hacia 60 km/h tira de la palanca <b>despacio pero a fondo</b> (mantén <kbd>S</kbd>): el rotor se embala y se va al aire a ~65-70 km/h tras unos 125 m (165 con pasajero). Sube a unos 85 km/h (unos 3 m/s solo, la mitad con pasajero).</li>`,
-  'tips.cierva.stick': "<b>Mando directo</b>: la palanca cuelga de la cabeza del rotor y la inclina entera (por eso se ve moverse al revés que tu mano). <b>No hay timón</b>: los pedales solo giran la rueda de cola en tierra; en el aire se vira inclinando el disco.",
-  'tips.cierva.engineOff': "<b>Sin motor</b> planea a ~100 km/h bajando unos 6 m/s. Para tomar: recogida a unos 6-8 m del suelo (mantén <kbd>S</kbd>); se posa a 45-50 km/h casi sin carrera.",
-  'tips.cierva.flapping': "Es <b>algo inestable en alabeo</b>, como anotaron los pilotos de pruebas de la RAE: corrige con la palanca. Al cortar gas tiende a irse a la izquierda y al darlo, a la derecha.",
+  'guide.cierva.ground.note': "<b>Mando directo</b>: la palanca cuelga de la cabeza del rotor y la inclina entera (por eso se ve moverse al revés que tu mano). <b>No hay timón</b>: los pedales solo giran la rueda de cola en tierra; en el aire se vira inclinando el disco.",
+  'guide.cierva.ground.warn': "Es <b>algo inestable en alabeo</b>, como anotaron los pilotos de pruebas de la RAE: corrige con la palanca. Al cortar gas tiende a irse a la izquierda y al darlo, a la derecha.",
+  'guide.cierva.flight.tips': `
+        <li><b>Velocidad con la palanca</b>: adelante (<kbd>W</kbd>) acelera, atrás (<kbd>S</kbd>) frena. Sube a unos 85 km/h.</li>
+        <li><b>Altura con el gas</b> (<kbd>R</kbd>/<kbd>F</kbd>): más gas sube, menos gas baja.</li>
+        <li><b>Virajes solo con la palanca</b> (<kbd>A</kbd>/<kbd>D</kbd>): inclina el disco entero; no hay timón.</li>
+        <li>Es <b>algo inestable en alabeo</b>: corrige con la palanca. Al cortar gas tiende a irse a la izquierda y al darlo, a la derecha.</li>
+        <li><b>Sin motor</b> planea a ~100 km/h bajando unos 6 m/s.</li>`,
+  'guide.cierva.flight.land': `
+        <li>Alinéate con la pista desde lejos y reduce gas (<kbd>F</kbd>; <kbd>1</kbd> = ralentí).</li>
+        <li>Mantén ~100 km/h con la palanca hasta cerca del suelo.</li>
+        <li>Recogida a unos 6-8 m del suelo (mantén <kbd>S</kbd>): se posa a 45-50 km/h casi sin carrera.</li>`,
+  'guide.cierva.landing.stop': `
+        <li>Gas a ralentí (<kbd>1</kbd>) y palanca <b>toda atrás</b> (<kbd>S</kbd>): con tan poca carrera, casi se para solo.</li>
+        <li>Recto con los pedales (<kbd>Q</kbd>/<kbd>E</kbd>, rueda de cola) y frenos (<kbd>Espacio</kbd>).</li>
+        <li>Parado: parking (<kbd>L</kbd>), palanca al centro (<kbd>Inicio</kbd>) y freno de rotor (<kbd>B</kbd>).</li>`,
+  'guide.cierva.landing.go': `
+        <li>Gas <b>a fondo</b> (<kbd>0</kbd>) con la palanca <b>adelante</b> (<kbd>W</kbd>), sin frenos.</li>
+        <li>Hacia 60 km/h tira <b>despacio pero a fondo</b> (<kbd>S</kbd>): se va al aire a ~65-70 km/h.</li>
+        <li>Si el rotor ha perdido muchas vueltas, mejor para y vuelve a prerrotar (<kbd>P</kbd>).</li>`,
   'doc.title': 'Autogiro · Simulador sobre el mundo real',
   'lang.label': 'Idioma',
   'common.close': 'Cerrar',
@@ -230,29 +288,73 @@ const en: Dict = {
   'common.close': 'Close',
 
   // ----- index.html -----
-  'tips.cierva.title': "Cierva C.30A takeoff",
-  'tips.cierva.steps': `
-        <li>Rotor brake off (<kbd>B</kbd>) and parking brake on (<kbd>L</kbd>).</li>
-        <li>Stick <b>forward</b> (hold <kbd>W</kbd>) and throttle at ~40 % (<kbd>R</kbd>/<kbd>F</kbd>, about 1200 engine rpm).</li>
-        <li>Hold the <b>prerotator</b> (<kbd>P</kbd>): its clutch spins the rotor up to about 180 rpm.</li>
-        <li>Release <kbd>P</kbd> and the parking brake (<kbd>L</kbd>) — on the C.30 a single lever freed the brakes and the clutch together — and open to <b>full throttle</b> with the stick still <b>forward</b>: the disc drags as little as possible and the aircraft accelerates, even though the rotor loses rpm.</li>
-        <li>At about 60 km/h pull the stick back <b>slowly but fully</b> (hold <kbd>S</kbd>): the rotor speeds up and it lifts off at ~65–70 km/h after about 125 m (165 m with a passenger). Climb at about 85 km/h (some 3 m/s solo, half that with a passenger).</li>`,
-  'tips.cierva.stick': "<b>Direct control</b>: the stick hangs from the rotor head and tilts the whole head (which is why it moves the opposite way to your hand). <b>There is no rudder</b>: the pedals only steer the tail wheel on the ground; in the air you turn by tilting the disc.",
-  'tips.cierva.engineOff': "<b>Engine off</b> it glides at ~100 km/h, sinking about 6 m/s. To land: flare at about 6–8 m above the ground (hold <kbd>S</kbd>); it settles at 45–50 km/h with almost no ground roll.",
-  'tips.cierva.flapping': "It is <b>slightly unstable in roll</b>, as the RAE test pilots noted: correct with the stick. Closing the throttle swings it left and opening it swings it right.",
-  'tips.title': 'Gyrocopter takeoff',
-  'tips.steps': `
+  'guide.label': 'Guide',
+  'guide.title': 'Flying guide (J)',
+  'guide.foot': '<kbd>J</kbd> hides or shows this guide · <kbd>H</kbd> all controls',
+  'toast.guideOn': 'Flying guide: SHOWN',
+  'toast.guideOff': 'Flying guide: HIDDEN (J to bring it back)',
+  'guide.ground.title': 'Gyrocopter takeoff',
+  'guide.ground.steps': `
         <li>Rotor brake off (<kbd>B</kbd>) and parking brake on (<kbd>L</kbd>).</li>
         <li>Stick <b>forward</b> (hold <kbd>W</kbd>) and throttle at ~40 % (<kbd>R</kbd>/<kbd>F</kbd>, about 3000 engine rpm).</li>
         <li>Hold the <b>prerotator</b> (<kbd>P</kbd>) up to 200–220 rotor rpm.</li>
         <li>Release <kbd>P</kbd> and the parking brake (<kbd>L</kbd>) together, stick <b>fully back</b> (hold <kbd>S</kbd>) and <b>full throttle</b>.</li>
         <li>It lifts off by itself at ~75 km/h after about 110 m (155 m with a passenger). Then <b>ease the stick forward</b> (taps of <kbd>W</kbd>) to accelerate to 90–100 km/h and climb.</li>`,
-  'tips.stick':
+  'guide.ground.note':
     'The stick <b>stays where you leave it</b> (watch it in the box on the right): its position sets the airspeed and the throttle sets the height. Short taps = fine adjustment. <kbd>Home</kbd> centres it.',
-  'tips.engineOff':
-    '<b>Engine off</b> it glides at ~100 km/h, sinking about 6 m/s. To land: at about 6–8 m above the ground (20–25 ft AGL) hold <kbd>S</kbd> until you touch down.',
-  'tips.flapping':
+  'guide.ground.warn':
     'Careful: rolling fast with low rotor rpm causes <b>blade flapping</b>, and pushing the stick forward abruptly unloads the rotor.',
+  'guide.flight.title': 'In flight',
+  'guide.flight.tips': `
+        <li><b>Airspeed with the stick</b>: forward (<kbd>W</kbd>) speeds up, back (<kbd>S</kbd>) slows down. Climb at 90–100 km/h and never go below 60 km/h.</li>
+        <li><b>Height with the throttle</b> (<kbd>R</kbd>/<kbd>F</kbd>): more throttle climbs, less throttle descends.</li>
+        <li><b>Turns</b>: stick to the side (<kbd>A</kbd>/<kbd>D</kbd>) with a little pedal the same way (<kbd>Q</kbd>/<kbd>E</kbd>) to centre the ball.</li>
+        <li><b>Never push the stick forward abruptly</b>: it unloads the rotor, which loses rpm, and you can lose control.</li>
+        <li><b>Engine off</b> it glides at ~100 km/h, sinking about 6 m/s.</li>`,
+  'guide.flight.landTitle': 'To land',
+  'guide.flight.land': `
+        <li>Line up with the runway from far out and reduce throttle (<kbd>F</kbd>; <kbd>1</kbd> = idle).</li>
+        <li>Hold ~100 km/h with the stick until close to the ground.</li>
+        <li>At 6–8 m above the ground (20–25 ft) <b>flare</b>: hold <kbd>S</kbd> until you touch down, throttle closed.</li>`,
+  'guide.landing.title': 'On the ground: stop or take off again?',
+  'guide.landing.choose': 'The throttle decides: <b>idle</b> to stop, <b>full</b> for a touch-and-go. Whatever you are doing is highlighted.',
+  'guide.landing.stopTitle': 'To stop',
+  'guide.landing.stop': `
+        <li>Throttle to idle (<kbd>1</kbd>) and <b>stick fully back</b> (<kbd>S</kbd>): the disc brakes like a parachute.</li>
+        <li>Keep straight with the pedals (<kbd>Q</kbd>/<kbd>E</kbd>); brake (<kbd>Space</kbd>) once the nose wheel is down.</li>
+        <li>Stopped: parking brake (<kbd>L</kbd>), stick centred (<kbd>Home</kbd>) and rotor brake (<kbd>B</kbd>).</li>`,
+  'guide.landing.goTitle': 'To take off again',
+  'guide.landing.go': `
+        <li>Stick <b>fully back</b> (<kbd>S</kbd>) and <b>full throttle</b> (<kbd>0</kbd>), no brakes.</li>
+        <li>The rotor is already turning: it lifts off again at ~75 km/h. Then <b>ease the stick forward</b> (taps of <kbd>W</kbd>) to 90–100 km/h.</li>
+        <li>If rotor rpm has dropped below ~200, better stop and prerotate (<kbd>P</kbd>): with low rpm the blades flap.</li>`,
+  'guide.cierva.ground.title': "Cierva C.30A takeoff",
+  'guide.cierva.ground.steps': `
+        <li>Rotor brake off (<kbd>B</kbd>) and parking brake on (<kbd>L</kbd>).</li>
+        <li>Stick <b>forward</b> (hold <kbd>W</kbd>) and throttle at ~40 % (<kbd>R</kbd>/<kbd>F</kbd>, about 1200 engine rpm).</li>
+        <li>Hold the <b>prerotator</b> (<kbd>P</kbd>): its clutch spins the rotor up to about 180 rpm.</li>
+        <li>Release <kbd>P</kbd> and the parking brake (<kbd>L</kbd>) — on the C.30 a single lever freed the brakes and the clutch together — and open to <b>full throttle</b> with the stick still <b>forward</b>: the disc drags as little as possible and the aircraft accelerates, even though the rotor loses rpm.</li>
+        <li>At about 60 km/h pull the stick back <b>slowly but fully</b> (hold <kbd>S</kbd>): the rotor speeds up and it lifts off at ~65–70 km/h after about 125 m (165 m with a passenger). Climb at about 85 km/h (some 3 m/s solo, half that with a passenger).</li>`,
+  'guide.cierva.ground.note': "<b>Direct control</b>: the stick hangs from the rotor head and tilts the whole head (which is why it moves the opposite way to your hand). <b>There is no rudder</b>: the pedals only steer the tail wheel on the ground; in the air you turn by tilting the disc.",
+  'guide.cierva.ground.warn': "It is <b>slightly unstable in roll</b>, as the RAE test pilots noted: correct with the stick. Closing the throttle swings it left and opening it swings it right.",
+  'guide.cierva.flight.tips': `
+        <li><b>Airspeed with the stick</b>: forward (<kbd>W</kbd>) speeds up, back (<kbd>S</kbd>) slows down. Climb at about 85 km/h.</li>
+        <li><b>Height with the throttle</b> (<kbd>R</kbd>/<kbd>F</kbd>): more throttle climbs, less throttle descends.</li>
+        <li><b>Turn with the stick only</b> (<kbd>A</kbd>/<kbd>D</kbd>): it tilts the whole disc; there is no rudder.</li>
+        <li>It is <b>slightly unstable in roll</b>: correct with the stick. Closing the throttle swings it left and opening it swings it right.</li>
+        <li><b>Engine off</b> it glides at ~100 km/h, sinking about 6 m/s.</li>`,
+  'guide.cierva.flight.land': `
+        <li>Line up with the runway from far out and reduce throttle (<kbd>F</kbd>; <kbd>1</kbd> = idle).</li>
+        <li>Hold ~100 km/h with the stick until close to the ground.</li>
+        <li>Flare at about 6–8 m above the ground (hold <kbd>S</kbd>): it settles at 45–50 km/h with almost no ground roll.</li>`,
+  'guide.cierva.landing.stop': `
+        <li>Throttle to idle (<kbd>1</kbd>) and stick <b>fully back</b> (<kbd>S</kbd>): with so little ground roll it nearly stops by itself.</li>
+        <li>Keep straight with the pedals (<kbd>Q</kbd>/<kbd>E</kbd>, tail wheel) and brakes (<kbd>Space</kbd>).</li>
+        <li>Stopped: parking brake (<kbd>L</kbd>), stick centred (<kbd>Home</kbd>) and rotor brake (<kbd>B</kbd>).</li>`,
+  'guide.cierva.landing.go': `
+        <li><b>Full throttle</b> (<kbd>0</kbd>) with the stick <b>forward</b> (<kbd>W</kbd>), no brakes.</li>
+        <li>At about 60 km/h pull back <b>slowly but fully</b> (<kbd>S</kbd>): it lifts off at ~65–70 km/h.</li>
+        <li>If the rotor has lost a lot of rpm, better stop and prerotate again (<kbd>P</kbd>).</li>`,
   'help.title': 'Controls',
   'help.keys': `
         <div><kbd>W</kbd><kbd>S</kbd> / <kbd>↑</kbd><kbd>↓</kbd></div><div>Stick forward / back (holds its position; <kbd>Home</kbd> centres it)</div>
@@ -269,6 +371,7 @@ const en: Dict = {
         <div><kbd>C</kbd> · <kbd>V</kbd></div><div>Change camera · look back</div>
         <div>Mouse (drag) · wheel</div><div>Look around · zoom</div>
         <div><kbd>K</kbd> · middle button</div><div>Mouse as stick · in that mode, wheel = zoom / throttle</div>
+        <div><kbd>J</kbd></div><div>Side flying guide (takeoff, flight and landing)</div>
         <div><kbd>I</kbd> · <kbd>H</kbd></div><div>Hide instruments · this help</div>
         <div><kbd>Backspace</kbd> · <kbd>Esc</kbd></div><div>Restart · menu</div>`,
   'help.pad':

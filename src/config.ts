@@ -249,6 +249,8 @@ export interface Settings {
   mouseStick: boolean
   /** ayuda de pilotaje: nivelado de alas y coordinación con pedales */
   assist: boolean
+  /** guía de pilotaje lateral (tecla J) */
+  guide: boolean
   // mapeo de joystick
   axisPitch: number
   axisRoll: number
@@ -282,6 +284,7 @@ export const DEFAULT_SETTINGS: Settings = {
   invertPitch: false,
   mouseStick: false,
   assist: true,
+  guide: true,
   axisPitch: 1,
   axisRoll: 0,
   axisYaw: 2,

@@ -201,11 +201,61 @@ button.big {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
 }
 
+/* guía de pilotaje lateral (src/hud/Guide.ts) */
 #tips {
   position: fixed;
   top: 44px;
   left: 16px;
   width: min(380px, calc(100vw - 32px));
+  max-height: calc(100vh - 60px);
+  overflow-y: auto;
+}
+
+#tips h3 {
+  padding-right: 28px;
+}
+
+#tips h4 {
+  margin: 10px 0 4px;
+  font-size: 13px;
+}
+
+#tips ul {
+  margin: 0;
+  padding-left: 1.1em;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+#tips p {
+  margin: 8px 0 0;
+}
+
+#tips .guide-choice {
+  margin-top: 8px;
+  padding: 6px 10px 8px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  transition: opacity 0.25s, border-color 0.25s, background 0.25s;
+}
+
+#tips .guide-choice h4 {
+  margin-top: 0;
+}
+
+#tips .guide-choice.on {
+  border-color: rgba(255, 183, 77, 0.55);
+  background: rgba(255, 183, 77, 0.08);
+}
+
+#tips .guide-choice.dim {
+  opacity: 0.5;
+}
+
+#tips .guide-foot {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--muted);
 }
 
 #help {
@@ -742,8 +792,16 @@ details a {
   .grid section {
     padding: 14px 16px;
   }
+  /* pantalla estrecha: la guía más pequeña, sin taparlo todo */
   #tips {
-    display: none;
+    width: min(300px, calc(100vw - 32px));
+    max-height: 45vh;
+    padding: 12px 14px;
+    font-size: 12px;
+  }
+  #tips ol,
+  #tips ul {
+    font-size: 12px;
   }
 }
 
@@ -785,9 +843,12 @@ details a {
   overflow-wrap: anywhere;
 }
 
-/* botón de luces exteriores (barra superior, en vuelo) */
-#btn-lights {
+/* botones de la barra superior: guía (J) y luces exteriores (O) */
+#btn-guide {
   margin-left: auto;
+}
+#btn-guide,
+#btn-lights {
   pointer-events: auto;
   display: inline-flex;
   align-items: center;
@@ -803,10 +864,12 @@ details a {
   cursor: pointer;
   transition: background 0.2s, border-color 0.2s, color 0.2s;
 }
+#btn-guide:hover,
 #btn-lights:hover {
   background: rgba(20, 24, 32, 0.75);
   color: #fff;
 }
+#btn-guide kbd,
 #btn-lights kbd {
   font-size: 10px;
   opacity: 0.6;
@@ -819,6 +882,7 @@ details a {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
   transition: background 0.2s, box-shadow 0.2s;
 }
+#btn-guide.on,
 #btn-lights.on {
   border-color: rgba(255, 183, 77, 0.55);
   color: #fff;

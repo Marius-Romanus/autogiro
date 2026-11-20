@@ -21,6 +21,7 @@ export type Action =
   | 'zoomIn'
   | 'zoomOut'
   | 'lights'
+  | 'guide'
 
 const ACTION_KEYS: Record<string, Action> = {
   KeyC: 'camera',
@@ -36,6 +37,7 @@ const ACTION_KEYS: Record<string, Action> = {
   KeyK: 'mouseStick',
   KeyL: 'parkBrake',
   KeyO: 'lights',
+  KeyJ: 'guide',
   Equal: 'zoomIn',
   NumpadAdd: 'zoomIn',
   Minus: 'zoomOut',
