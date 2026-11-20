@@ -63,7 +63,7 @@ writeFileSync(
 // --- commit, etiqueta y subida --------------------------------------------------
 const notes = (lines.length ? lines : ['Mejoras y correcciones.']).map((l) => (/^[-*] /.test(l) ? l : `- ${l}`)).join('\n')
 git('add', '-A')
-git('commit', '-m', `Autogiro ${next}\n\n${notes}`)
+if (git('status', '--porcelain')) git('commit', '-m', `Autogiro ${next}\n\n${notes}`)
 git('tag', '-a', tag, '-m', notes)
 run(`git push origin ${branch} ${tag}`)
 
