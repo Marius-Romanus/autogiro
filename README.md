@@ -49,8 +49,11 @@ autogiro no se pilota como un avión ni como un helicóptero.
   quieras, viento y turbulencia, y vuelo nocturno con luces de navegación y de aterrizaje.
 - **Aeródromos y aeropuertos.** Casarrubios (LEMT), Cuatro Vientos, Barajas, El Prat, Palma,
   Málaga, Sevilla, Valencia, Bilbao, Tenerife Norte y Gran Canaria, con salida en cabecera o en
-  final, y lugares para pasear: Madrid, Toledo, El Escorial, Segovia, Gredos, Montserrat, Ordesa…
-  o las coordenadas que quieras.
+  final, o las coordenadas que quieras.
+- **Sitios emblemáticos de todas las provincias.** Más de 50 salidas en vuelo, agrupadas por
+  comunidad: la Alhambra, la Mezquita de Córdoba, la Sagrada Familia, Santiago, Las Médulas,
+  Cabárceno, Gaztelugatxe, la Playa de las Catedrales, las Bardenas, el Teide, Timanfaya, Es Vedrà,
+  el Cañón del Río Lobos, Mont-rebei, Ceuta y Melilla…
 - **Con amigos.** Crea una sala, pasa el código y volad juntos hasta 8 pilotos, con chat.
 - **Accidentes realistas.** Si te la pegas, el aparato se rompe por piezas según los golpes.
 - **Teclado, ratón, mando o joystick/HOTAS**, con una ayuda al pilotaje opcional para volar con
@@ -283,8 +286,11 @@ like an aeroplane nor like a helicopter.
   wind and turbulence, and night flying with navigation and landing lights.
 - **Airfields and airports.** Casarrubios (LEMT), Cuatro Vientos, Madrid-Barajas, Barcelona,
   Palma, Málaga, Seville, Valencia, Bilbao, Tenerife North and Gran Canaria, starting on the runway or
-  on final, plus scenic spots: Madrid, Toledo, El Escorial, Segovia, Gredos, Montserrat, Ordesa…
-  or any coordinates you like.
+  on final, or any coordinates you like.
+- **Landmarks in every Spanish province.** Over 50 in-flight starts, grouped by region: the
+  Alhambra, Córdoba's Mosque-Cathedral, the Sagrada Família, Santiago, Las Médulas, Cabárceno,
+  Gaztelugatxe, Cathedrals Beach, the Bardenas, Mount Teide, Timanfaya, Es Vedrà, the Río Lobos
+  canyon, Mont-rebei, Ceuta and Melilla…
 - **With friends.** Create a room, share the code and fly together, up to 8 pilots, with chat.
 - **Realistic crashes.** If you crash, the aircraft breaks apart piece by piece depending on the impacts.
 - **Keyboard, mouse, gamepad or joystick/HOTAS**, with an optional flying assist so you can fly with

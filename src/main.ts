@@ -14,7 +14,7 @@ import {
   type Texture,
 } from 'three'
 import { SkyMaterial } from '@takram/three-atmosphere'
-import { isInSpain, LOCATIONS, loadSettings, locationName, saveSettings, type Location, type Quality, type Settings } from './config.ts'
+import { isInSpain, LOCATIONS, loadSettings, locationName, locationNote, saveSettings, type Location, type Quality, type Settings } from './config.ts'
 import { applyI18n, getLang, locale, onLangChange, setLang, t, type Lang } from './i18n.ts'
 import { Graphics, LIGHT_LAYER } from './render/Graphics.ts'
 import { usesIgnTerrain, World, type GroundSample } from './world/World.ts'
@@ -820,13 +820,13 @@ class App {
     const s = this.settings
     applyI18n()
     const sel = $('location') as HTMLSelectElement
-    // agrupados (aeródromos / paisajes) en el orden de LOCATIONS
+    // agrupados (aeródromos y, los sitios emblemáticos, por comunidad) en el orden de LOCATIONS
     const groups = new Map<string, HTMLOptGroupElement>()
     for (const l of LOCATIONS) {
       const o = document.createElement('option')
       o.value = l.id
       o.textContent = l.name
-      const g = l.group ?? 'scenic'
+      const g = l.group ?? l.region ?? 'scenic'
       let og = groups.get(g)
       if (!og) {
         og = document.createElement('optgroup')
@@ -916,6 +916,7 @@ class App {
     ;($('location') as HTMLSelectElement).addEventListener('change', (e) => {
       s.locationId = (e.target as HTMLSelectElement).value
       $('custom-coords').classList.toggle('hidden', s.locationId !== 'custom')
+      this.showLocationNote()
     })
 
     $('btn-fly').addEventListener('click', () => this.fly())
@@ -962,6 +963,12 @@ class App {
     }
     for (const og of $('location').querySelectorAll('optgroup')) og.label = t(`locgroup.${og.dataset.group}`)
     for (const o of ($('aircraft') as HTMLSelectElement).options) o.textContent = aircraftName(aircraftById(o.value))
+    this.showLocationNote()
+  }
+
+  private showLocationNote(): void {
+    const l = LOCATIONS.find((x) => x.id === this.settings.locationId)
+    $('locationNote').textContent = l ? locationNote(l) : ''
   }
 
   private refreshMenu(): void {
@@ -992,6 +999,7 @@ class App {
     set('passenger', s.passenger)
     set('aircraft', aircraftById(s.aircraft).id)
     $('aircraftNote').textContent = aircraftNote(aircraftById(s.aircraft))
+    this.showLocationNote()
     set('assist', s.assist)
     set('invertPitch', s.invertPitch)
     set('mouseStick', this.input.mouseStick)
