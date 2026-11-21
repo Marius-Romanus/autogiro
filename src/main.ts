@@ -537,7 +537,7 @@ class App {
     extra.textContent = ''
     if (this.crashSys.active) {
       const s = this.crashSys.summary()
-      for (const line of [s.damage, s.seat]) {
+      for (const line of [s.damage, s.seat, s.fire].filter(Boolean)) {
         const p = document.createElement('p')
         p.textContent = line
         extra.appendChild(p)

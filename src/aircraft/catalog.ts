@@ -24,25 +24,25 @@ export const AIRCRAFT: AircraftModel[] = [
     id: 'generic',
     name: 'Tándem abierto genérico',
     url: 'models/autogiro.glb',
-    note: 'Biplaza abierto tipo MTOsport · blender/build_autogiro.py',
+    note: 'Biplaza abierto tipo MTOsport',
   },
   {
     id: 'ela07',
     name: 'ELA 07 Cougar',
     url: 'models/ela07.glb',
-    note: 'ELA Aviación (Córdoba) · tándem abierto · Rotax 914 · blender/build_ela.py',
+    note: 'ELA Aviación (Córdoba) · tándem abierto · Rotax 914',
   },
   {
     id: 'ela10',
     name: 'ELA 10 Eclipse',
     url: 'models/ela10.glb',
-    note: 'ELA Aviación (Córdoba) · cabina cerrada en tándem, cola alta · Rotax 914 · blender/build_ela.py',
+    note: 'ELA Aviación (Córdoba) · cabina cerrada en tándem, cola alta · Rotax 914',
   },
   {
     id: 'cierva',
     name: 'Cierva C.30A (1934)',
     url: 'models/cierva_c30a.glb',
-    note: 'Homenaje a Juan de la Cierva, inventor del autogiro · rotor tripala de mando directo, motor radial, sin timón · réplica del Museo del Aire · blender/build_cierva.py',
+    note: 'Homenaje a Juan de la Cierva, inventor del autogiro · rotor tripala de mando directo, motor radial, sin timón · réplica del Museo del Aire',
   },
 ]
 

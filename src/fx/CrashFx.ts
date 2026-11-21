@@ -3,15 +3,16 @@
 //  - terrones de tierra (balísticos, se quedan en el suelo),
 //  - chispas (metal contra superficies duras),
 //  - surcos en el suelo y desconchones en paredes (calcas sobre la superficie),
-//  - cascotes y cristales (los simula Rapier; aquí solo se dibujan).
+//  - cascotes y cristales (los simula Rapier; aquí solo se dibujan),
+//  - bola de fuego, humo negro y fuego que sigue ardiendo si revienta el depósito.
 //
 // Polvo y calcas se pintan como albedo (alfa del búfer intacto: la atmósfera los
 // ilumina en posproceso igual que al terreno); terrones y cascotes son sólidos
 // iluminados como el aparato (alfa 0); las chispas emiten luz propia.
 
 import {
-  BoxGeometry,
   BufferAttribute,
+  BufferGeometry,
   CanvasTexture,
   Color,
   CustomBlending,
@@ -22,7 +23,6 @@ import {
   Group,
   InstancedBufferAttribute,
   InstancedBufferGeometry,
-  InstancedMesh,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
@@ -40,6 +40,7 @@ import {
 } from 'three'
 import { keepAlpha, LIGHT_LAYER } from '../render/Graphics.ts'
 import type { Chunk } from '../sim/wreck/Wreck.ts'
+import { rockGeometry, shardGeometry, ShapeSet, twigGeometry } from './debrisShapes.ts'
 
 const _v = new Vector3()
 const _v2 = new Vector3()
@@ -274,7 +275,20 @@ interface Clod {
   age: number
   /** frenado del aire (hojas: mucho) */
   drag?: number
+  /** forma (índice en las variantes de terrones: ver CLOD_*) y proporciones */
+  shape: number
+  scale: Vector3
+  /** altura del centro sobre el suelo al quedar apoyado (× size) */
+  restH: number
+  leaf?: boolean
 }
+
+// variantes de los trozos sueltos: piedras/terrones, hojas, ramitas
+const CLOD_ROCKS = 5
+const CLOD_LEAF = CLOD_ROCKS
+const CLOD_TWIG = CLOD_ROCKS + 2
+const rockVariant = () => Math.floor(Math.random() * CLOD_ROCKS)
+
 
 interface Scar {
   mesh: Mesh
@@ -290,10 +304,16 @@ export class CrashFx {
   readonly root = new Group()
   private readonly dust: Billboards
   private readonly sparks: Billboards
+  private readonly flames: Billboards
+  /** fracciones pendientes de emitir del fuego continuo */
+  private flameAcc = 0
+  private smokeAcc = 0
   private readonly clods: Clod[] = []
-  private readonly clodMesh: InstancedMesh
-  private readonly chunkMesh: InstancedMesh
-  private readonly glassMesh: InstancedMesh
+  private readonly clodMesh: ShapeSet
+  private readonly chunkMesh: ShapeSet
+  private readonly glassMesh: ShapeSet
+  /** forma de cada cascote de Rapier (fija mientras exista) */
+  private readonly chunkShape = new WeakMap<Chunk, number>()
   private readonly scarMat: MeshBasicMaterial
   private readonly scarGeo: PlaneGeometry
   private readonly scars: Scar[] = []
@@ -346,23 +366,36 @@ export class CrashFx {
     sparkMat.blendSrcAlpha = ZeroFactor
     sparkMat.blendDstAlpha = OneFactor
     this.sparks = new Billboards(300, sparkMat)
-    this.root.add(this.dust.mesh, dust2, this.sparks.mesh)
+    // llamas: como las chispas (luz propia, aditivas) pero con la textura de nube
+    const flameMat = sparkMat.clone()
+    flameMat.uniforms = { map: { value: softTexture(64, 'dust') }, emissive: { value: 1 }, light: { value: new Vector3(1, 1, 1) }, premultiply: { value: 0 } }
+    this.flames = new Billboards(500, flameMat)
+    this.flames.mesh.renderOrder = 6
+    this.root.add(this.dust.mesh, dust2, this.sparks.mesh, this.flames.mesh)
 
-    const box = new BoxGeometry(1, 1, 1)
-    const mk = (max: number, mat: MeshStandardMaterial) => {
-      const m = new InstancedMesh(box, litMaterial(mat), max)
-      m.count = 0
-      m.frustumCulled = false
-      m.castShadow = true
-      m.receiveShadow = true
-      m.layers.set(LIGHT_LAYER)
-      m.instanceColor = new InstancedBufferAttribute(new Float32Array(max * 3), 3)
-      this.root.add(m)
-      return m
-    }
-    this.clodMesh = mk(this.maxClods, new MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0 }))
-    this.chunkMesh = mk(220, new MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0 }))
-    this.glassMesh = mk(220, new MeshStandardMaterial({ color: 0xffffff, roughness: 0.06, metalness: 0.1, envMapIntensity: 1 }))
+    // trozos sueltos con formas irregulares (caras planas: se ven las aristas de rotura)
+    const mk = (geos: BufferGeometry[], max: number, mat: MeshStandardMaterial) =>
+      new ShapeSet(geos, litMaterial(mat), max, (m) => {
+        m.frustumCulled = false
+        m.castShadow = true
+        m.receiveShadow = true
+        m.layers.set(LIGHT_LAYER)
+        m.instanceColor = new InstancedBufferAttribute(new Float32Array(max * 3), 3)
+        this.root.add(m)
+      })
+    const rocks = Array.from({ length: CLOD_ROCKS }, (_, i) => rockGeometry(101 + i * 7))
+    this.clodMesh = mk(
+      [...rocks, shardGeometry(11, true), shardGeometry(12, true), twigGeometry(21), twigGeometry(22)],
+      this.maxClods,
+      new MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0, flatShading: true }),
+    )
+    // cascotes: piedras y alguna lasca (teja, revoque)
+    this.chunkMesh = mk([...rocks, shardGeometry(31), shardGeometry(32)], 220, new MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0, flatShading: true }))
+    this.glassMesh = mk(
+      [0, 1, 2, 3].map((i) => shardGeometry(41 + i)),
+      220,
+      new MeshStandardMaterial({ color: 0xffffff, roughness: 0.06, metalness: 0.1, envMapIntensity: 1, flatShading: true }),
+    )
 
     this.scarMat = keepAlpha(
       new MeshBasicMaterial({ map: scarTexture(), color: 0xffffff, transparent: true, depthWrite: false, side: DoubleSide, vertexColors: false }),
@@ -420,6 +453,9 @@ export class CrashFx {
         rest: false,
         ground: groundY,
         age: 0,
+        shape: rockVariant(),
+        scale: new Vector3(0.8 + Math.random() * 0.5, 0.55 + Math.random() * 0.45, 0.8 + Math.random() * 0.5),
+        restH: 0.3,
       })
     }
   }
@@ -445,6 +481,11 @@ export class CrashFx {
         ground: p.y - 15,
         age: 0,
         drag: twig ? 0.3 : 2.2,
+        // ramita: larga y fina; hoja: plana
+        shape: twig ? CLOD_TWIG + (Math.random() < 0.5 ? 0 : 1) : CLOD_LEAF + (Math.random() < 0.5 ? 0 : 1),
+        scale: twig ? new Vector3(0.12, 1, 0.12) : new Vector3(1, 0.06, 0.55 + Math.random() * 0.2),
+        restH: twig ? 0.06 : 0.03,
+        leaf: !twig,
       })
     }
     this.dustBurst(p, new Vector3(0, 0.3, 0), 0.15, new Color(0x56603e), dir.clone().multiplyScalar(speed * 0.2))
@@ -457,6 +498,52 @@ export class CrashFx {
         .multiplyScalar(2 + Math.random() * 8)
         .add(_v2.set(Math.random() - 0.5, Math.random() * 0.8, Math.random() - 0.5).multiplyScalar(5))
       this.sparks.add(p, v, 0.15 + Math.random() * 0.35, 0.05 + Math.random() * 0.05, 0.02, 1, _c.setRGB(6, 3.2, 1.1), 0.4, -6)
+    }
+  }
+
+  /** Bola de fuego del depósito que revienta en `p`, con humo negro y chispas. */
+  explode(p: Vector3): void {
+    for (let i = 0; i < 70; i++) {
+      const dir = new Vector3(Math.random() - 0.5, Math.random() * 0.8 - 0.15, Math.random() - 0.5).normalize()
+      const v = _v.copy(dir).multiplyScalar(3 + Math.random() * 9)
+      v.y += 2
+      const k = Math.random()
+      _c.setRGB(9 - 3 * k, 4.5 - 2.6 * k, 1.4 - 1.1 * k)
+      const s0 = 0.8 + Math.random() * 1.2
+      this.flames.add(_v2.copy(p).addScaledVector(dir, Math.random() * 0.8), v, 0.6 + Math.random() * 0.9, s0, s0 + 3 + Math.random() * 4, 1, _c, 2.8, 5)
+    }
+    for (let i = 0; i < 30; i++) {
+      const v = _v.set(Math.random() - 0.5, 0.4 + Math.random(), Math.random() - 0.5).multiplyScalar(4)
+      const sh = 0.05 + Math.random() * 0.06
+      _c.setRGB(sh, sh * 0.95, sh * 0.9)
+      const s0 = 1.5 + Math.random() * 2
+      this.dust.add(_v2.copy(p).add(_v.clone().multiplyScalar(0.2)), v, 9 + Math.random() * 8, s0, s0 + 9 + Math.random() * 8, 0.9, _c, 0.7, 3.5)
+    }
+    for (let i = 0; i < 3; i++) this.sparksAt(p, _v.set(Math.random() - 0.5, 1, Math.random() - 0.5).normalize(), 18)
+  }
+
+  /**
+   * Fuego que sigue ardiendo en `p` (intensidad 0..1): llamas que suben y una
+   * columna de humo. `carry`: velocidad de los restos (las llamas van con ellos).
+   */
+  burn(p: Vector3, intensity: number, dt: number, carry: Vector3): void {
+    if (intensity <= 0) return
+    this.flameAcc += dt * 60 * intensity
+    for (; this.flameAcc >= 1; this.flameAcc--) {
+      const off = _v2.set((Math.random() - 0.5) * 1.6, Math.random() * 0.3, (Math.random() - 0.5) * 1.6).multiplyScalar(0.5 + 0.5 * intensity)
+      const v = _v.set((Math.random() - 0.5) * 0.8, 1.5 + Math.random() * 2, (Math.random() - 0.5) * 0.8).addScaledVector(carry, 0.8)
+      const k = Math.random()
+      _c.setRGB(6 - 2 * k, 2.8 - 1.6 * k, 0.7 - 0.5 * k).multiplyScalar(0.6 + 0.4 * intensity)
+      const s0 = 0.5 + Math.random() * 0.9 * (0.3 + intensity)
+      this.flames.add(off.add(p), v, 0.45 + Math.random() * 0.6, s0, s0 * (1.5 + Math.random()), 0.9, _c, 1.5, 3.5 + 2.5 * intensity)
+    }
+    this.smokeAcc += dt * (1.5 + 4 * intensity)
+    for (; this.smokeAcc >= 1; this.smokeAcc--) {
+      const v = _v.set((Math.random() - 0.5) * 0.6, 1.5 + Math.random() * 1.5, (Math.random() - 0.5) * 0.6)
+      const sh = 0.05 + Math.random() * 0.05 + 0.12 * (1 - intensity)
+      _c.setRGB(sh, sh * 0.96, sh * 0.92)
+      const s0 = 1 + Math.random() * 1.2
+      this.dust.add(_v2.copy(p).add(_v.clone().multiplyScalar(0.3)).setY(p.y + 1.2), v, 10 + Math.random() * 8, s0, s0 + 7 + Math.random() * 7 * (0.5 + intensity), 0.55 + 0.3 * intensity, _c, 0.6, 3 + intensity)
     }
   }
 
@@ -520,6 +607,7 @@ export class CrashFx {
     void camera
     this.dust.update(dt, this.wind, 0)
     this.sparks.update(dt, _v.set(0, 0, 0), 9.8)
+    this.flames.update(dt, this.wind, 0)
 
     // terrones
     for (let i = this.clods.length - 1; i >= 0; i--) {
@@ -541,33 +629,32 @@ export class CrashFx {
       c.x.addScaledVector(c.v, dt)
       c.q.multiply(_q.setFromAxisAngle(_v.copy(c.w).normalize(), c.w.length() * dt))
       const g = groundAt(c.x.x, c.x.z) ?? c.ground
-      if (c.x.y < g + c.size * 0.4) {
-        c.x.y = g + c.size * 0.4
-        if (c.v.y < -1.2) {
+      if (c.x.y < g + c.size * c.restH) {
+        c.x.y = g + c.size * c.restH
+        if (c.v.y < -1.2 && !c.leaf) {
           c.v.y *= -0.2
           c.v.x *= 0.5
           c.v.z *= 0.5
           c.w.multiplyScalar(0.5)
         } else {
           c.rest = true
+          // la hoja se queda tumbada; la ramita, acostada
+          if (c.leaf) c.q.setFromAxisAngle(UP, Math.random() * 6.28)
+          else if (c.shape >= CLOD_TWIG) c.q.setFromAxisAngle(_v.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize(), Math.PI / 2)
         }
       }
     }
-    let n = 0
+    this.clodMesh.begin()
     for (const c of this.clods) {
       const f = c.age > 34 ? Math.max(0, 1 - (c.age - 34) / 6) : 1
-      _m.compose(c.x, c.q, _s.setScalar(c.size * f))
-      this.clodMesh.setMatrixAt(n, _m)
-      this.clodMesh.setColorAt(n, c.color)
-      n++
+      _m.compose(c.x, c.q, _s.copy(c.scale).multiplyScalar(c.size * f))
+      this.clodMesh.add(c.shape, _m, c.color)
     }
-    this.clodMesh.count = n
-    this.clodMesh.instanceMatrix.needsUpdate = true
-    if (this.clodMesh.instanceColor) this.clodMesh.instanceColor.needsUpdate = true
+    this.clodMesh.end()
 
     // cascotes y cristales de Rapier
-    let nc = 0
-    let ng = 0
+    this.chunkMesh.begin()
+    this.glassMesh.begin()
     for (const ch of chunks) {
       const t = ch.rb.translation()
       const r = ch.rb.rotation()
@@ -575,36 +662,30 @@ export class CrashFx {
       _q.set(r.x, r.y, r.z, r.w)
       _m.compose(_v, _q, ch.size)
       _c.setHex(ch.color)
-      if (ch.glass) {
-        if (ng >= 220) continue
-        this.glassMesh.setMatrixAt(ng, _m)
-        this.glassMesh.setColorAt(ng, _c)
-        ng++
-      } else {
-        if (nc >= 220) continue
-        this.chunkMesh.setMatrixAt(nc, _m)
-        this.chunkMesh.setColorAt(nc, _c)
-        nc++
+      const set = ch.glass ? this.glassMesh : this.chunkMesh
+      let shape = this.chunkShape.get(ch)
+      if (shape === undefined) {
+        // cascote: casi siempre piedra; lasca si la pieza es plana
+        const flat = Math.min(ch.size.x, ch.size.y, ch.size.z) < 0.45 * Math.max(ch.size.x, ch.size.y, ch.size.z)
+        shape = ch.glass ? Math.floor(Math.random() * 4) : flat && Math.random() < 0.6 ? CLOD_ROCKS + Math.floor(Math.random() * 2) : rockVariant()
+        this.chunkShape.set(ch, shape)
       }
+      set.add(shape, _m, _c)
     }
-    for (const [m, k] of [
-      [this.chunkMesh, nc],
-      [this.glassMesh, ng],
-    ] as const) {
-      m.count = k
-      m.instanceMatrix.needsUpdate = true
-      if (m.instanceColor) m.instanceColor.needsUpdate = true
-    }
+    this.chunkMesh.end()
+    this.glassMesh.end()
     for (const s of this.scars) s.t += dt
   }
 
   clear(): void {
     this.dust.clear()
     this.sparks.clear()
+    this.flames.clear()
+    this.flameAcc = this.smokeAcc = 0
     this.clods.length = 0
-    this.clodMesh.count = 0
-    this.chunkMesh.count = 0
-    this.glassMesh.count = 0
+    this.clodMesh.clear()
+    this.chunkMesh.clear()
+    this.glassMesh.clear()
     // las calcas se guardan para el siguiente accidente (sin liberar el material:
     // así no se recompila su programa en la GPU)
     for (const s of this.scars) {

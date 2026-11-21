@@ -42,6 +42,16 @@ export interface AircraftState {
 
 // (con tres palas de rotor, para que también estén las del Cierva)
 const DEFS = new Map<string, PartDef>(makePartDefs({ ...GENERIC_WRECK, blades: 3 }).map((d) => [d.id, d]))
+/**
+ * Incendio del depósito según la deceleración máxima en el asiento (g, promedio de
+ * 50 ms): por debajo de FIRE_G0 nunca, por encima de FIRE_G1 siempre, y en medio
+ * con probabilidad lineal. Son impactos que aplastan la célula: una toma dura que
+ * rompe el tren se queda en 10-25 g; los incendios tras el choque son raros salvo
+ * en los más violentos.
+ */
+const FIRE_G0 = 35
+const FIRE_G1 = 65
+const _pv = new Vector3()
 // colores en sRGB, como la ortofoto (Color los pasa a lineal)
 const SOIL = new Color(0x9a8670)
 const CONCRETE = new Color(0xa9a59d)
@@ -76,6 +86,17 @@ export class CrashSystem {
   private hint: HTMLDivElement
   private engineOffT = 0.5
   private readonly scene: Object3D
+  /** ya ha sonado el golpe principal */
+  private bigHit = false
+  /** momento (s de accidente) en que revienta el depósito; <0: no */
+  private explodeAt = -1
+  private exploded = false
+  /** fuego tras la explosión, 0..1 */
+  private fire = 0
+  /** tirada de este accidente para el incendio (0..1) */
+  private fireRoll = 1
+  private readonly podV = new Vector3()
+  private podVSet = false
 
   private readonly lights: { sun: DirectionalLight; sky: LightProbe } | null
 
@@ -425,7 +446,9 @@ export class CrashSystem {
       if (Math.hypot(pod.x - oc.x, pod.z - oc.z) > 25) this.w_obstacles(pod)
     }
 
+    this.mainHit(camera)
     this.effects(camera)
+    this.fuelFire(dt, camera)
 
     // piezas
     this.model.update(dt, (id, pos, quat) => {
@@ -501,6 +524,8 @@ export class CrashSystem {
     let scrapeLoad = 0
     let scrapeMetal = false
     let scrapeDist = 1e9
+    let tumble = 0
+    let tumbleDist = 1e9
     for (const a of agg.values()) {
       const d = DEFS.get(a.part)
       if (!d) continue
@@ -522,8 +547,15 @@ export class CrashSystem {
         }
         continue
       }
-      // sonido de golpe
-      if (a.approach > 0.9 || s > 0.25) {
+      // traqueteo continuo con todos los contactos que se mueven; golpe suelto
+      // solo con los fuertes (CrashAudio deja pasar los que destacan)
+      // (un contacto que solo sostiene el peso no suena: cuenta el movimiento)
+      const moving = Math.min(1, Math.max(0, a.slide + a.approach - 0.3) / 3)
+      if (moving > 0) {
+        tumble += Math.min(1, s) * moving * (/^wheel/.test(a.part) ? 0.3 : 1)
+        tumbleDist = Math.min(tumbleDist, dist)
+      }
+      if (a.approach > 2 || s > 0.4) {
         const kind: ImpactKind = d.material === 'rubber' ? 'rubber' : d.material === 'metal' ? 'metal' : 'composite'
         if (im.surface === 'ground') this.audio.impact('ground', Math.min(1.5, s * 1.2 + a.approach * 0.06), dist, `g-${a.part}`)
         else if (im.surface === 'obstacle') this.audio.impact('masonry', Math.min(1.5, s + a.approach * 0.05), dist, `o-${a.part}`)
@@ -569,6 +601,7 @@ export class CrashSystem {
       }
     }
     this.audio.setScrape(scrapeV, scrapeLoad, scrapeDist, scrapeMetal)
+    this.audio.setTumble(tumble, tumbleDist)
     for (const b of w.breaks) {
       const pW = _v.copy(b.point).add(this.origin)
       const d = DEFS.get(b.id)
@@ -579,6 +612,51 @@ export class CrashSystem {
     w.breaks.length = 0
   }
 
+  /**
+   * El golpe principal (una vez): el primer frenazo brusco del fuselaje. Se mide
+   * con el salto de su velocidad de un fotograma a otro, que es lo que nota quien
+   * va dentro; la velocidad de acercamiento de los contactos ya sale frenada por
+   * el solver. Y el depósito: revienta según lo violento del impacto (la
+   * deceleración en el asiento), con una tirada por accidente para que entre
+   * ~35 g y ~65 g unas veces arda y otras no.
+   */
+  private mainHit(camera: Camera): void {
+    const w = this.wreck!
+    w.partVelocity('pod', _pv, _v2)
+    const dv = this.podVSet ? _v2.subVectors(_pv, this.podV).length() : 0
+    this.podV.copy(_pv)
+    this.podVSet = true
+    if (!this.bigHit && dv > 2.5) {
+      this.bigHit = true
+      this.audio.crash(Math.min(30, dv * 1.6), camera.position.distanceTo(this.podWorld(_v2)))
+    }
+    if (!this.exploded && this.explodeAt < 0 && this.elapsed < 8) {
+      const p = Math.min(1, Math.max(0, (w.peakSeatG - FIRE_G0) / (FIRE_G1 - FIRE_G0)))
+      if (p > this.fireRoll) this.explodeAt = this.elapsed + 0.15 + Math.random() * 0.35
+    }
+  }
+
+  /** Explosión del depósito y fuego que queda ardiendo sobre los restos. */
+  private fuelFire(dt: number, camera: Camera): void {
+    if (this.explodeAt >= 0 && this.elapsed >= this.explodeAt) {
+      this.explodeAt = -1
+      this.exploded = true
+      this.fire = 1
+      const p = this.podWorld(new Vector3())
+      this.fx.explode(p)
+      this.audio.explosion(camera.position.distanceTo(p))
+    }
+    if (this.fire <= 0) return
+    // arde fuerte un rato y luego se va apagando (~1 min)
+    this.fire = Math.max(0, this.fire - dt * (this.fire > 0.6 ? 0.012 : 0.02))
+    const p = this.podWorld(new Vector3())
+    const gy = this.world?.heightAt(p.x, p.z)
+    if (gy != null) p.y = Math.min(p.y, gy + 0.6)
+    this.wreck!.partVelocity('pod', _pv)
+    this.fx.burn(p, this.fire, dt, _pv)
+    this.audio.setFire(this.fire, camera.position.distanceTo(p))
+  }
+
   // ---------------------------------------------------------------------------
   /** Todo parado (o pasado un rato): momento de enseñar el resumen. */
   get settled(): boolean {
@@ -586,15 +664,16 @@ export class CrashSystem {
   }
 
   /** Resumen para el panel de accidente. */
-  summary(): { damage: string; seat: string } {
+  summary(): { damage: string; seat: string; fire: string } {
     const w = this.wreck
-    if (!w) return { damage: '', seat: '' }
+    if (!w) return { damage: '', seat: '', fire: '' }
     const br = w.brokenSummary()
     const g = w.peakSeatG
     const verdict = t(`crash.verdict.${g < 12 ? 0 : g < 25 ? 1 : g < 45 ? 2 : 3}`)
     return {
       damage: br.length ? t('crash.damage', { list: br.join(', ') }) : t('crash.damage.none'),
       seat: t('crash.seat', { g: g.toFixed(0), verdict }),
+      fire: this.exploded ? t('crash.fire') : '',
     }
   }
 
@@ -617,6 +696,12 @@ export class CrashSystem {
     this.fx.clear()
     this.audio.stop()
     this.lastDust.clear()
+    this.bigHit = false
+    this.explodeAt = -1
+    this.exploded = false
+    this.fire = 0
+    this.fireRoll = Math.random()
+    this.podVSet = false
     this.obstacleMeshes = []
     this.info = null
     this.timeScale = 1
