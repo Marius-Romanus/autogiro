@@ -9,6 +9,12 @@
 // - Materiales iluminados por el sol y el cielo reales (alfa = 0: igual que el
 //   aparato, no se vuelven a iluminar en posproceso; la bruma sí se aplica).
 //
+// - Tejados inclinados deducidos de la planta (roofShapes.ts): a dos o cuatro aguas en las
+//   casas, bóveda en los hangares, faldones desde cada fachada en las plantas irregulares
+//   (esto último en un worker). Planos: bloques altos, naves y edificios con partes.
+// - En España, además, los edificios del Catastro que no estén en OpenStreetMap (con su
+//   número real de plantas), descargados por delante del aparato (catastro/).
+//
 // Se cargan por teselas z14 (~1,9 km) alrededor de la cámara (TileLayer),
 // troceando el trabajo para no dar tirones, y se descargan al alejarse.
 
@@ -24,10 +30,34 @@ import {
   Vector3,
   type Texture,
 } from 'three'
+import { catastro, type BBox, type CatTile, type Circle } from './catastro/Catastro.ts'
 import type { GeoFrame } from './GeoFrame.ts'
 import type { HeightSource } from './HeightSource.ts'
 import { classifyRings, fetchVectorTile, loadOrthoMosaic, xToLon, yToLat, Z, type Ring } from './mapTiles.ts'
+import type { RoofJob } from './roof.worker.ts'
+import { buildRoofs } from './roofClient.ts'
+import { orientedBox, rectRoof, type RectKind } from './roofShapes.ts'
 import { Slicer, TileLayer, type LayerTile } from './TileLayer.ts'
+
+/** altura de una planta del Catastro (m) */
+const FLOOR_H = 3.0
+/** pendiente de las viviendas y de las plantas grandes (naves pequeñas, manzanas) */
+const PITCH_HOUSE = Math.tan((28 * Math.PI) / 180)
+const PITCH_WIDE = Math.tan((15 * Math.PI) / 180)
+/** subida máxima de un tejado inclinado (m): las plantas muy anchas quedan con azotea en medio */
+const ROOF_CAP = 4
+
+/** Un tejado del worker pendiente: se dibuja cuando llega (o plano si no se pudo). */
+interface DeferredRoof {
+  job: RoofJob
+  emit: (tris: Float32Array | null) => void
+}
+
+interface Built {
+  mesh: Mesh | null
+  prisms: Prism[]
+  count: number
+}
 
 interface Prism {
   /** huella en coordenadas locales de la tesela (x, z alternados) */
@@ -43,6 +73,10 @@ interface Prism {
 interface BuildingTile extends LayerTile {
   mesh: Mesh | null
   prisms: Prism[]
+  /** falta algún municipio del Catastro que toca esta tesela (se rehará cuando llegue) */
+  catPending: boolean
+  /** el Catastro cambió mientras se construía: rehacerla al terminar */
+  needsRebuild: boolean
 }
 
 export class Buildings extends TileLayer<BuildingTile> {
@@ -52,13 +86,126 @@ export class Buildings extends TileLayer<BuildingTile> {
   private readonly heights: HeightSource
   /** plantilla XYZ de la ortofoto para el color de los tejados (null = colores genéricos) */
   private readonly imageryUrl: string | null
+  /** completar con los edificios del Catastro (España) */
+  private readonly useCatastro: boolean
+  private readonly offCatastro: (() => void) | null = null
+  private readonly rebuildQueue: string[] = []
+  private rebuilding = false
+  private readonly bornAt = performance.now()
+  // para pedir al Catastro lo que viene por delante
+  private wantTimer = 0
+  private lastGeo: { lat: number; lon: number; t: number } | null = null
+  private vel = { e: 0, n: 0 }
 
-  constructor(worldFrame: GeoFrame, heights: HeightSource, imageryUrl: string | null) {
+  constructor(worldFrame: GeoFrame, heights: HeightSource, imageryUrl: string | null, useCatastro = false) {
     super(worldFrame, 'buildings')
     this.radius = 4000
     this.heights = heights
     this.imageryUrl = imageryUrl
     this.material = createBuildingMaterial()
+    this.useCatastro = useCatastro
+    if (useCatastro) this.offCatastro = catastro.onTiles((keys, bbox) => this.catastroChanged(keys, bbox))
+  }
+
+  override update(dt: number, cameraWorld: Vector3): void {
+    super.update(dt, cameraWorld)
+    if (this.useCatastro && this.enabled && !this.disposed) this.wantAhead(dt, cameraWorld)
+  }
+
+  /**
+   * ¿Esperar al Catastro antes de despegar? Mientras falten municipios para las teselas de
+   * alrededor del punto de salida (como mucho 25 s: si el servicio va lento, se vuela igual
+   * y los edificios aparecen al llegar).
+   */
+  get catastroBusy(): boolean {
+    if (!this.useCatastro || performance.now() - this.bornAt > 25000) return false
+    for (const t of this.tiles.values()) if (t.dist <= 0.6 && (t.state === 'loading' || t.catPending)) return true
+    return false
+  }
+
+  /**
+   * Pide al Catastro la zona de alrededor y la que viene por delante (1 a 5 minutos al rumbo
+   * y velocidad actuales, hasta 12 km): un municipio son 1-6 MB que se bajan en segundos,
+   * así que suele estar listo antes de que sus teselas entren en el radio de edificios.
+   */
+  private wantAhead(dt: number, cam: Vector3): void {
+    this.wantTimer -= dt
+    if (this.wantTimer > 0) return
+    this.wantTimer = 1
+    const g = this.worldFrame.worldToGeo(cam)
+    const now = performance.now() / 1000
+    const kx = 111320 * Math.cos((g.lat * Math.PI) / 180)
+    if (this.lastGeo) {
+      const dtS = Math.max(0.2, now - this.lastGeo.t)
+      const e = ((g.lon - this.lastGeo.lon) * kx) / dtS
+      const n = ((g.lat - this.lastGeo.lat) * 111320) / dtS
+      // saltos (re-centrado, aparecer en otro sitio): no son velocidad
+      if (Math.hypot(e, n) < 150) {
+        this.vel.e += (e - this.vel.e) * 0.5
+        this.vel.n += (n - this.vel.n) * 0.5
+      }
+    }
+    this.lastGeo = { lat: g.lat, lon: g.lon, t: now }
+    const circles: Circle[] = [{ lat: g.lat, lon: g.lon, r: this.radius + 1000 }]
+    const speed = Math.hypot(this.vel.e, this.vel.n)
+    if (speed > 5) {
+      for (const tAhead of [60, 120, 180, 240, 300]) {
+        const d = Math.min(speed * tAhead, 12000)
+        const lat = g.lat + (this.vel.n / speed) * (d / 111320)
+        const lon = g.lon + (this.vel.e / speed) * (d / kx)
+        circles.push({ lat, lon, r: this.radius })
+        if (d >= 12000) break
+      }
+    }
+    catastro.want(circles)
+  }
+
+  /** Llegó (o se borró) un municipio: rehacer las teselas cargadas que toca, de una en una. */
+  private catastroChanged(keys: string[], bbox: BBox | null = null): void {
+    for (const k of keys) {
+      const t = this.tiles.get(k)
+      if (!t) continue
+      if (t.state === 'loading') t.needsRebuild = true
+      else if (!this.rebuildQueue.includes(k)) this.rebuildQueue.push(k)
+    }
+    // las que lo esperaban sin tener edificios suyos (su recuadro las toca, pero no hay nada)
+    // solo dejan de esperar: no hace falta rehacerlas
+    if (bbox) {
+      const n = 2 ** Z
+      for (const t of this.tiles.values()) {
+        if (!t.catPending || keys.includes(t.key)) continue
+        const s = yToLat(t.y + 1, n)
+        const nn = yToLat(t.y, n)
+        const w = xToLon(t.x, n)
+        const e = xToLon(t.x + 1, n)
+        if (s > bbox.n || nn < bbox.s || w > bbox.e || e < bbox.w) continue
+        void catastro.pending(t.x, t.y).then((p) => {
+          if (this.tiles.get(t.key) === t && !t.needsRebuild) t.catPending = p
+        })
+      }
+    }
+    void this.pumpRebuilds()
+  }
+
+  private async pumpRebuilds(): Promise<void> {
+    if (this.rebuilding) return
+    this.rebuilding = true
+    try {
+      while (this.rebuildQueue.length > 0 && !this.disposed) {
+        // la más cercana primero
+        this.rebuildQueue.sort((a, b) => (this.tiles.get(a)?.dist ?? 99) - (this.tiles.get(b)?.dist ?? 99))
+        const key = this.rebuildQueue.shift()!
+        const t = this.tiles.get(key)
+        if (!t || t.state === 'loading') continue
+        const built = await this.buildTile(t)
+        if (!built || t.abort.signal.aborted || this.tiles.get(key) !== t) continue
+        this.attach(t, built)
+      }
+    } catch (e) {
+      console.warn('buildings: error al rehacer una tesela', e)
+    } finally {
+      this.rebuilding = false
+    }
   }
 
   /** Mapa de entorno del cielo (el mismo que ilumina el aparato): luz ambiente de las fachadas en sombra. */
@@ -84,13 +231,14 @@ export class Buildings extends TileLayer<BuildingTile> {
 
   override dispose(): void {
     super.dispose()
+    this.offCatastro?.()
     this.material.dispose()
   }
 
   // -------------------------------------------------------------------------
 
   protected createTile(base: LayerTile): BuildingTile {
-    return { ...base, mesh: null, prisms: [] }
+    return { ...base, mesh: null, prisms: [], catPending: false, needsRebuild: false }
   }
 
   protected disposeTile(t: BuildingTile): void {
@@ -102,38 +250,76 @@ export class Buildings extends TileLayer<BuildingTile> {
   }
 
   protected async loadTile(t: BuildingTile): Promise<void> {
+    const built = await this.buildTile(t)
+    if (!built || t.abort.signal.aborted || this.disposed) return
+    this.attach(t, built)
+    if (t.needsRebuild) {
+      t.needsRebuild = false
+      this.catastroChanged([t.key])
+    }
+  }
+
+  /** Pone en escena lo construido (sustituyendo lo anterior de la tesela, si lo había). */
+  private attach(t: BuildingTile, built: Built): void {
+    this.disposeTile(t)
+    t.prisms = built.prisms
+    if (!built.mesh) {
+      t.state = 'empty'
+      return
+    }
+    const mesh = built.mesh
+    mesh.matrixAutoUpdate = false
+    mesh.matrix.copy(t.frame.worldToECEF)
+    mesh.receiveShadow = true
+    mesh.castShadow = false
+    mesh.userData.count = built.count
+    mesh.name = `buildings ${t.key}`
+    this.group.add(mesh)
+    mesh.updateMatrixWorld(true)
+    t.mesh = mesh
+    t.state = 'ready'
+    this.count += built.count
+  }
+
+  /** Construye los edificios de la tesela (OpenStreetMap + Catastro) sin tocar la escena. */
+  private async buildTile(t: BuildingTile): Promise<Built | null> {
     const signal = t.abort.signal
     const n = 2 ** Z
     const north = yToLat(t.y, n)
     const south = yToLat(t.y + 1, n)
     const west = xToLon(t.x, n)
     const east = xToLon(t.x + 1, n)
-    const [vt, ortho] = await Promise.all([
+    const [vt, ortho, , cat] = await Promise.all([
       fetchVectorTile(t.x, t.y, signal),
       this.imageryUrl ? loadOrthoMosaic(this.imageryUrl, t.x, t.y, signal) : Promise.resolve(null),
       this.heights.ensure(south - 0.001, west - 0.001, north + 0.001, east + 0.001),
+      this.useCatastro ? catastro.tile(t.x, t.y) : Promise.resolve(null),
     ])
-    if (signal.aborted) return
+    if (signal.aborted) return null
+    t.catPending = cat?.pending ?? false
     const colours = ortho ? new RoofColours(ortho.data, ortho.width) : null
     const layer = vt.layers.building
-    if (!layer || layer.length === 0) {
-      t.state = 'empty'
-      return
-    }
+    const catData = cat?.data ?? []
+    if ((!layer || layer.length === 0) && catData.length === 0) return { mesh: null, prisms: [], count: 0 }
 
     const builder = new GeometryBuilder()
-    const E = layer.extent
+    const E = layer?.extent ?? 4096
     const toGeo = (px: number, py: number): [number, number] => [yToLat(t.y + py / E, n), xToLon(t.x + px / E, n)]
     // recintos de aeródromo: lo que hay dentro son hangares (aspecto de nave)
     const aerodromes = aerodromePolygons(vt, E)
     const slicer = new Slicer(6)
+    const prisms: Prism[] = []
+    const deferred: DeferredRoof[] = []
+    const add = (rings: Array<{ pts: Array<[number, number]>; cut: boolean[] }>, height: number, minHeight: number, colour: string | null, hangar: boolean) =>
+      this.addBuilding(builder, t.frame, prisms, deferred, rings, toGeo, height, minHeight, colour, colours, E, hangar, t.x * E, t.y * E)
     let buildings = 0
+    // huellas de OSM (para no repetir con el Catastro los edificios que ya están)
+    const osm = new RingGrid(E)
 
-    for (let i = 0; i < layer.length; i++) {
+    for (let i = 0; layer && i < layer.length; i++) {
       const f = layer.feature(i)
       if (f.type !== 3) continue
       const props = f.properties as Record<string, unknown>
-      if (props.hide_3d) continue // contorno con partes (building:part) que ya se dibujan
       const height = Number(props.render_height ?? 5) || 5
       const minHeight = Number(props.render_min_height ?? 0) || 0
       const colour = typeof props.colour === 'string' ? props.colour : null
@@ -147,35 +333,62 @@ export class Buildings extends TileLayer<BuildingTile> {
           if (c.pts.length >= 3) rings.push(c)
         }
         if (rings.length === 0) continue
+        osm.add(rings[0].pts)
+        if (props.hide_3d) continue // contorno con partes (building:part) que ya se dibujan
         const hangar = aerodromes.length > 0 && inAnyPolygon(aerodromes, rings[0].pts)
-        if (this.addBuilding(builder, t, rings, toGeo, height, minHeight, colour, colours, E, hangar)) buildings++
+        if (add(rings, height, minHeight, colour, hangar)) buildings++
       }
       // trocear el trabajo: ~6 ms por fotograma
-      if (!(await slicer.yield(signal))) return
+      if (!(await slicer.yield(signal))) return null
     }
-    if (signal.aborted || this.disposed) return
-    if (buildings === 0) {
-      t.state = 'empty'
-      return
+
+    // Catastro: las partes cuyo centro no cae dentro de un edificio de OSM
+    let fromCatastro = 0
+    // metros por unidad de la tesela vectorial (Mercator: igual en x que en y)
+    const mPerPx = (40075016.7 * Math.cos((((north + south) / 2) * Math.PI) / 180)) / n / E
+    for (const rec of catData) {
+      for (let p = 0; p + 1 < rec.partRing.length; p++) {
+        const rings = catastroRings(rec, p, E)
+        if (rings.length === 0) continue
+        const [cx, cy] = ringCentre(rings[0].pts)
+        if (osm.contains(cx, cy)) continue
+        // dentro de un aeródromo, solo lo de OSM: el Catastro registra como «construcción» de una
+        // planta pistas y plataformas (en Casarrubios, 25 000 m² junto a la pista) y serían obstáculos
+        if (aerodromes.length > 0 && inAnyPolygon(aerodromes, rings[0].pts)) continue
+        // lo muy alargado y grande no es un edificio (pistas deportivas, viales cubiertos…)
+        if (!looksLikeBuilding(rings[0].pts, mPerPx)) continue
+        if (add(rings, rec.floors[p] * FLOOR_H, 0, null, false)) {
+          buildings++
+          fromCatastro++
+        }
+        if ((p & 15) === 0 && !(await slicer.yield(signal))) return null
+      }
     }
-    const geo = builder.build()
-    const mesh = new Mesh(geo, this.material)
-    mesh.matrixAutoUpdate = false
-    mesh.matrix.copy(t.frame.worldToECEF)
-    mesh.receiveShadow = true
-    mesh.castShadow = false
-    mesh.userData.count = buildings
-    mesh.name = `buildings ${t.key}`
-    this.group.add(mesh)
-    mesh.updateMatrixWorld(true)
-    t.mesh = mesh
-    t.state = 'ready'
-    this.count += buildings
+
+    // tejados de las plantas irregulares (worker)
+    if (deferred.length > 0) {
+      const res = await buildRoofs(
+        deferred.map((d) => d.job),
+        signal,
+      )
+      if (signal.aborted || this.disposed) return null
+      for (let i = 0; i < deferred.length; i++) {
+        deferred[i].emit(res[i] ?? null)
+        if ((i & 31) === 0 && !(await slicer.yield(signal))) return null
+      }
+    }
+    if (signal.aborted || this.disposed) return null
+    if (buildings === 0) return { mesh: null, prisms, count: 0 }
+    const mesh = new Mesh(builder.build(), this.material)
+    mesh.userData.catastro = fromCatastro
+    return { mesh, prisms, count: buildings }
   }
 
   private addBuilding(
     b: GeometryBuilder,
-    t: BuildingTile,
+    frame: GeoFrame,
+    prisms: Prism[],
+    deferred: DeferredRoof[],
     rings: Array<{ pts: Array<[number, number]>; cut: boolean[] }>,
     toGeo: (px: number, py: number) => [number, number],
     height: number,
@@ -184,6 +397,8 @@ export class Buildings extends TileLayer<BuildingTile> {
     colours: RoofColours | null,
     E: number,
     hangar: boolean,
+    ox: number,
+    oy: number,
   ): boolean {
     // a coordenadas locales (curvatura incluida) y alturas del suelo
     const local: Vector3[][] = []
@@ -204,7 +419,7 @@ export class Buildings extends TileLayer<BuildingTile> {
       const step = Math.max(1, Math.floor(ring.length / 16))
       for (let k = 0; k < ring.length; k++) {
         const [lat, lon] = toGeo(ring[k][0], ring[k][1])
-        const v = t.frame.geoToWorld(lat, lon, 0, new Vector3())
+        const v = frame.geoToWorld(lat, lon, 0, new Vector3())
         out.push(v)
         if (r === 0 && k % step === 0) {
           const h = this.heights.sample(lat, lon)
@@ -241,7 +456,7 @@ export class Buildings extends TileLayer<BuildingTile> {
     if (top - base < 1) return false
 
     // aspecto: nave / vivienda / bloque
-    const seed = hash2(cxp + t.x * E, cyp + t.y * E)
+    const seed = hash2(cxp + ox, cyp + oy)
     // nave: planta grande y poca altura (las manzanas de viviendas pasan de 10 m)
     // (en un aeropuerto grande, lo alto —torres, terminales— no es un hangar)
     const industrial = (hangar && height <= 16) || (area > 2500 && height <= 10) || (area > 900 && height <= 6)
@@ -286,13 +501,133 @@ export class Buildings extends TileLayer<BuildingTile> {
       }
     }
     // tejado
-    const contour = local[0].map((p) => new Vector2(p.x, p.z))
-    const holes = local.slice(1).map((h) => h.map((p) => new Vector2(p.x, p.z)))
-    const tris = ShapeUtils.triangulateShape(contour, holes)
-    b.roof(local.flat(), tris, yt, roof)
+    const flatRoof = () => {
+      const contour = local[0].map((p) => new Vector2(p.x, p.z))
+      const holes = local.slice(1).map((h) => h.map((p) => new Vector2(p.x, p.z)))
+      b.roof(local.flat(), ShapeUtils.triangulateShape(contour, holes), yt, roof)
+    }
+    // inclinado: casas y bloques bajos (hasta 5 plantas) enteros en la tesela; las naves,
+    // los bloques altos y los edificios con partes (torres, cúpulas de OSM) quedan planos
+    const anyCut = rings.some((r) => r.cut.some(Boolean))
+    const outerArea = Math.abs(ringArea(local[0]))
+    let rise = 0
+    if (!parted && !anyCut && height <= 15.5 && area >= 12 && outerArea <= 6000 && (!industrial || hangar)) {
+      let yC = 0
+      for (const p of local[0]) yC += p.y
+      yC /= local[0].length
+      const xz: number[] = []
+      for (const p of local[0]) xz.push(p.x, p.z)
+      const box = orientedBox(xz)
+      const pitch = outerArea > 600 ? PITCH_WIDE : PITCH_HOUSE
+      if (local.length === 1 && outerArea / box.area >= 0.85) {
+        // planta casi rectangular: tejado limpio sobre el rectángulo
+        const aspect = Math.max(box.hu, box.hv) / Math.max(0.1, Math.min(box.hu, box.hv))
+        const kind: RectKind = hangar ? 'barrel' : aspect >= 1.6 ? (seed > 0.3 ? 'gable' : 'hip') : seed > 0.7 ? 'gable' : 'hip'
+        const maxRise = hangar ? Math.min(5, 0.4 * Math.min(box.hu, box.hv)) : ROOF_CAP + 0.5
+        const rr = rectRoof(box, kind, pitch, maxRise, hangar ? 0.15 : 0.3)
+        emitTris(b, rr.roof, yC, yt, roof)
+        for (let k = 0, j = 0; k < rr.ends.length; k += 9, j += 2) {
+          const e = rr.ends
+          b.face(
+            e[k], yC + yt + e[k + 2], e[k + 1],
+            e[k + 3], yC + yt + e[k + 5], e[k + 4],
+            e[k + 6], yC + yt + e[k + 8], e[k + 7],
+            rr.endNormals[j], 0, rr.endNormals[j + 1], wall, 0, false, top - gMin,
+          )
+        }
+        rise = rr.rise
+      } else if (!hangar && local.length <= 8) {
+        // planta irregular: faldones desde cada fachada (worker); si no se puede, plano
+        deferred.push({
+          job: { rings: local.map((r) => Float64Array.from(r.flatMap((p) => [p.x, p.z]))), pitch, cap: ROOF_CAP },
+          emit: (tris) => (tris ? emitTris(b, tris, yC, yt, roof) : flatRoof()),
+        })
+        rise = Math.min(ROOF_CAP, Math.sqrt(outerArea) * 0.3 * pitch)
+      } else flatRoof()
+    } else flatRoof()
 
-    t.prisms.push(makePrism(local[0], base, top))
+    // para chocar, el tejado cuenta hasta media altura (por encima del alero, lejos de la cumbrera)
+    prisms.push(makePrism(local[0], base, top + rise * 0.5))
     return true
+  }
+}
+
+/** Triángulos [x, z, h] (h sobre el alero) como caras de tejado. */
+function emitTris(b: GeometryBuilder, tris: ArrayLike<number>, yC: number, top: number, col: Color): void {
+  for (let k = 0; k + 8 < tris.length; k += 9) {
+    b.face(tris[k], yC + top + tris[k + 2], tris[k + 1], tris[k + 3], yC + top + tris[k + 5], tris[k + 4], tris[k + 6], yC + top + tris[k + 8], tris[k + 7], 0, 1, 0, col, -1, true)
+  }
+}
+
+/** Anillos (coordenadas de la tesela vectorial, 0..E) de la parte `p` de un registro del Catastro. */
+function catastroRings(rec: CatTile, p: number, E: number): Array<{ pts: Array<[number, number]>; cut: boolean[] }> {
+  const out: Array<{ pts: Array<[number, number]>; cut: boolean[] }> = []
+  for (let r = rec.partRing[p]; r < rec.partRing[p + 1]; r++) {
+    const pts: Array<[number, number]> = []
+    for (let i = rec.ringStart[r]; i < rec.ringStart[r + 1]; i++) pts.push([rec.coords[2 * i] * E, rec.coords[2 * i + 1] * E])
+    if (pts.length >= 3) out.push({ pts, cut: pts.map(() => false) })
+  }
+  return out
+}
+
+/** Descarta partes del Catastro de más de 12:1 y más de 2000 m² (una fila de adosados ronda 10:1 y 1500 m²). */
+function looksLikeBuilding(pts: Array<[number, number]>, mPerPx: number): boolean {
+  const xz: number[] = []
+  for (const [x, y] of pts) xz.push(x * mPerPx, y * mPerPx)
+  const box = orientedBox(xz)
+  const long = Math.max(box.hu, box.hv)
+  const short = Math.max(0.01, Math.min(box.hu, box.hv))
+  return !(long / short > 12 && box.area > 2000)
+}
+
+function ringCentre(pts: Array<[number, number]>): [number, number] {
+  let x = 0
+  let y = 0
+  for (const [px, py] of pts) {
+    x += px
+    y += py
+  }
+  return [x / pts.length, y / pts.length]
+}
+
+/** Rejilla de anillos (coordenadas de tesela) para saber deprisa si un punto cae dentro de alguno. */
+class RingGrid {
+  private readonly cells = new Map<number, Array<Array<[number, number]>>>()
+  private readonly k: number
+  constructor(E: number) {
+    this.k = 32 / E
+  }
+  add(ring: Array<[number, number]>): void {
+    let x0 = Infinity
+    let y0 = Infinity
+    let x1 = -Infinity
+    let y1 = -Infinity
+    for (const [x, y] of ring) {
+      x0 = Math.min(x0, x)
+      x1 = Math.max(x1, x)
+      y0 = Math.min(y0, y)
+      y1 = Math.max(y1, y)
+    }
+    for (let cy = Math.floor(y0 * this.k); cy <= Math.floor(y1 * this.k); cy++) {
+      for (let cx = Math.floor(x0 * this.k); cx <= Math.floor(x1 * this.k); cx++) {
+        const key = cy * 4096 + cx
+        let list = this.cells.get(key)
+        if (!list) this.cells.set(key, (list = []))
+        list.push(ring)
+      }
+    }
+  }
+  contains(x: number, y: number): boolean {
+    const list = this.cells.get(Math.floor(y * this.k) * 4096 + Math.floor(x * this.k))
+    if (!list) return false
+    for (const r of list) {
+      let inside = false
+      for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+        if (r[i][1] > y !== r[j][1] > y && x < ((r[j][0] - r[i][0]) * (y - r[i][1])) / (r[j][1] - r[i][1]) + r[i][0]) inside = !inside
+      }
+      if (inside) return true
+    }
+    return false
   }
 }
 
@@ -373,6 +708,40 @@ class GeometryBuilder {
       this.tri(A, C, B)
       this.tri(A, D, C)
     }
+  }
+
+  /**
+   * Triángulo suelto con la normal de su cara (aristas marcadas en los tejados inclinados).
+   * up = que mire hacia arriba; si no, hacia (nx, ny, nz). fs/fv como en las paredes
+   * (fs = −1: sin ventanas ni oscurecimiento al pie).
+   */
+  face(ax: number, ay: number, az: number, bx: number, by: number, bz: number, cx: number, cy: number, cz: number, nx: number, ny: number, nz: number, col: Color, fs: number, up: boolean, fv = 0): void {
+    const e1x = bx - ax
+    const e1y = by - ay
+    const e1z = bz - az
+    const e2x = cx - ax
+    const e2y = cy - ay
+    const e2z = cz - az
+    let qx = e1y * e2z - e1z * e2y
+    let qy = e1z * e2x - e1x * e2z
+    let qz = e1x * e2y - e1y * e2x
+    const l = Math.hypot(qx, qy, qz)
+    if (l < 1e-9) return
+    qx /= l
+    qy /= l
+    qz /= l
+    const flip = up ? qy < 0 : qx * nx + qy * ny + qz * nz < 0
+    if (flip) {
+      qx = -qx
+      qy = -qy
+      qz = -qz
+    }
+    this.reserve(3, 3)
+    const A = this.v(ax, ay, az, qx, qy, qz, col, 0, fv, fs)
+    const B = this.v(bx, by, bz, qx, qy, qz, col, 0, fv, fs)
+    const C = this.v(cx, cy, cz, qx, qy, qz, col, 0, fv, fs)
+    if (flip) this.tri(A, C, B)
+    else this.tri(A, B, C)
   }
 
   /** Tejado plano: los puntos de la huella (exterior + huecos) y la triangulación. */

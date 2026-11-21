@@ -19,6 +19,9 @@ axum = { version = "0.8", default-features = false, features = ["http1", "tokio"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "fs", "time", "sync", "macros"] }
 serde_json = "1"
 percent-encoding = "2"
+# proxy de los zips del Catastro (src/catastro.rs); mismas opciones que usa tauri-plugin-updater
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 fastrand = "2"
 open = "5"
 tauri-plugin-updater = "2"

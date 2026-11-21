@@ -19,6 +19,7 @@ import { applyI18n, getLang, locale, onLangChange, setLang, t, type Lang } from 
 import { Graphics, LIGHT_LAYER } from './render/Graphics.ts'
 import { usesIgnTerrain, World, type GroundSample } from './world/World.ts'
 import { hasIgnTerrain } from './world/HeightSource.ts'
+import { setupCatastroMenu } from './world/catastro/catastroMenu.ts'
 import { Autogyro, defaultControls, type Environment, type GroundProvider } from './sim/autogyro.ts'
 import { isaDensity, WindModel } from './sim/atmosphere.ts'
 import { PilotAssist } from './sim/assist.ts'
@@ -190,7 +191,7 @@ class App {
   /** Lo que obliga a recrear el escenario si cambia. */
   private worldKeyFor(loc: Location): string {
     const s = this.settings
-    return [s.scenery, s.googleKey, s.imagery, s.elevation, s.buildings, s.trees, usesIgnTerrain(s, loc.lat, loc.lon), hasIgnTerrain(loc.lat, loc.lon)].join('|')
+    return [s.scenery, s.googleKey, s.imagery, s.elevation, s.buildings, s.catastro, s.trees, usesIgnTerrain(s, loc.lat, loc.lon), hasIgnTerrain(loc.lat, loc.lon)].join('|')
   }
 
   private spawn(): void {
@@ -906,6 +907,8 @@ class App {
     bindCheck('passenger')
     bindCheck('buildings')
     bindCheck('trees')
+    bindCheck('catastro')
+    setupCatastroMenu()
     bindCheck('assist')
     bindCheck('invertPitch')
     bindCheck('mouseStick')
@@ -973,6 +976,7 @@ class App {
     set('elevation', s.elevation)
     set('buildings', s.buildings)
     set('trees', s.trees)
+    set('catastro', s.catastro)
     set('location', s.locationId)
     set('customLat', s.customLat)
     set('customLon', s.customLon)

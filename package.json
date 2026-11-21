@@ -30,8 +30,10 @@
     "@takram/three-clouds": "^0.7.6",
     "@takram/three-geospatial": "^0.9.1",
     "3d-tiles-renderer": "^0.5.4",
+    "fflate": "^0.8.3",
     "pbf": "^5.2.0",
     "postprocessing": "^6.39.6",
+    "straight-skeleton": "^1.1.0",
     "three": "^0.187.0",
     "three-mesh-bvh": "^0.9.18",
     "ws": "^8.23.0"

@@ -135,6 +135,11 @@
             </div>
             <label class="check"><input id="buildings" type="checkbox" /> <span data-i18n="menu.buildings">Edificios 3D de OpenStreetMap (modo sin clave)</span></label>
             <label class="check"><input id="trees" type="checkbox" /> <span data-i18n="menu.trees">Árboles 3D sacados de la ortofoto (modo sin clave)</span></label>
+            <label class="check"><input id="catastro" type="checkbox" /> <span data-i18n="menu.catastro">Completar con los edificios del Catastro (España, se descargan por municipios)</span></label>
+            <details id="catastro-data" class="catastro-data">
+              <summary data-i18n="menu.catastroData">Datos del Catastro descargados</summary>
+              <div id="catastro-list"></div>
+            </details>
           </section>
 
           <section>

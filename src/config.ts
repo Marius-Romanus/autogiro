@@ -227,6 +227,8 @@ export interface Settings {
   elevation: ElevationSource
   /** edificios 3D de OpenStreetMap en el modo sin clave */
   buildings: boolean
+  /** completar los edificios con los del Catastro (España, se descargan por municipios) */
+  catastro: boolean
   /** árboles 3D detectados en la ortofoto (modo sin clave) */
   trees: boolean
   locationId: string
@@ -266,6 +268,7 @@ export const DEFAULT_SETTINGS: Settings = {
   imagery: 'auto',
   elevation: 'auto',
   buildings: true,
+  catastro: true,
   trees: true,
   locationId: 'lemt26',
   customLat: 40.2348,

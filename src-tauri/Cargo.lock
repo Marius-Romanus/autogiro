@@ -221,6 +221,8 @@ dependencies = [
  "fastrand",
  "open",
  "percent-encoding",
+ "reqwest",
+ "rustls",
  "serde_json",
  "sys-locale",
  "tauri",

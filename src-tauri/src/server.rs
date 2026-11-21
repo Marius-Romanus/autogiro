@@ -1,5 +1,6 @@
 //! Servidor HTTP local de la app: hace lo mismo que `server/index.ts` (sirve el juego
-//! compilado y las salas multijugador en /mp en el mismo puerto), sin Node.
+//! compilado, las salas multijugador en /mp y el intermediario del Catastro en /catastro/…,
+//! todo en el mismo puerto), sin Node.
 
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener};
@@ -45,7 +46,12 @@ pub async fn serve(listener: TcpListener, root: PathBuf, rooms: Rooms) {
         Err(e) => return log(&format!("no se pudo escuchar: {e}")),
     };
     let state = AppState { root: Arc::new(root), rooms };
-    let app = Router::new().route("/mp", get(mp)).fallback(static_file).with_state(state);
+    let app = Router::new()
+        .route("/mp", get(mp))
+        // edificios del Catastro (sus zips no se pueden pedir desde la página): ver catastro.rs
+        .route("/catastro/{*path}", get(crate::catastro::proxy))
+        .fallback(static_file)
+        .with_state(state);
     if let Err(e) = axum::serve(listener, app).await {
         log(&format!("servidor detenido: {e}"));
     }

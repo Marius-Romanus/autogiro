@@ -181,8 +181,25 @@ el tiempo para todos, y cada uno su aparato.
 
 | Modo | Qué ves | Necesita |
 |---|---|---|
-| **Ortofoto + relieve** (de serie) | En España, ortofoto PNOA y relieve de 5 m del IGN, edificios 3D de OpenStreetMap y árboles 3D. Fuera de España, imágenes de satélite de Esri. | Nada |
+| **Ortofoto + relieve** (de serie) | En España, ortofoto PNOA y relieve de 5 m del IGN, edificios 3D de OpenStreetMap y del Catastro con tejados inclinados, y árboles 3D. Fuera de España, imágenes de satélite de Esri. | Nada |
 | **Fotorrealista 3D de Google** | Ciudades, árboles y montañas en 3D fotorrealista en todo el mundo. | Una clave gratuita de Google |
+
+### Edificios y tejados
+
+- **Tejados inclinados**: las casas y los bloques bajos llevan tejado a dos o cuatro aguas, los hangares
+  de los aeródromos en bóveda y los cascos antiguos con faldones desde cada fachada. Los bloques altos y
+  las naves industriales quedan con azotea plana. Ni OpenStreetMap ni el Catastro dicen cómo es cada
+  tejado, así que la forma se deduce de la planta: se parece a la realidad, pero no es una copia exacta.
+- **Edificios del Catastro** (España): muchas casas no están en OpenStreetMap, sobre todo en
+  urbanizaciones y pueblos. El juego las completa con los edificios del Catastro, con su número real
+  de plantas. Se descargan solos por municipios, los de alrededor y los que tienes por delante en el
+  rumbo que llevas, de modo que al llegar ya están. Cada municipio se descarga una sola vez (entre 1 y 6 MB;
+  Madrid capital, unos 120 MB, solo si vuelas por encima) y se queda guardado en tu ordenador: un pueblo
+  ocupa unos cientos de kB y una ciudad como Móstoles, unos 3 MB.
+  - *Menú → Escenario → Completar con los edificios del Catastro* lo activa o lo quita.
+  - *Menú → Escenario → Datos del Catastro descargados* muestra cada municipio guardado y lo que ocupa,
+    con un botón para borrarlo (o borrarlo todo).
+  - País Vasco y Navarra tienen catastro propio y no están incluidos: allí se ven solo los de OpenStreetMap.
 
 <details>
 <summary><b>Cómo conseguir la clave de Google</b></summary>
@@ -202,10 +219,13 @@ si te gusta, [invítame a un café en Ko-fi](https://ko-fi.com/mario_creativecod
 
 - Ortofoto PNOA y MDT05 © Instituto Geográfico Nacional ([scne.es](https://www.scne.es)), CC BY 4.0 ·
   imágenes Esri World Imagery · relieve global Mapzen / AWS Terrain Tiles · Google Photorealistic 3D Tiles © Google.
-- Edificios © colaboradores de OpenStreetMap (ODbL), teselas de [OpenFreeMap](https://openfreemap.org) / OpenMapTiles.
+- Edificios © colaboradores de OpenStreetMap (ODbL), teselas de [OpenFreeMap](https://openfreemap.org) / OpenMapTiles,
+  y © [Dirección General del Catastro](https://www.catastro.hacienda.gob.es) (datos INSPIRE de edificios).
 - [3d-tiles-renderer](https://github.com/NASA-AMMOS/3DTilesRendererJS) (NASA-AMMOS),
   [three-geospatial](https://github.com/takram-design-engineering/three-geospatial) (takram) para
-  atmósfera y nubes, [Three.js](https://threejs.org), [Rapier](https://rapier.rs) y [Tauri](https://tauri.app).
+  atmósfera y nubes, [Three.js](https://threejs.org), [Rapier](https://rapier.rs) y [Tauri](https://tauri.app),
+  [straight-skeleton](https://github.com/StrandedKitty/straight-skeleton) (vHawk, MIT) para los tejados y
+  [fflate](https://github.com/101arrowz/fflate) para descomprimir los datos del Catastro.
 - Cierva C.30A: plano de tres vistas de *Flight* (1934) reproducido en la
   [NACA Aircraft Circular 196](https://ntrs.nasa.gov/citations/19930090361), datos de vuelo de los
   ensayos de la RAE (ARC R&M 1859 y 1727) y decoración de la réplica del Museo del Aire de Madrid.
@@ -392,8 +412,26 @@ for everyone, and each pilot picks their own aircraft.
 
 | Mode | What you see | Needs |
 |---|---|---|
-| **Orthophoto + terrain** (default) | In Spain, PNOA orthophotos and the IGN 5 m terrain model, OpenStreetMap buildings in 3D and 3D trees. Outside Spain, Esri satellite imagery. | Nothing |
+| **Orthophoto + terrain** (default) | In Spain, PNOA orthophotos and the IGN 5 m terrain model, 3D buildings from OpenStreetMap and the Spanish Land Registry (Catastro) with pitched roofs, and 3D trees. Outside Spain, Esri satellite imagery. | Nothing |
 | **Google Photorealistic 3D** | Photorealistic 3D cities, trees and mountains all over the world. | A free Google key |
+
+### Buildings and roofs
+
+- **Pitched roofs**: houses and low-rise blocks get gable or hip roofs, airfield hangars get barrel
+  roofs and old town centres get a roof slope from every façade. Tall blocks and industrial sheds keep a
+  flat roof. Neither OpenStreetMap nor the Catastro describe the roof itself, so its shape is worked out
+  from the footprint: it looks like the real thing, but it is not an exact copy.
+- **Catastro buildings** (Spain): many houses are missing from OpenStreetMap, especially in housing
+  estates and villages. The game fills them in with the Land Registry buildings, with their real number
+  of floors. They are downloaded automatically by municipality, around you and ahead along your current
+  heading, so they are ready when you get there. Each municipality is downloaded only once (1–6 MB;
+  Madrid city, about 120 MB, only if you fly over it) and stays on your computer: a village takes a few
+  hundred kB and a town like Móstoles about 3 MB.
+  - *Menu → Scenery → Add the Spanish Land Registry (Catastro) buildings* turns it on or off.
+  - *Menu → Scenery → Downloaded Catastro data* lists every stored municipality and its size, with a
+    button to delete it (or everything).
+  - The Basque Country and Navarre have their own land registries and are not included: only
+    OpenStreetMap buildings are shown there.
 
 <details>
 <summary><b>How to get the Google key</b></summary>
@@ -413,10 +451,13 @@ if you like it, [buy me a coffee on Ko-fi](https://ko-fi.com/mario_creativecode)
 
 - PNOA orthophoto and MDT05 © Instituto Geográfico Nacional ([scne.es](https://www.scne.es)), CC BY 4.0 ·
   Esri World Imagery · global terrain Mapzen / AWS Terrain Tiles · Google Photorealistic 3D Tiles © Google.
-- Buildings © OpenStreetMap contributors (ODbL), tiles by [OpenFreeMap](https://openfreemap.org) / OpenMapTiles.
+- Buildings © OpenStreetMap contributors (ODbL), tiles by [OpenFreeMap](https://openfreemap.org) / OpenMapTiles,
+  and © [Dirección General del Catastro](https://www.catastro.hacienda.gob.es) (INSPIRE building data).
 - [3d-tiles-renderer](https://github.com/NASA-AMMOS/3DTilesRendererJS) (NASA-AMMOS),
   [three-geospatial](https://github.com/takram-design-engineering/three-geospatial) (takram) for
-  atmosphere and clouds, [Three.js](https://threejs.org), [Rapier](https://rapier.rs) and [Tauri](https://tauri.app).
+  atmosphere and clouds, [Three.js](https://threejs.org), [Rapier](https://rapier.rs) and [Tauri](https://tauri.app),
+  [straight-skeleton](https://github.com/StrandedKitty/straight-skeleton) (vHawk, MIT) for the roofs and
+  [fflate](https://github.com/101arrowz/fflate) to unpack the Catastro data.
 - Cierva C.30A: three-view drawing from *Flight* (1934) reproduced in
   [NACA Aircraft Circular 196](https://ntrs.nasa.gov/citations/19930090361), flight data from the RAE
   tests (ARC R&M 1859 and 1727) and colour scheme of the replica at the Museo del Aire in Madrid.

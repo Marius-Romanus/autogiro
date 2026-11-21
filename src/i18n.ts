@@ -281,6 +281,19 @@ const es: Dict = {
   'mp.tags.title': 'Etiquetas de los demás pilotos y flechas hacia los que están fuera de pantalla (Tab)',
   'mp.tags.on': 'Etiquetas de pilotos: VISIBLES',
   'mp.tags.off': 'Etiquetas de pilotos: OCULTAS',
+  // edificios del Catastro (src/world/catastro/catastroMenu.ts)
+  'catastro.downloading': 'descargando',
+  'catastro.processing': 'procesando',
+  'catastro.queued': 'en cola',
+  'catastro.error': 'falló, se reintentará',
+  'catastro.parts': 'partes de edificio',
+  'catastro.delete': 'Borrar',
+  'catastro.deleteOne': 'Borrar este municipio de este ordenador',
+  'catastro.deleteAll': 'Borrar todo',
+  'catastro.total': '{n} municipios · {size}',
+  'catastro.empty': 'Todavía no hay nada descargado.',
+  'catastro.note':
+    'Se descargan solos los municipios de alrededor y los que tienes por delante, y se guardan en este ordenador. Lo que borres no se vuelve a bajar hasta la próxima partida.',
 }
 
 const en: Dict = {
@@ -404,6 +417,20 @@ const en: Dict = {
   'menu.elevation.global': 'Global ~30 m (Mapzen/AWS)',
   'menu.buildings': 'OpenStreetMap 3D buildings (no-key mode)',
   'menu.trees': '3D trees detected in the orthophoto (no-key mode)',
+  'menu.catastro': 'Add the Spanish Land Registry (Catastro) buildings (Spain, downloaded by municipality)',
+  'menu.catastroData': 'Downloaded Catastro data',
+  'catastro.downloading': 'downloading',
+  'catastro.processing': 'processing',
+  'catastro.queued': 'queued',
+  'catastro.error': 'failed, will retry',
+  'catastro.parts': 'building parts',
+  'catastro.delete': 'Delete',
+  'catastro.deleteOne': 'Delete this municipality from this computer',
+  'catastro.deleteAll': 'Delete all',
+  'catastro.total': '{n} municipalities · {size}',
+  'catastro.empty': 'Nothing downloaded yet.',
+  'catastro.note':
+    'Municipalities around you and ahead of you are downloaded automatically and kept on this computer. Anything you delete is not downloaded again until your next session.',
   'menu.start': 'Start',
   'menu.aircraft': 'Aircraft',
   'menu.location': 'Location',

@@ -12,6 +12,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs'
 import { extname, join, normalize, resolve, sep } from 'node:path'
 import { networkInterfaces } from 'node:os'
 import { attachMultiplayer } from './rooms.ts'
+import { catastroProxy } from './catastro.ts'
 
 const ROOT = resolve(process.env.DIST || join(import.meta.dirname, '..', 'dist'))
 const PORT = Number(process.env.PORT) || 8080
@@ -38,6 +39,8 @@ if (!existsSync(join(ROOT, 'index.html'))) {
 }
 
 const server = createServer((req, res) => {
+  // edificios del Catastro (los zips no se pueden pedir desde la página)
+  if (catastroProxy(req, res)) return
   let path = '/'
   try {
     path = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname)

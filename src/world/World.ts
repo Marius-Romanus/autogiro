@@ -174,7 +174,8 @@ export class World {
         (src === 'pnoa'
           ? `${en ? 'PNOA orthophoto' : 'Ortofoto PNOA'} © Instituto Geográfico Nacional (scne.es) · ${relief}`
           : `${en ? 'Imagery' : 'Imágenes'} © Esri, Maxar, Earthstar Geographics · ${relief}`) +
-        (this.settings.buildings ? (en ? ' · Buildings © OpenStreetMap contributors (OpenFreeMap)' : ' · Edificios © colaboradores de OpenStreetMap (OpenFreeMap)') : '')
+        (this.settings.buildings ? (en ? ' · Buildings © OpenStreetMap contributors (OpenFreeMap)' : ' · Edificios © colaboradores de OpenStreetMap (OpenFreeMap)') : '') +
+        (this.settings.buildings && this.settings.catastro && spain ? (en ? ' and Dirección General del Catastro' : ' y Dirección General del Catastro') : '')
       if (ign) {
         tiles = new TilesRenderer(IGN_QM)
         tiles.registerPlugin(new IgnAvailabilityPlugin())
@@ -204,7 +205,7 @@ export class World {
         if (this.settings.buildings || this.settings.trees) this.buildingHeights = new TerrariumHeightSource(TERRARIUM, 15)
       }
       if (this.buildingHeights && this.settings.buildings) {
-        this.buildings = new Buildings(this.frame, this.buildingHeights, imageryUrl)
+        this.buildings = new Buildings(this.frame, this.buildingHeights, imageryUrl, this.settings.catastro && spain)
         this.scene.add(this.buildings.group)
         this.buildings.syncFrame()
       }
@@ -277,7 +278,9 @@ export class World {
   get loadProgress(): number {
     const p = (this.tiles as any).loadProgress ?? 1
     // sin el perfil de las pistas cercanas el aparato se posaría en el MDT sin alisar
-    return this.runways?.pending ? Math.min(p, 0.95) : p
+    if (this.runways?.pending) return Math.min(p, 0.95)
+    // edificios del Catastro de alrededor del punto de salida (espera como mucho 25 s)
+    return this.buildings?.catastroBusy ? Math.min(p, 0.97) : p
   }
 
   update(): void {
