@@ -40,6 +40,8 @@ export abstract class TileLayer<T extends LayerTile> {
     this.label = label
     this.group.matrixAutoUpdate = false
     this.group.name = label
+    // edificios y árboles proyectan sombra del sol (render/SunShadows.ts)
+    this.group.userData.worldShadowCaster = true
   }
 
   /** Crea la tesela (sin cargar nada). */

@@ -34,6 +34,7 @@ import { catastro, type BBox, type CatTile, type Circle } from './catastro/Catas
 import type { GeoFrame } from './GeoFrame.ts'
 import type { HeightSource } from './HeightSource.ts'
 import { classifyRings, fetchVectorTile, loadOrthoMosaic, xToLon, yToLat, Z, type Ring } from './mapTiles.ts'
+import { facadeColour, parseOsmColour, roofColour } from './osmColour.ts'
 import { ROOF_CONE, ROOF_DOME, ROOF_FLAT, ROOF_GABLED, ROOF_HIPPED, ROOF_ONION, ROOF_PYRAMIDAL, ROOF_ROUND, ROOF_SKILLION } from './osmRoofFormat.ts'
 import { osmRoofsTile, type OsmRoof } from './osmRoofs.ts'
 import type { RoofJob } from './roof.worker.ts'
@@ -507,19 +508,26 @@ export class Buildings extends TileLayer<BuildingTile> {
     // color de fachada: en lo alto y en las partes, por casilla de ~8 m, para que las piezas
     // apiladas de una misma torre (building:part de OSM) no salgan cada una de un color
     const wallSeed = height > 12 || parted ? hash2(Math.round((cxp + ox) / 16), Math.round((cyp + oy) / 16)) : seed
-    if (colour && /^#?[0-9a-f]{6}$/i.test(colour)) wall.set(colour.startsWith('#') ? colour : `#${colour}`)
+    // (Color.set con un hexadecimal ya lo pasa de sRGB a lineal: no volver a convertirlo, que
+    // oscurece y satura; así salían granates los ladrillos y rojo puro o morado lo de OSM)
+    // building:colour de OSM (o el de building:material que pone OpenMapTiles), con el croma
+    // de una pintura de fachada (osmColour.ts)
+    const osmWall = parseOsmColour(colour)
+    if (osmWall) wall.setRGB(...facadeColour(osmWall), SRGBColorSpace)
     else wall.set(pickWall(wallSeed, height, industrial))
-    wall.convertSRGBToLinear()
     const roof = new Color()
-    const rc = colours?.at((cxp / E) * colours.size, (cyp / E) * colours.size)
+    const rc = colours ? roofFromOrtho(colours, rings, cxp, cyp, E) : null
     if (rc) roof.setRGB(rc[0], rc[1], rc[2], SRGBColorSpace)
-    else roof.set(industrial ? '#9a9890' : seed > 0.5 ? '#a4583e' : '#8f8a82').convertSRGBToLinear()
+    else roof.set(industrial ? '#9a9890' : seed > 0.5 ? '#a4583e' : '#8f8a82')
     // color mapeado en OSM: roof:colour siempre; el de roof:material solo en lo alto, donde la
     // ortofoto (que no es ortogonal en las torres) da el color de la calle o de la fachada
-    if (osm?.rgb && (!osm.fromMaterial || height >= 30)) roof.setRGB(osm.rgb[0] / 255, osm.rgb[1] / 255, osm.rgb[2] / 255, SRGBColorSpace)
-    // un tejado en sombra en la foto no debe quedar negro
+    if (osm?.rgb && (!osm.fromMaterial || height >= 30)) {
+      const c: [number, number, number] = [osm.rgb[0] / 255, osm.rgb[1] / 255, osm.rgb[2] / 255]
+      roof.setRGB(...(osm.fromMaterial ? c : roofColour(c)), SRGBColorSpace)
+    }
+    // un tejado en sombra en la foto no debe quedar negro (ni azulado: la sombra lo es)
     const lum = 0.2126 * roof.r + 0.7152 * roof.g + 0.0722 * roof.b
-    if (lum < 0.05) roof.multiplyScalar(0.05 / Math.max(lum, 0.005))
+    if (lum < 0.05) roof.multiplyScalar(0.05 / Math.max(lum, 0.005)).lerp(_grey.setScalar(0.05), 0.5)
     roof.multiplyScalar(0.85)
     wall.multiplyScalar(0.85)
 
@@ -1132,6 +1140,46 @@ class RoofColours {
     return [r / k / 255, g / k / 255, b / k / 255]
   }
 }
+
+/**
+ * Color del tejado en la ortofoto (sRGB 0..1): el centro y, desde cada vértice, un cuarto del
+ * camino hacia él, solo los puntos dentro de la huella, y de ellos la mitad más clara. Con una
+ * sola muestra en el centro, los edificios con patio tomaban el del patio y los tejados a la
+ * sombra de un vecino alto, el de la sombra: casi negros, y aclarados quedaban azul marino.
+ */
+function roofFromOrtho(colours: RoofColours, rings: Array<{ pts: Array<[number, number]> }>, cx: number, cy: number, E: number): [number, number, number] | null {
+  const k = colours.size / E
+  const samples: Array<[number, number, number]> = []
+  const tryAt = (x: number, y: number) => {
+    if (!inRings(rings, x, y)) return
+    const c = colours.at(x * k, y * k)
+    if (c) samples.push(c)
+  }
+  tryAt(cx, cy)
+  const outer = rings[0].pts
+  const step = Math.max(1, Math.floor(outer.length / 12))
+  for (let i = 0; i < outer.length; i += step) tryAt(outer[i][0] + 0.25 * (cx - outer[i][0]), outer[i][1] + 0.25 * (cy - outer[i][1]))
+  if (samples.length === 0) return colours.at(cx * k, cy * k)
+  const lum = (c: [number, number, number]) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+  samples.sort((a, b) => lum(b) - lum(a))
+  const n = Math.ceil(samples.length / 2)
+  const out: [number, number, number] = [0, 0, 0]
+  for (let i = 0; i < n; i++) for (let j = 0; j < 3; j++) out[j] += samples[i][j] / n
+  return out
+}
+
+/** ¿(x, y) cae dentro de la huella (anillo exterior menos los patios)? Par-impar. */
+function inRings(rings: Array<{ pts: Array<[number, number]> }>, x: number, y: number): boolean {
+  let inside = false
+  for (const { pts: r } of rings) {
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+      if (r[i][1] > y !== r[j][1] > y && x < ((r[j][0] - r[i][0]) * (y - r[i][1])) / (r[j][1] - r[i][1]) + r[i][0]) inside = !inside
+    }
+  }
+  return inside
+}
+
+const _grey = new Color()
 
 const WALLS_LOW = ['#efece4', '#efece4', '#ebe3d2', '#e6dcc6', '#ddcfb4', '#d9c3a0', '#e2c39b', '#d9a98a', '#b9775a', '#cfccc4']
 const WALLS_TALL = ['#e9e6de', '#ddd2bd', '#d3c3a6', '#c9b28e', '#b46c4f', '#a86448', '#bdbab3', '#cfcac0', '#9f5d43', '#e0d6c4']

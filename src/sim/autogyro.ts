@@ -56,6 +56,9 @@ interface Contact {
   c: number
   wasInContact: boolean
   force: number
+  /** deformación del neumático (m) a lo largo de la rueda y de lado (adherencia) */
+  sf: number
+  sl: number
 }
 
 // Geometría (respecto al origen del modelo 3D). Cada aparato tiene la suya en
@@ -180,6 +183,8 @@ export class Autogyro {
       c: cDamp,
       wasInContact: false,
       force: 0,
+      sf: 0,
+      sl: 0,
     })
     // rigidez y amortiguación del tren (las cifras son las de un aparato de ~480 kg)
     const kg = af.gearScale ?? 1
@@ -251,7 +256,10 @@ export class Autogyro {
     this.engineOn = true
     this.enginePower = 0
     this.engineRpm = this.af.engine.idleRpm
-    for (const c of this.contacts) c.wasInContact = true
+    for (const c of this.contacts) {
+      c.wasInContact = true
+      c.sf = c.sl = 0
+    }
   }
 
   /** Coloca el aparato en vuelo nivelado. */
@@ -274,7 +282,10 @@ export class Autogyro {
     this.engineOn = true
     this.enginePower = 0.5 * this.maxPower
     this.engineRpm = this.af.engine.cruiseRpm
-    for (const c of this.contacts) c.wasInContact = false
+    for (const c of this.contacts) {
+      c.wasInContact = false
+      c.sf = c.sl = 0
+    }
   }
 
   /** Calcula normal/adelante del plano de cabeza (mundo) a partir de la palanca. */
@@ -502,6 +513,7 @@ export class Autogyro {
       if (depth <= 0) {
         c.wasInContact = false
         c.force = 0
+        c.sf = c.sl = 0
         continue
       }
       // velocidad del punto (mundo)
@@ -531,9 +543,13 @@ export class Autogyro {
         const lat = _v4.crossVectors(_n, dir)
         const vf = pv.dot(dir)
         const vl = pv.dot(lat)
-        let mu = c.kind === 'nose' || tw ? 0.025 : 0.025 + 0.55 * Math.max(0, Math.min(1, ctl.wheelBrake))
-        const Ff = -mu * Fn * Math.tanh(vf / 0.25)
-        const Fl = -(tw && twSteer === 0 ? 0.12 : 0.75) * Fn * Math.tanh(vl / 0.18)
+        // rodadura (y freno en las principales) a lo largo de la rueda; agarre de lado
+        const muF = c.kind === 'nose' || tw ? 0.025 : 0.025 + 0.55 * Math.max(0, Math.min(1, ctl.wheelBrake))
+        const muL = tw && twSteer === 0 ? 0.12 : 0.75
+        const Ff = grip(c.sf, vf, muF * Fn, Fn, dt)
+        c.sf = _grip.s
+        const Fl = grip(c.sl, vl, muL * Fn, Fn, dt)
+        c.sl = _grip.s
         fx.addScaledVector(dir, Ff).addScaledVector(lat, Fl)
         this.wheelRolling = Math.max(this.wheelRolling, Math.abs(vf))
       } else {
@@ -697,6 +713,33 @@ export class Autogyro {
 }
 
 const _pf = { x: 0, n: 0 }
+
+// Adherencia de las ruedas (modelo de cerdas): mientras la fuerza no pasa de μ·N, el neumático
+// se queda pegado al suelo y solo se deforma unos milímetros (rigidez y amortiguación
+// proporcionales a la carga); al pasar de μ·N desliza con μ·N. Así el freno y el agarre de
+// lado sujetan de verdad: con un rozamiento que solo depende de la velocidad (el de antes,
+// μ·N·tanh(v/v₀)) no hay rozamiento estático y el aparato parado se arrastraba y giraba poco
+// a poco con el viento, el empuje al ralentí o la reacción del prerrotador, aun frenado.
+const GRIP_K = 60 // 1/m: con μ = 0.75 desliza a 1.25 cm de deformación
+const GRIP_C = 4 // s/m
+const _grip = { s: 0 }
+
+/** Fuerza de rozamiento en un eje de la rueda (deja la nueva deformación en `_grip.s`). */
+function grip(s: number, v: number, cap: number, fn: number, dt: number): number {
+  if (fn <= 0) {
+    _grip.s = 0
+    return 0
+  }
+  s += v * dt
+  let f = -GRIP_K * fn * s - GRIP_C * fn * v
+  if (Math.abs(f) > cap) {
+    // desliza: el neumático se queda en la deformación que da justo μ·N
+    f = Math.sign(f) * cap
+    s = -f / (GRIP_K * fn)
+  }
+  _grip.s = s
+  return f
+}
 
 /**
  * Fuerza aerodinámica (por unidad de ½ρS) sobre una superficie plana.

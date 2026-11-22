@@ -29,6 +29,7 @@ import {
 } from 'three'
 import { OVERLAY_LAYER } from '../render/Graphics.ts'
 import type { GroundBeam } from '../render/LandingLightEffect.ts'
+import { viewerLight } from '../render/SunShadows.ts'
 
 const DEG = Math.PI / 180
 
@@ -207,14 +208,19 @@ export class AircraftLights {
     this.points.visible = this.on && this.lamps.length > 0
     const on = this.on && this.hasLanding
     const ex = Math.max(exposure, 1e-3)
-    // de noche (sol < −6°) adaptado; de día (sol > 3°) físico. Entre medias, interpolación
-    // geométrica: los dos extremos se llevan más de cuatro órdenes de magnitud.
-    const day = smoothstep(-0.1, 0.05, sunY)
-    const phys = BEAM.realCandela / LUX_PER_UNIT
-    this.spot.intensity = on ? geo(BEAM.candela / ex, phys, day) : 0
+    // Del foco físico (pleno sol) al adaptado de noche según la luz ambiente que hay en el
+    // aparato (nubes y sombras incluidas); sin ese dato, según la altura del sol (−6° a 3°).
+    // Interpolación geométrica: los dos extremos se llevan cinco órdenes de magnitud.
+    const p = phys()
+    const night = BEAM.groundCandela / ex
+    const amb = viewerLight.illuminance
+    const k = amb >= 0 ? adaptation(amb * LUX_PER_UNIT, night / p) : 1 - smoothstep(-0.1, 0.05, sunY)
+    this.spot.intensity = on ? geo(p, BEAM.candela / ex, k) : 0
     const b = this.beam
-    b.intensity = on && shown(this.points.parent) ? geo(BEAM.groundCandela / ex, phys, day) : 0
-    this.knee = lerp(BEAM.groundKnee, 1e7, day * day) / ex
+    b.intensity = on && shown(this.points.parent) ? geo(p, night, k) : 0
+    // compresión siempre con la rodilla de noche: con el foco físico (de día) no llega a
+    // actuar, y en la transición no deja que la mancha queme antes de que oscurezca
+    this.knee = BEAM.groundKnee / ex
     if (b.intensity > 0) {
       this.points.updateWorldMatrix(true, false)
       const m = this.points.matrixWorld
@@ -273,7 +279,23 @@ export class AircraftLights {
   }
 }
 
-const lerp = (a: number, b: number, t: number) => a + (b - a) * t
+/** foco físico en unidades de escena (sin exposición): a pleno sol apenas se nota */
+const phys = () => BEAM.realCandela / LUX_PER_UNIT
+
+/**
+ * Adaptación del ojo según la luz ambiente (lux), que la exposición fija no tiene: 0 = foco
+ * físico, 1 = foco adaptado de noche (`nightGain` veces el físico). El aumento es ×40 de pleno
+ * sol (100 000 lux) a nublado (40 000 lux), para que la mancha delante del morro se note, y
+ * luego crece con la oscuridad (×8 por cada década menos de luz) hasta el de noche.
+ * Medido en el simulador (LEMT, 20 de mayo): sol de mediodía ~96 000 lux (×1), cubierto a
+ * mediodía ~42 000 (×40), a las 20:48 ~7 000 (×190), puesta de sol ~420 (×2400, ya se ve bien),
+ * noche ≲ 1 lux (adaptado del todo).
+ */
+function adaptation(lux: number, nightGain: number): number {
+  const l = Math.max(lux, 1e-6)
+  const lg = 1.6 * smoothstep(0, 1, Math.log10(1e5 / l) / Math.log10(1e5 / 4e4)) + 0.9 * Math.max(0, Math.log10(4e4 / l))
+  return Math.min(1, lg / Math.log10(Math.max(nightGain, 10)))
+}
 /** interpolación geométrica (a, b > 0) */
 const geo = (a: number, b: number, t: number) => a * Math.pow(b / a, t)
 

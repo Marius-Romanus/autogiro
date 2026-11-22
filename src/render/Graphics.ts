@@ -26,14 +26,12 @@ import {
   RedFormat,
   RepeatWrapping,
   Scene,
-  ShaderMaterial,
   ShadowMaterial,
   SRGBColorSpace,
   TextureLoader,
   Uniform,
   Vector3,
   WebGLRenderer,
-  WebGLRenderTarget,
   type Texture,
 } from 'three'
 import {
@@ -45,7 +43,6 @@ import {
   EffectComposer,
   EffectPass,
   NormalPass,
-  Pass,
   RenderPass,
   SMAAEffect,
   ToneMappingEffect,
@@ -67,6 +64,19 @@ import { DataTextureLoader, DEFAULT_STBN_URL, Geodetic, parseUint8Array, STBNLoa
 import type { CloudPreset, Quality } from '../config.ts'
 import { GroundDetailEffect } from './GroundDetailEffect.ts'
 import { LandingLightEffect } from './LandingLightEffect.ts'
+import {
+  csUniforms,
+  EMPTY_CLOUD_SHADOW,
+  installWorldShadowHooks,
+  patchAerialShader,
+  patchCloudsShader,
+  ShadowMaskPass,
+  SunProbe,
+  SunShadows,
+  viewerLight,
+} from './SunShadows.ts'
+
+type ShaderMaterialLike = { fragmentShader: string; needsUpdate: boolean }
 
 export const LIGHT_LAYER = 10
 /**
@@ -120,7 +130,18 @@ export class Graphics {
   readonly textures: PrecomputedTextures
   readonly shadowCatcher: Mesh
   private cloudsPass: EffectPass
-  private readonly maskPass: AlphaMaskPass
+  /** máscara de iluminación (R) y sombra de edificios y árboles sobre el terreno (G) */
+  private readonly maskPass: ShadowMaskPass
+  /** sombras del sol que proyectan edificios y árboles */
+  readonly sunShadows = new SunShadows()
+  /** sol que llega al aparato (edificios, árboles y nubes), para la luz ambiente del que mira */
+  readonly sunProbe = new SunProbe()
+  private worldToECEF = new Matrix4()
+  private agl = 0
+  /** altura elipsoidal de la cámara, coseno del cenit del sol y vertical (mundo) en la cámara */
+  private camHeight = 0
+  private sunMu = 1
+  private readonly camUp = new Vector3(0, 1, 0)
   readonly detail: GroundDetailEffect
   /** foco de aterrizaje sobre el terreno (tras la iluminación del efecto de atmósfera) */
   readonly landingLight: LandingLightEffect
@@ -165,6 +186,8 @@ export class Graphics {
     renderer.shadowMap.type = PCFShadowMap
     container.appendChild(renderer.domElement)
     this.renderer = renderer
+    // edificios, árboles y el aparato reciben las sombras de edificios, árboles y nubes
+    installWorldShadowHooks(renderer)
 
     const camera = new PerspectiveCamera(62, container.clientWidth / container.clientHeight, 0.06, 4e6)
     camera.layers.enable(LIGHT_LAYER)
@@ -232,11 +255,13 @@ export class Graphics {
       correctGeometricError: true,
       albedoScale: 0.85,
     } as any)
+    // el sol sobre el terreno también se multiplica por la sombra de edificios y árboles
+    ;(this.aerial as any).setFragmentShader(patchAerialShader((this.aerial as any).getFragmentShader()))
     // Máscara de iluminación en el canal alfa del propio render: los materiales
     // del aparato escriben alfa = 0 (ya iluminados por las luces reales) y el
     // terreno alfa = 1 (albedo que se ilumina en posproceso). Es exacta por píxel;
     // la máscara por comparación de profundidad de la librería dejaba motas.
-    this.maskPass = new AlphaMaskPass()
+    this.maskPass = new ShadowMaskPass(camera)
     composer.addPass(this.maskPass)
     ;(this.aerial as any).lightingMask = { map: this.maskPass.texture, channel: 'r' }
 
@@ -244,6 +269,12 @@ export class Graphics {
     // el parámetro debe llamarse "depth" para que EffectPass le pase la profundidad
     ;(this.clouds as any).setFragmentShader(CLOUDS_COMPOSITE)
     this.clouds.uniforms.set('nearMask', this.cloudNearMask)
+    // bases de las nubes gruesas con la luz difusa que las atraviesa (si no, un cubierto es azul marino)
+    {
+      const cm = (this.clouds as any).cloudsPass.currentMaterial as ShaderMaterialLike
+      cm.fragmentShader = patchCloudsShader(cm.fragmentShader)
+      cm.needsUpdate = true
+    }
     this.loadCloudTextures()
     this.clouds.lightShafts = false
     ;(this.aerial as any).stbnTexture = this.clouds.stbnTexture
@@ -462,6 +493,7 @@ export class Graphics {
     const dpr = window.devicePixelRatio
     const ratio = { low: Math.min(dpr, 0.8), medium: Math.min(dpr, 1), high: Math.min(dpr, 1.5), ultra: Math.min(dpr, 2) }[q]
     this.renderer.setPixelRatio(ratio)
+    this.sunShadows.setQuality(q)
     const shadowSize = q === 'low' ? 1024 : q === 'ultra' ? 4096 : 2048
     if (this.sunLight.shadow.mapSize.x !== shadowSize) {
       this.sunLight.shadow.mapSize.setScalar(shadowSize)
@@ -527,7 +559,16 @@ export class Graphics {
       const camH = _camGeo.setFromECEF(_camEcef).height
       const gap = Math.max(this.cloudBottom - camH, camH - this.cloudTop, 0)
       this.cloudNearMask.value = Number.isFinite(gap) ? Math.min(Math.max((gap - 10) * 0.6, 0), 100) : 100
+      // para la sombra de las nubes en los materiales iluminados
+      this.camHeight = camH
+      const cl = Math.cos(_camGeo.latitude)
+      _n.set(cl * Math.cos(_camGeo.longitude), cl * Math.sin(_camGeo.longitude), Math.sin(_camGeo.latitude))
+      this.sunMu = _n.dot(sun)
+      this.camUp.copy(_n).transformDirection(_inv.copy(worldToECEF).invert())
     }
+    this.worldToECEF.copy(worldToECEF)
+    this.agl = agl
+    this.sunProbe.position.set(focus.x, focus.y + 1, focus.z)
     this.sunLight.sunDirection.copy(sun)
     this.sunLight.worldToECEFMatrix.copy(worldToECEF)
     this.sunLight.target.position.copy(focus)
@@ -565,7 +606,48 @@ export class Graphics {
   }
 
   render(dt: number): void {
+    this.sunShadows.render(this.renderer, this.scene, this.camera, this.sunDirWorld, this.agl, this.worldToECEF)
+    this.updateCloudShadows()
+    this.sunProbe.update(dt, this.renderer, this.camera)
+    this.updateViewerLight()
     this.composer.render(dt)
+  }
+
+  /**
+   * Iluminancia horizontal en el aparato (unidades de escena): sol directo que llega (tras
+   * edificios, árboles y nubes) + difusa de las nubes + cielo. El ojo se adapta a ella.
+   */
+  private updateViewerLight(): void {
+    const c = this.sunLight.color
+    const sun = (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) * this.sunLight.intensity
+    const p = this.sunProbe.value
+    this.skyLight.sh.getIrradianceAt(_n.set(0, 1, 0), _sky)
+    const sky = (0.2126 * _sky.x + 0.7152 * _sky.y + 0.0722 * _sky.z) * this.skyLight.intensity
+    viewerLight.illuminance = sun * Math.max(this.sunDirWorld.y, 0) * (p.x + p.y) + Math.max(sky, 0)
+  }
+
+  /**
+   * Sombra de las nubes para los materiales iluminados: los mapas que dejó la librería
+   * en el fotograma anterior, con sus matrices (copiadas antes de que las cambie).
+   */
+  private updateCloudShadows(): void {
+    const cu = csUniforms
+    const sh = this.cloudsEnabled ? this.clouds.atmosphereShadow : null
+    if (!sh?.map) {
+      cu.csParams.value.w = 0
+      cu.csMap.value = EMPTY_CLOUD_SHADOW
+      return
+    }
+    cu.csMap.value = sh.map
+    const n = Math.min(4, sh.cascadeCount)
+    for (let i = 0; i < n; i++) {
+      cu.csMatrix.value[i].copy(sh.matrices[i])
+      cu.csInterval.value[i].copy(sh.intervals[i])
+    }
+    cu.csParams.value.set(this.camera.near, sh.far, n, 1)
+    cu.csGeo.value.set(this.camHeight, this.sunMu, sh.topHeight, (this.aerial as any).uniforms.get('bottomRadius').value)
+    this.camera.getWorldPosition(cu.csCam.value)
+    cu.csUp.value.copy(this.camUp)
   }
 
   resize(container: HTMLElement): void {
@@ -579,6 +661,8 @@ export class Graphics {
 }
 
 const _z = new Vector3()
+const _n = new Vector3()
+const _sky = new Vector3()
 const _inv = new Matrix4()
 
 /** Mezcla normal en color pero sin tocar el alfa del búfer (que es la máscara de iluminación). */
@@ -589,50 +673,4 @@ export function keepAlpha<T extends Material>(m: T): T {
   m.blendSrcAlpha = ZeroFactor
   m.blendDstAlpha = OneFactor
   return m
-}
-
-/**
- * Convierte el alfa del render (0 = píxel del aparato, ya iluminado) en una
- * máscara binaria para la iluminación en posproceso. Binaria porque el terreno
- * escribe alfas intermedios mientras funde niveles de detalle.
- */
-class AlphaMaskPass extends Pass {
-  private readonly target = new WebGLRenderTarget(1, 1, { format: RedFormat, depthBuffer: false })
-
-  constructor() {
-    super('AlphaMaskPass')
-    this.needsSwap = false
-    this.fullscreenMaterial = new ShaderMaterial({
-      uniforms: { inputBuffer: new Uniform(null) },
-      vertexShader: /* glsl */ `
-        varying vec2 vUv;
-        void main() {
-          vUv = position.xy * 0.5 + 0.5;
-          gl_Position = vec4(position.xy, 1.0, 1.0);
-        }`,
-      fragmentShader: /* glsl */ `
-        uniform sampler2D inputBuffer;
-        varying vec2 vUv;
-        void main() {
-          gl_FragColor = vec4(step(0.002, texture2D(inputBuffer, vUv).a));
-        }`,
-      depthTest: false,
-      depthWrite: false,
-      toneMapped: false,
-    })
-  }
-
-  get texture(): Texture {
-    return this.target.texture
-  }
-
-  override render(renderer: WebGLRenderer, inputBuffer: WebGLRenderTarget): void {
-    ;(this.fullscreenMaterial as ShaderMaterial).uniforms.inputBuffer.value = inputBuffer.texture
-    renderer.setRenderTarget(this.target)
-    renderer.render(this.scene, this.camera)
-  }
-
-  override setSize(width: number, height: number): void {
-    this.target.setSize(width, height)
-  }
 }
