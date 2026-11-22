@@ -29,6 +29,7 @@ import { GENERIC, type Airframe } from '../sim/airframes.ts'
 import { keepAlpha, LIGHT_LAYER, OVERLAY_LAYER } from '../render/Graphics.ts'
 import { Cockpit } from './Cockpit.ts'
 import { AircraftLights } from './AircraftLights.ts'
+import { PilotRig } from './PilotRig.ts'
 
 export const SHADOW_ONLY_LAYER = 11
 
@@ -50,7 +51,33 @@ export interface AircraftPose {
   readonly engineRpm: number
   readonly onGround: boolean
 }
+/** Mandos que mueve la vista (`Controls` del propio aparato; los remotos mandan solo parte). */
+export interface ViewControls {
+  pitch: number
+  roll: number
+  /** pedales −1..1 (si falta, se deduce de la rueda de morro) */
+  yaw?: number
+  throttle?: number
+  wheelBrake?: number
+  prerotator?: boolean
+}
+
 const DEG = Math.PI / 180
+/** recorrido de la palanca de gas (ralentí dibujado atrás → todo gas adelante); blender/controls.py */
+const THROTTLE_TRAVEL = 50 * DEG
+/** giro de cada pedal sobre su bisagra con el pie a fondo (~3 cm en la planta) */
+const PEDAL_TRAVEL = 18 * DEG
+/** giro del reposapiés del Cierva sobre su pivote */
+const FOOT_BAR_TRAVEL = 15 * DEG
+/** la rueda de morro gira 22° con el pedal a fondo (src/sim/autogyro.ts) */
+const NOSE_STEER_MAX = 22 * DEG
+/**
+ * Columna colgante del Cierva: giro visual frente a la inclinación de la cabeza. Con la mano en
+ * el recorrido completo de la cabeza la columna atravesaba el tablero y el marco del parabrisas
+ * (comprobado en Blender barriendo su recorrido), así que se mueve algo menos que la cabeza.
+ */
+const HANGING_PITCH = 0.6
+const HANGING_ROLL = 0.8
 const Y = new Vector3(0, 1, 0)
 const X = new Vector3(1, 0, 0)
 const Z = new Vector3(0, 0, 1)
@@ -67,6 +94,13 @@ interface Parts {
   wheel_L?: Object3D
   wheel_R?: Object3D
   stick?: Object3D
+  throttle?: Object3D
+  throttle_brake?: Object3D
+  brake_lever?: Object3D
+  starter_lever?: Object3D
+  pedal_L?: Object3D
+  pedal_R?: Object3D
+  foot_bar?: Object3D
   pilot_front?: Object3D
   pilot_rear?: Object3D
   eye_front?: Object3D
@@ -156,6 +190,7 @@ export class AircraftView {
       })
     }
     this.parts = {}
+    this.rig = null
     this.rotorSpin = null
     this.propSpin = null
     this.glassMaterials.length = 0
@@ -175,6 +210,13 @@ export class AircraftView {
       'wheel_L',
       'wheel_R',
       'stick',
+      'throttle',
+      'throttle_brake',
+      'brake_lever',
+      'starter_lever',
+      'pedal_L',
+      'pedal_R',
+      'foot_bar',
       'pilot_front',
       'pilot_rear',
       'eye_front',
@@ -220,6 +262,10 @@ export class AircraftView {
     this.model.add(scene)
     scene.updateMatrixWorld(true)
     this.lights.attach(scene, scene)
+    // la maneta de freno va montada en la palanca de gas
+    if (this.parts.throttle && this.parts.throttle_brake) this.parts.throttle.attach(this.parts.throttle_brake)
+    // brazos y piernas que siguen a palanca, gas y pedales
+    this.rig = PilotRig.create(scene)
 
     // Rotor: pivote (inclinación del disco) + grupo de giro
     if (this.parts.rotor) {
@@ -244,6 +290,9 @@ export class AircraftView {
 
   private rotorSpin: Object3D | null = null
   private propSpin: Object3D | null = null
+  private rig: PilotRig | null = null
+  /** mandos suavizados (el teclado y los frenos van a saltos) */
+  private anim = { thr: 0, brake: 0, yaw: 0, pre: 0 }
 
   private disposeBlurDiscs(): void {
     for (const m of [this.rotorBlur, this.propBlur]) {
@@ -289,7 +338,7 @@ export class AircraftView {
     if (this.parts.pilot_rear) this.parts.pilot_rear.visible = p
   }
 
-  update(ac: AircraftPose, dt: number, ctl: { pitch: number; roll: number }): void {
+  update(ac: AircraftPose, dt: number, ctl: ViewControls): void {
     this.root.position.copy(ac.pos)
     this.root.quaternion.copy(ac.quat)
     const p = this.parts
@@ -355,14 +404,34 @@ export class AircraftView {
       // la mano va en el sentido de un avión (atrás = disco atrás) pero la palanca entera se
       // inclina al revés que la cabeza (R&M 1859). En el GLB está en su posición neutra, con
       // el origen en la articulación.
-      _q.setFromAxisAngle(Z, -1.5 * (ac.headPitch - vis.headBase))
-      _q2.setFromAxisAngle(X, -1.5 * ac.headRoll)
+      _q.setFromAxisAngle(Z, -HANGING_PITCH * (ac.headPitch - vis.headBase))
+      _q2.setFromAxisAngle(X, -HANGING_ROLL * ac.headRoll)
       p.stick.quaternion.copy(_q).multiply(_q2)
     } else if (p.stick) {
       _q.setFromAxisAngle(Z, ctl.pitch * 13 * DEG)
       _q2.setFromAxisAngle(X, ctl.roll * 11 * DEG)
       p.stick.quaternion.copy(_q).multiply(_q2)
     }
+
+    // gas (con su maneta de freno), palancas del Cierva y pedales
+    const a = this.anim
+    const k = Math.min(1, dt * 10)
+    a.thr += (Math.min(1, Math.max(0, ctl.throttle ?? 0)) - a.thr) * k
+    a.brake += (Math.min(1, Math.max(0, ctl.wheelBrake ?? 0)) - a.brake) * Math.min(1, dt * 14)
+    a.yaw += (Math.min(1, Math.max(-1, ctl.yaw ?? ac.noseSteer / NOSE_STEER_MAX)) - a.yaw) * k
+    a.pre += ((ctl.prerotator ? 1 : 0) - a.pre) * Math.min(1, dt * 8)
+    // (todo gas = palanca adelante: giro negativo sobre +Z)
+    if (p.throttle) p.throttle.quaternion.setFromAxisAngle(Z, -a.thr * THROTTLE_TRAVEL)
+    if (p.throttle_brake) p.throttle_brake.quaternion.setFromAxisAngle(Z, -a.brake * 18 * DEG)
+    if (p.brake_lever) p.brake_lever.quaternion.setFromAxisAngle(Z, a.brake * 22 * DEG)
+    if (p.starter_lever) p.starter_lever.quaternion.setFromAxisAngle(Z, a.pre * 22 * DEG)
+    // pedal derecho adelante con pie derecho; el izquierdo vuelve lo mismo
+    if (p.pedal_R) p.pedal_R.quaternion.setFromAxisAngle(Z, -a.yaw * PEDAL_TRAVEL)
+    if (p.pedal_L) p.pedal_L.quaternion.setFromAxisAngle(Z, a.yaw * PEDAL_TRAVEL)
+    if (p.foot_bar) p.foot_bar.quaternion.setFromAxisAngle(Y, a.yaw * FOOT_BAR_TRAVEL)
+    if (this.rig && p.pilot_front?.visible) this.rig.update()
+    // interruptores de luces del panel
+    this.cockpit.lightsOn = this.lights.on
   }
 
   /** Posición del ojo del piloto en el mundo. */

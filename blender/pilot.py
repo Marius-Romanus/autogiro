@@ -315,22 +315,79 @@ def build_head_open(name, center, fwd, up, n=56, visor_down=False):
     strap = [P(-0.005, 0.104, -0.075), P(0.035, 0.070, -0.115), P(0.050, 0.0, -0.128), P(0.035, -0.070, -0.115),
              P(-0.005, -0.104, -0.075)]
     mb.tube(B.catmull(strap, 5), 0.0045, 'Suit_Dark', n=6)
-    # --- sunglasses
-    for sy in (1, -1):
-        # aviator lens: teardrop outline, slightly curved, thin metal rim
-        ring = []
-        for k in range(20):
-            a = math.tau * k / 20
+    # --- sunglasses: a rigid aviator frame set just clear of the brow, nose and cheeks of THIS face
+    # (rays against the skin mesh), wrapping back toward the temples; arms along the side of the head
+    # into the headset cups
+    face = out[0]
+    Mi_ = M.inverted()
+    back = R @ Vector((-1, 0, 0))
+
+    def face_x(y, z):
+        ok, loc, _n, _i = face.ray_cast(P(0.30, y, z), back, distance=0.5)
+        return (Mi_ @ loc).x if ok else None
+
+    def face_y(x, z, sy):
+        ok, loc, _n, _i = face.ray_cast(P(x, sy * 0.25, z), R @ Vector((0, -sy, 0)), distance=0.5)
+        return abs((Mi_ @ loc).y) if ok else None
+
+    def outline(sy):
+        pts = []
+        for k in range(24):
+            a = math.tau * k / 24
             yy = 0.030 + 0.021 * math.cos(a) + 0.004 * math.cos(2 * a)
             zz = 0.010 + 0.016 * math.sin(a) - 0.005 * max(0.0, math.cos(a)) * max(0.0, -math.sin(a)) * 2
-            ring.append(P(0.101 - 0.10 * (yy - 0.030) ** 2 * 4 - 0.0, sy * yy, zz))
-        cen = P(0.103, sy * 0.030, 0.007)
-        mb.faces([cen] + ring, [[0, i + 1, (i + 1) % 20 + 1] for i in range(20)], 'Lens', smooth=True)
-        mb.faces([cen + (M.to_3x3() @ Vector((-0.002, 0, 0)))] + [p + (M.to_3x3() @ Vector((-0.002, 0, 0))) for p in ring],
-                 [[0, (i + 1) % 20 + 1, i + 1] for i in range(20)], 'Lens', smooth=True)
-        B.closed_tube(mb, ring, 0.0018, 'Metal_Frame', n=5)
-        mb.cyl(P(0.094, sy * 0.052, 0.016), P(0.015, sy * 0.079, 0.014), 0.0018, 'Metal_Frame', n=5)
-    mb.tube([P(0.102, -0.010, 0.019), P(0.106, 0.0, 0.021), P(0.102, 0.010, 0.019)], 0.0016, 'Metal_Frame', n=5)
+            pts.append((sy * yy, zz))
+        return pts
+
+    def wrap(y):
+        return 9.0 * max(0.0, abs(y) - 0.022) ** 2
+    need = 0.09
+    for sy in (1, -1):
+        for yy, zz in outline(sy) + [(sy * 0.012, 0.025), (sy * 0.030, 0.029), (sy * 0.048, 0.025)]:
+            fx = face_x(yy, zz)
+            if fx is not None:
+                need = max(need, fx + wrap(yy))
+        for i in range(13):
+            for j in range(10):
+                yy, zz = 0.008 + i * 0.0038, -0.008 + j * 0.0038
+                if ((yy - 0.030) / 0.024) ** 2 + ((zz - 0.010) / 0.019) ** 2 <= 1.0:
+                    fx = face_x(sy * yy, zz)
+                    if fx is not None:
+                        need = max(need, fx + wrap(yy))
+    lx = need + 0.0045                                 # lens surface at the centre line
+    bz = 0.021
+    bridge_x = max([lx - 0.002] + [fx + 0.004 for fx in (face_x(y, bz) for y in (-0.008, 0.0, 0.008))
+                                   if fx is not None])
+    rim_r = 0.0018
+    for sy in (1, -1):
+        ring = [P(lx - wrap(yy), yy, zz) for yy, zz in outline(sy)]
+        cen = P(lx - wrap(0.030) + 0.0012, sy * 0.030, 0.008)
+        n = len(ring)
+        mb.faces([cen] + ring, [[0, i + 1, (i + 1) % n + 1] for i in range(n)], 'Lens', smooth=True)
+        off = back * 0.0018
+        mb.faces([cen + off] + [p + off for p in ring], [[0, (i + 1) % n + 1, i + 1] for i in range(n)], 'Lens',
+                 smooth=True)
+        B.closed_tube(mb, ring, rim_r, 'Metal_Frame', n=6)
+        # top bar (double-bridge aviator) and the arm from the hinge at the outer corner
+        hy = 0.054
+        hinge = P(lx - wrap(hy) - 0.001, sy * hy, 0.017)
+        mb.tube([P(lx - wrap(0.012), sy * 0.012, 0.024), P(lx - wrap(0.030) + 0.0006, sy * 0.030, 0.0275),
+                 P(lx - wrap(0.048), sy * 0.048, 0.024), hinge], 0.0013, 'Metal_Frame', n=5)
+        arm = [hinge]
+        hx = lx - wrap(hy)
+        for k in range(1, 9):
+            t = k / 8
+            x = lerp(hx - 0.004, 0.012, t)
+            z = lerp(0.017, 0.012, t)
+            fy = face_y(x, z, sy)
+            y = max(hy + 0.006 * t, (fy + 0.0035) if fy is not None else 0.0)
+            arm.append(P(x, sy * y, z))
+        mb.tube(B.catmull(arm, 3), 0.0017, 'Metal_Frame', n=5)
+    mb.tube([P(lx - wrap(0.012), -0.012, 0.019), P(bridge_x, 0.0, bz), P(lx - wrap(0.012), 0.012, 0.019)],
+            0.0015, 'Metal_Frame', n=5)
+    mb.tube([P(lx - wrap(0.012), -0.012, 0.024), P(bridge_x - 0.001, 0.0, 0.0262), P(lx - wrap(0.012), 0.012, 0.024)],
+            0.0013, 'Metal_Frame', n=5)
+    print('  %s: sunglasses lens plane x=%.4f (face max %.4f), bridge x=%.4f' % (name, lx, need, bridge_x))
     out.append(mb.finish(sharp_angle=55))
     return out
 
@@ -508,8 +565,23 @@ def flat_hand(meta, wrist, fwd, up):
 # ---------------------------------------------------------------------------
 # main builder
 # ---------------------------------------------------------------------------
+JOINTS = {}     # name -> joint positions of the last build (controls.pedals() reads the boots)
+
+
+def set_origin(ob, p):
+    """Move the object's origin to p without moving its geometry."""
+    off = Vector(p) - ob.location
+    ob.data.transform(Matrix.Translation(-off))
+    ob.location = Vector(p)
+    return ob
+
+
 def build_pilot(name, hip, back_deg, hands, feet, head_pitch_deg=-4.0, knee_out=0.07, elbow_out=0.12,
-                stripe=True, helmet='open'):
+                stripe=True, helmet='open', rig=False):
+    """rig=True: arms and legs are separate root objects so the sim can make the hands follow the
+    stick and throttle and the boots the pedals (src/aircraft/PilotRig.ts), origin on the joint:
+      <name>_arm{L,R}_up (shoulder) · _arm{L,R}_lo (elbow, forearm + cuff) · _hand{L,R} (wrist)
+      <name>_leg{L,R}_up (hip, thigh + pocket) · _leg{L,R}_lo (knee) · _foot{L,R} (ankle, boot)"""
     ensure_materials()
     b = math.radians(back_deg)
     u = Vector((-math.sin(b), 0, math.cos(b)))          # spine up
@@ -535,20 +607,32 @@ def build_pilot(name, hip, back_deg, hands, feet, head_pitch_deg=-4.0, knee_out=
 
     # ---- legs
     knee, ankle, legs, arms, elbows = {}, {}, {}, {}, {}
+    rigged = {}            # rig object -> joint it pivots on
+    joints = {'ankle': {}, 'foot_dir': {}, 'foot_up': {}, 'knee': {}, 'hip': dict(hp), 'shoulder': dict(sh),
+              'elbow': {}, 'wrist': {}}
     for s, sy in (('L', 1), ('R', -1)):
         pole = Z * 1.0 + X * 0.3 + Y * sy * knee_out * 4
         knee[s], ankle[s] = ik2(hp[s], Vector(feet[s]), THIGH, SHIN, pole)
-        L = Meta(name + '_leg' + s, 0.016)
+        L = Meta(name + ('_leg%s_up' % s if rig else '_leg' + s), 0.016)
         L.ball(hp[s] + f * 0.03, 0.088)
         L.capsule(hp[s] + (knee[s] - hp[s]) * 0.15, knee[s], 0.074)
         L.capsule(hp[s] + (knee[s] - hp[s]) * 0.5, knee[s], 0.068)
         L.ball(knee[s], 0.058)
-        L.capsule(knee[s], ankle[s] + (knee[s] - ankle[s]).normalized() * 0.04, 0.053)
-        L.capsule(knee[s] + (ankle[s] - knee[s]) * 0.15, knee[s] + (ankle[s] - knee[s]) * 0.45, 0.058)
+        if rig:
+            Ls = Meta(name + '_leg%s_lo' % s, 0.016)
+            Ls.ball(knee[s], 0.058)
+        else:
+            Ls = L
+        Ls.capsule(knee[s], ankle[s] + (knee[s] - ankle[s]).normalized() * 0.04, 0.053)
+        Ls.capsule(knee[s] + (ankle[s] - knee[s]) * 0.15, knee[s] + (ankle[s] - knee[s]) * 0.45, 0.058)
         legs[s] = L.to_mesh('Pilot_Suit', decimate=0.4)
-        parts.append(legs[s])
+        if rig:
+            rigged[legs[s]] = hp[s]
+            rigged[Ls.to_mesh('Pilot_Suit', decimate=0.4)] = knee[s]
+        else:
+            parts.append(legs[s])
         # boot
-        Bt = Meta(name + '_boot' + s, 0.011)
+        Bt = Meta(name + ('_foot' if rig else '_boot') + s, 0.011)
         down = (ankle[s] - knee[s]).normalized()
         fwd = (X - down * X.dot(down)).normalized()
         foot_dir = (fwd * 0.95 + Z * 0.15).normalized()
@@ -556,7 +640,15 @@ def build_pilot(name, hip, back_deg, hands, feet, head_pitch_deg=-4.0, knee_out=
         Bt.ellipsoid(ankle[s] + foot_dir * 0.07 - Z * 0.045, (0.125, 0.047, 0.040), frame_quat(foot_dir, Z))
         Bt.ball(ankle[s] - foot_dir * 0.02 - Z * 0.05, 0.040)
         Bt.ellipsoid(ankle[s] + foot_dir * 0.165 - Z * 0.058, (0.045, 0.042, 0.030), frame_quat(foot_dir, Z))
-        parts.append(Bt.to_mesh('Boot', decimate=0.4))
+        boot = Bt.to_mesh('Boot', decimate=0.4)
+        if rig:
+            rigged[boot] = ankle[s]
+        else:
+            parts.append(boot)
+        joints['ankle'][s] = ankle[s].copy()
+        joints['knee'][s] = knee[s].copy()
+        joints['foot_dir'][s] = foot_dir.copy()
+        joints['foot_up'][s] = (Z - foot_dir * Z.dot(foot_dir)).normalized()
 
     # ---- arms + gloves
     for s, sy in (('L', 1), ('R', -1)):
@@ -571,22 +663,42 @@ def build_pilot(name, hip, back_deg, hands, feet, head_pitch_deg=-4.0, knee_out=
             wrist_t = target - X * 0.07 + Z * 0.02
         pole = -Z * 1.0 - X * 0.4 + Y * sy * elbow_out * 4
         elbow, wrist = ik2(sh[s], wrist_t, UPPER_ARM, FOREARM, pole)
-        A = Meta(name + '_arm' + s, 0.014)
+        A = Meta(name + ('_arm%s_up' % s if rig else '_arm' + s), 0.014)
         A.ball(sh[s], 0.068)
         A.capsule(sh[s], elbow, 0.054)
         A.ball(elbow, 0.047)
-        A.capsule(elbow, wrist + (elbow - wrist).normalized() * 0.03, 0.045)
+        if rig:
+            Af = Meta(name + '_arm%s_lo' % s, 0.014)
+            Af.ball(elbow, 0.047)
+        else:
+            Af = A
+        Af.capsule(elbow, wrist + (elbow - wrist).normalized() * 0.03, 0.045)
         arms[s] = A.to_mesh('Pilot_Suit', decimate=0.4)
         elbows[s] = elbow
-        parts.append(arms[s])
-        H = Meta(name + '_hand' + s, 0.0055)
-        H.capsule(wrist + (elbow - wrist).normalized() * 0.07, wrist, 0.049)       # gauntlet
+        joints['elbow'][s], joints['wrist'][s] = elbow.copy(), wrist.copy()
+        if rig:
+            # forearm + gauntlet pivot on the elbow; the glove alone follows the control
+            Gc = Meta(name + '_cuff' + s, 0.0055)
+            Gc.capsule(wrist + (elbow - wrist).normalized() * 0.07, wrist, 0.049)
+            fore = B.join_objects(name + '_arm%s_lo' % s, [Af.to_mesh('Pilot_Suit', decimate=0.4),
+                                                           Gc.to_mesh('Glove', decimate=0.22)])
+            rigged[arms[s]] = sh[s]
+            rigged[fore] = elbow
+            H = Meta(name + '_hand' + s, 0.0055)
+        else:
+            parts.append(arms[s])
+            H = Meta(name + '_hand' + s, 0.0055)
+            H.capsule(wrist + (elbow - wrist).normalized() * 0.07, wrist, 0.049)       # gauntlet
         if kind in ('stick', 'knob'):
             fist(H, wrist, target, Vector(axis) if axis is not None else Z, sy)
         else:
             thigh_dir = (knee[s] - hp[s]).normalized()
             flat_hand(H, wrist, thigh_dir, Z)
-        parts.append(H.to_mesh('Glove', decimate=0.22))
+        hand = H.to_mesh('Glove', decimate=0.22)
+        if rig:
+            rigged[hand] = wrist
+        else:
+            parts.append(hand)
 
     # ---- helmet
     hf = Quaternion(Y, math.radians(-head_pitch_deg)) @ X
@@ -615,15 +727,25 @@ def build_pilot(name, hip, back_deg, hands, feet, head_pitch_deg=-4.0, knee_out=
         c = hp[s] + (knee[s] - hp[s]) * 0.55
         tdir = (knee[s] - hp[s]).normalized()
         out = Y * sy
-        surface_patch(mb, leg, c + out * 0.2, out, tdir, Z, 0.15, 0.12, 0.006, 'Pilot_Suit')
-        surface_patch(mb, leg, c + out * 0.2 + tdir * 0.0 + Z * 0.05, out, tdir, Z, 0.155, 0.03, 0.009, 'Suit_Dark')
+        pk = MB(name + '_pocket' + s) if rig else mb
+        surface_patch(pk, leg, c + out * 0.2, out, tdir, Z, 0.15, 0.12, 0.006, 'Pilot_Suit')
+        surface_patch(pk, leg, c + out * 0.2 + tdir * 0.0 + Z * 0.05, out, tdir, Z, 0.155, 0.03, 0.009, 'Suit_Dark')
+        if rig:      # the pocket moves with the thigh
+            j = rigged.pop(leg)
+            legs[s] = B.join_objects(leg.name, [leg, pk.finish(sharp_angle=50)])
+            rigged[legs[s]] = j
     arm = arms['L']
     a0, a1 = sh['L'], elbows['L']
     adir = (a1 - a0).normalized()
     c = a0 + (a1 - a0) * 0.32
     perp = Y.cross(adir).normalized()
+    fl = MB(name + '_flag') if rig else mb
     for col, hh, d in (('Flag_Red', 0.012, 0.018), ('Flag_Yellow', 0.024, 0.0), ('Flag_Red', 0.012, -0.018)):
-        surface_patch(mb, arm, c - adir * d, Y, perp, -adir, 0.07, hh, 0.0035, col, cols=4, rows=1)
+        surface_patch(fl, arm, c - adir * d, Y, perp, -adir, 0.07, hh, 0.0035, col, cols=4, rows=1)
+    if rig:
+        j = rigged.pop(arm)
+        arms['L'] = B.join_objects(arm.name, [arm, fl.finish(sharp_angle=50)])
+        rigged[arms['L']] = j
     buckle = surface_path(torso, [hip + u * 0.13 + f * 0.25], f, 0.012)
     for sy in (1, -1):
         over = S + Y * sy * 0.095 + u * 0.075 - f * 0.02
@@ -645,9 +767,10 @@ def build_pilot(name, hip, back_deg, hands, feet, head_pitch_deg=-4.0, knee_out=
 
     ob = B.join_objects(name, parts)
     # origin at the H-point (pose pivot)
-    off = hip - ob.location
-    ob.data.transform(Matrix.Translation(-off))
-    ob.location = hip
+    set_origin(ob, hip)
+    for o, p in rigged.items():
+        set_origin(o, p)
+    JOINTS[name] = joints
     return ob
 
 

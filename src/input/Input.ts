@@ -200,6 +200,11 @@ export class Input {
     return this.mouseStick && this.wheelThrottle
   }
 
+  /** Acción pedida desde fuera del teclado (interruptores de la cabina pulsados con el ratón). */
+  trigger(a: Action): void {
+    this.actions.push(a)
+  }
+
   consumeActions(): Action[] {
     const a = this.actions
     this.actions = []

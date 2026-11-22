@@ -38,6 +38,8 @@ interface Snap {
   ns: number
   sp: number
   sr: number
+  th: number
+  wb: number
   g: boolean
   ag: number
 }
@@ -98,7 +100,7 @@ export class RemoteAircraft {
   readonly pose = new RemotePose()
   /** pose extrapolada al instante actual (para los choques) */
   readonly now = new RemotePose()
-  readonly ctl = { pitch: 0, roll: 0 }
+  readonly ctl = { pitch: 0, roll: 0, throttle: 0, wheelBrake: 0 }
   status = ST_LOADING
   /** ms (reloj local) de la última instantánea */
   lastRecv = 0
@@ -215,6 +217,8 @@ export class RemoteAircraft {
       ns: num(m.ns),
       sp: num(m.sp),
       sr: num(m.sr),
+      th: num(m.th),
+      wb: num(m.wb),
       g: m.g === 1,
       ag: num(m.ag),
     })
@@ -272,6 +276,8 @@ export class RemoteAircraft {
     out.agl = lerp(a.ag, b.ag)
     this.ctl.pitch = lerp(a.sp, b.sp)
     this.ctl.roll = lerp(a.sr, b.sr)
+    this.ctl.throttle = lerp(a.th, b.th)
+    this.ctl.wheelBrake = lerp(a.wb, b.wb)
     return true
   }
 

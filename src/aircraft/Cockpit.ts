@@ -2,12 +2,15 @@
 //  · hilo de guiñada 3D pegado al parabrisas, movido por el aire relativo real
 //    (velocidad propia − viento con ráfagas, giro del aparato y gravedad);
 //  · panel de instrumentos vivo (relojes, EFIS con horizonte y bola, avisos)
-//    dibujado en un lienzo y puesto sobre el salpicadero del modelo.
+//    dibujado en un lienzo y puesto en la zona de relojes del panel del modelo;
+//  · el resto del panel (rótulos, pilotos, interruptores y llave que se pueden pulsar):
+//    PanelFace.ts.
 
 import {
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
+  type Camera,
   CanvasTexture,
   Color,
   CylinderGeometry,
@@ -26,13 +29,17 @@ import {
 } from 'three'
 import { LIGHT_LAYER } from '../render/Graphics.ts'
 import { t } from '../i18n.ts'
+import { PanelFace, type PanelAction } from './PanelFace.ts'
 import { CG } from '../sim/autogyro.ts'
 import type { Hud, HudData } from '../hud/Hud.ts'
 
 const DEG = Math.PI / 180
 const TAU = Math.PI * 2
 
-/** Salpicadero de cada GLB (coordenadas del modelo: +X morro, +Y arriba, +Z derecha). Sale de blender/*.py. */
+/**
+ * Zona de los relojes vivos (coordenadas del modelo: +X morro, +Y arriba, +Z derecha). Sale de la
+ * disposición que exporta blender/panel.py en el nodo `panel_face` (PanelFace.zoneSpec).
+ */
 interface PanelSpec {
   /** centro de la caja del panel */
   center: [number, number, number]
@@ -42,11 +49,8 @@ interface PanelSpec {
   tilt: number
   /** grosor de la caja del panel en Blender (la cara está a la mitad) */
   depth?: number
-}
-const PANELS: Record<string, PanelSpec> = {
-  autogiro: { center: [1.1, -0.02, 0], width: 0.6, height: 0.21, tilt: 15 },
-  ela07: { center: [1.38, -0.17, 0], width: 0.44, height: 0.2, tilt: 28 },
-  ela10: { center: [1.38, -0.29, 0], width: 0.38, height: 0.15, tilt: 26 },
+  /** cuánto sobresale la placa de los relojes de la cara del panel */
+  lift?: number
 }
 
 /**
@@ -57,6 +61,9 @@ const PANELS: Record<string, PanelSpec> = {
 const YAW_ROD: Record<string, { x: number; top: number }> = {
   ela07: { x: 1.72, top: -0.08 },
 }
+
+/** Aparatos sin hilo de guiñada (el C.30A de 1934 no lo llevaba). */
+const NO_YAW_STRING = new Set(['cierva_c30a'])
 
 /** Lo que el hilo necesita del aparato. */
 export interface CockpitAircraft {
@@ -81,6 +88,10 @@ export class Cockpit {
   private model: Object3D | null = null
   private yaw: YawString | null = null
   private panel: LivePanel | null = null
+  private face: PanelFace | null = null
+  /** luces exteriores encendidas (lo pone AircraftView): interruptores LUCES/ESTROBO */
+  lightsOn = false
+  private panelState = { engineOn: true, lightsOn: false, rotorBrake: false }
 
   constructor() {
     this.root.name = 'cockpit_extras'
@@ -92,11 +103,12 @@ export class Cockpit {
     this.model = model
     model.add(this.root)
     model.updateMatrixWorld(true)
-    const spec = PANELS[key]
-    if (spec) {
-      this.panel = new LivePanel(spec)
+    this.face = PanelFace.create(model)
+    if (this.face) {
+      this.panel = new LivePanel(this.face.zoneSpec())
       this.root.add(this.panel.group)
     }
+    if (NO_YAW_STRING.has(key)) return
     const rod = YAW_ROD[key] ? buildRod(model, glass, eye, YAW_ROD[key]) : null
     const anchor = rod ? { point: rod.top, normal: new Vector3(0, 1, 0) } : findStringAnchor(model, glass, eye)
     this.yaw = new YawString(anchor.point, anchor.normal, !!rod)
@@ -107,8 +119,10 @@ export class Cockpit {
   detach(): void {
     this.root.removeFromParent()
     this.panel?.dispose()
+    this.face?.dispose()
     this.yaw?.dispose()
     this.panel = null
+    this.face = null
     this.yaw = null
     this.model = null
   }
@@ -123,6 +137,52 @@ export class Cockpit {
     this.model.updateWorldMatrix(true, false)
     this.yaw?.update(dt, ac, wind, this.model.worldToLocal(_cam.copy(camera)))
     if (this.panel && hud && near) this.panel.update(dt, ac, hudPainter, hud)
+    if (this.face) {
+      const st = this.panelState
+      if (hud) {
+        st.engineOn = hud.engineOn
+        st.rotorBrake = hud.rotorBrake
+      }
+      st.lightsOn = this.lightsOn
+      this.face.update(dt, st)
+    }
+  }
+
+  /**
+   * Interruptores y llave del panel con el ratón: un clic corto (sin arrastrar, que es mirar)
+   * sobre LUCES/ESTROBO, FRENO ROTOR o la llave dispara su acción. Solo cuando `active()`
+   * (vista de cabina, sin menú); con el puntero encima, cursor de mano.
+   */
+  bindPointer(dom: HTMLElement, camera: Camera, active: () => boolean, onAction: (a: PanelAction) => void): void {
+    let down: { x: number; y: number; t: number } | null = null
+    const pick = (e: PointerEvent): PanelAction | null => {
+      if (!this.face || !active() || document.pointerLockElement) return null
+      const r = dom.getBoundingClientRect()
+      const x = ((e.clientX - r.left) / r.width) * 2 - 1
+      const y = -((e.clientY - r.top) / r.height) * 2 + 1
+      return this.face.pick(x, y, camera, r.width, r.height)
+    }
+    dom.addEventListener('pointerdown', (e) => {
+      if (e.button === 0) down = { x: e.clientX, y: e.clientY, t: performance.now() }
+    })
+    dom.addEventListener('pointerup', (e) => {
+      if (e.button !== 0 || !down) return
+      const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y)
+      const quick = performance.now() - down.t < 450
+      down = null
+      if (moved > 5 || !quick) return
+      const a = pick(e)
+      if (a) onAction(a)
+    })
+    let hover = false
+    dom.addEventListener('pointermove', (e) => {
+      if (e.buttons) return
+      const h = pick(e) !== null
+      if (h !== hover) {
+        hover = h
+        dom.style.cursor = h ? 'pointer' : ''
+      }
+    })
   }
 }
 
@@ -456,7 +516,7 @@ class LivePanel {
     this.group.quaternion.setFromRotationMatrix(_m)
     this.group.position.copy(faceC)
 
-    const plateDepth = LIFT
+    const plateDepth = spec.lift ?? LIFT
     const front = lit(
       new MeshStandardMaterial({
         map: this.tex,
@@ -754,7 +814,12 @@ class LivePanel {
     ]
     const gap = w * 0.02
     const bw = (w - gap * (items.length - 1)) / items.length
-    c.font = `700 ${h * 0.36}px Inter, system-ui, sans-serif`
+    // la letra más grande con la que todos los rótulos caben en su caja (antes se solapaban)
+    let fs = h * 0.36
+    c.font = `700 ${fs}px Inter, system-ui, sans-serif`
+    const widest = Math.max(...items.map(([label]) => c.measureText(label).width))
+    if (widest > bw * 0.88) fs *= (bw * 0.88) / widest
+    c.font = `700 ${fs}px Inter, system-ui, sans-serif`
     c.textAlign = 'center'
     c.textBaseline = 'middle'
     items.forEach(([label, col], i) => {

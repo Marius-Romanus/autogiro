@@ -107,6 +107,9 @@ export interface StateMsg {
   ag: number
   /** luces exteriores encendidas (los clientes anteriores no lo mandan: apagadas) */
   li?: 0 | 1
+  /** gas 0..1 y freno de ruedas 0..1, para las palancas de cabina (opcionales: clientes anteriores) */
+  th?: number
+  wb?: number
 }
 
 export type ClientMsg =

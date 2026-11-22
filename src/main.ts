@@ -121,6 +121,13 @@ class App {
     this.gfx.sunLight.shadow.camera.layers.enable(SHADOW_ONLY_LAYER)
     this.gfx.scene.add(this.view.root)
     this.crashSys = new CrashSystem(this.gfx.scene, { sun: this.gfx.sunLight, sky: this.gfx.skyLight })
+    // interruptores y llave del panel, pulsables en la vista de cabina
+    this.view.cockpit.bindPointer(
+      this.gfx.renderer.domElement,
+      this.gfx.camera,
+      () => this.rig.mode === 'cockpit' && !this.menuOpen && this.state === 'flying',
+      (a) => this.input.trigger(a),
+    )
     this.input = new Input(this.settings, this.gfx.renderer.domElement)
     this.rig = new CameraRig(this.gfx.camera)
     this.hud = new Hud($('hud') as HTMLCanvasElement)

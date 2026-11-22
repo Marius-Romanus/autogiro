@@ -207,10 +207,12 @@ def build_c30_head(pivot, hub):
 
 
 def build_hanging_stick(pivot, grip):
-    """Control column fixed to the head, cranked aft and down into the rear cockpit."""
+    """Control column fixed to the head: out of the underside of the head fairing, back over the front
+    cockpit, then down almost vertically BEHIND the rear windscreen (top edge x -0.70, z 0.72) and the
+    instrument board, so that it clears both over its whole travel."""
     mb = MB('stick')
-    knee = pivot + V(-0.30, 0, -0.06)
-    pts = catmull([pivot + V(-0.06, 0, -0.04), knee, grip + V(0.10, 0, 0.32), grip + V(0.0, 0, 0.06)], 6)
+    pts = catmull([pivot + V(-0.06, 0, -0.04), V(-0.30, 0, 1.44), V(-0.62, 0, 1.15), V(-0.83, 0, 0.84),
+                   V(grip.x, 0, 0.56), grip + V(0.0, 0, 0.06)], 6)
     mb.tube(pts, 0.019, 'Metal_Frame', n=12, cap=True)
     # leather-bound grip
     mb.cyl(grip + V(0, 0, 0.07), grip + V(0, 0, -0.08), 0.024, 'Leather', n=14)
@@ -355,7 +357,8 @@ def build_c30_materials(livery):
 # 10 deg ground angle) and placed with the CG from ARC R&M 1859 (rotor centre 5.78 ft above the CG
 # perpendicular to the body axis and 0.42 ft behind it). Blender axes: x forward, y left, z up.
 # ===========================================================================
-from build_ela import thicken_shell, opening_rim, panel, throttle, make_eye  # noqa: E402
+from build_ela import thicken_shell, opening_rim, panel, make_eye  # noqa: E402
+import controls  # noqa: E402
 
 HUB = V(-0.03, 0, 1.82)
 HEAD_PIVOT = V(-0.03, 0, 1.62)
@@ -374,7 +377,9 @@ CK_F = (0.13, -0.44, 0.27)        # front (passenger) cockpit: x front, x rear, 
 CK_R = (-0.62, -1.27, 0.26)       # rear (pilot) cockpit
 PILOT_HIP = V(-1.07, 0, 0.02)
 PASS_HIP = V(-0.17, 0, -0.06)
-GRIP = V(-0.77, 0, 0.36)
+GRIP = V(-0.85, 0, 0.30)          # hand on the hanging column, behind the rear windscreen and board
+THROTTLE_PIVOT = V(-0.87, 0.33, 0.135)
+FOOT_BAR = V(-0.38, 0, -0.32)      # tail-wheel foot bar (no rudder), turns about a vertical pin
 
 LIVERY = dict(
     # replica XVU.1-1 at the Museo del Aire (Cuatro Vientos, Madrid): aluminium-doped fabric and
@@ -469,19 +474,28 @@ def build_cockpits():
         mb.box(hip + V(0.10, 0, -0.22), (0.38, 0.40, 0.12), 'Interior', bevel=0.02, segs=1)
     # pilot's instrument board (wood) under the rear windscreen: ASI, altimeter, rev counter, rotor
     # rev counter, oil pressure; compass below
-    panel(mb, V(-0.635, 0, 0.36), 0.50, 0.18, 12, gauges=True, glare=False)
-    mb.cyl(V(-0.70, 0, 0.16), V(-0.70, 0, 0.21), 0.06, 'Panel', n=20)
-    mb.sphere(V(-0.70, 0, 0.23), 0.045, 'Glass', seg=16, rings=8)
+    # (compass in the middle of the board, out of the way of the hanging column)
+    panel(mb, V(-0.635, 0, 0.36), 0.50, 0.18, 12, gauges=True, glare=False, center='compass')
     # passenger's small board (altimeter + rev counter)
-    panel(mb, V(0.11, 0, 0.36), 0.40, 0.14, 12, gauges=True, glare=False)
-    # throttle quadrant (left side), rotor-starter and brake levers, tail-wheel foot bar
-    throttle(mb, V(-0.88, 0.33, 0.12), V(-0.84, 0.30, 0.20))
-    for k, (x, col) in enumerate(((-0.92, 'Paint_Accent'), (-0.98, 'Paint_Dark'))):
-        mb.cyl(V(x, -0.30, -0.05), V(x + 0.05, -0.27, 0.22), 0.007, 'Metal_Frame', n=8)
-        mb.sphere(V(x + 0.05, -0.27, 0.23), 0.018, col, seg=10, rings=6)
-    mb.cyl(V(-0.38, 0.22, -0.32), V(-0.38, -0.22, -0.32), 0.014, 'Metal_Frame', n=10)
+    panel(mb, V(0.11, 0, 0.36), 0.40, 0.14, 12, gauges=True, glare=False, center=None)
+    # rotor-starter (red) and wheel-brake levers on the right wall: nodes pivoting at their foot
+    for name, x, col in (('starter_lever', -0.92, 'Paint_Accent'), ('brake_lever', -0.98, 'Paint_Dark')):
+        p0 = V(x, -0.30, -0.05)
+        mb.box(p0 + V(0, -0.014, 0), (0.05, 0.012, 0.05), 'Metal_Frame', bevel=0.004, segs=1)
+        lv = MB(name)
+        lv.cyl(p0 + V(0, -0.010, 0), p0 + V(0, 0.012, 0), 0.012, 'Metal_Frame', n=12)
+        lv.cyl(p0, V(x + 0.05, -0.27, 0.22), 0.007, 'Metal_Frame', n=8)
+        lv.sphere(V(x + 0.05, -0.27, 0.23), 0.018, col, seg=10, rings=6)
+        lv.finish(origin=p0, sharp_angle=40)
+    # tail-wheel foot bar on a vertical pin
+    mb.cyl(FOOT_BAR + V(0, 0, -0.012), V(FOOT_BAR.x, 0, -0.37), 0.016, 'Metal_Frame', n=12)
+    mb.box(V(FOOT_BAR.x, 0, -0.365), (0.10, 0.08, 0.012), 'Metal_Frame', bevel=0.003, segs=1)
+    fb = MB('foot_bar')
+    fb.cyl(FOOT_BAR + V(0, 0.22, 0), FOOT_BAR + V(0, -0.22, 0), 0.014, 'Metal_Frame', n=10)
+    fb.cyl(FOOT_BAR + V(0, 0, -0.016), FOOT_BAR + V(0, 0, 0.018), 0.022, 'Metal_Frame', n=14)
     for sy in (1, -1):
-        mb.box(V(-0.37, sy * 0.16, -0.30), (0.03, 0.10, 0.10), 'Metal_Frame', bevel=0.006, segs=1)
+        fb.box(V(-0.37, sy * 0.16, -0.30), (0.03, 0.10, 0.10), 'Metal_Frame', bevel=0.006, segs=1)
+    fb.finish(origin=FOOT_BAR, sharp_angle=40)
     # fuel filler cap on the decking ahead of the passenger
     mb.cyl(V(0.62, 0, 0.552), V(0.62, 0, 0.585), 0.05, 'Metal_Frame', n=20)
     return mb.finish(sharp_angle=40, wn=True)
@@ -614,16 +628,55 @@ def build_tailwheel():
     return nb.finish(origin=TAIL_PIVOT, sharp_angle=40)
 
 
+def body_top_z(x, y):
+    """Height of the fuselage's upper surface at (x, y) (Body.ring: (y/hw)^e_side + (dz/h)^e_top = 1)."""
+    zt, hw, zw = BODY.zt(x), BODY.hw(x), BODY.zw(x)
+    t = min(1.0, abs(y) / hw)
+    return zw + (zt - zw) * max(0.0, 1 - t ** BODY.e_side) ** (1 / BODY.e_top)
+
+
+def body_entry(p, d, step=0.002):
+    """First point of the ray p + d*s that is inside the fuselage (below its upper surface)."""
+    s = 0.0
+    while s < 3.0:
+        q = p + d * s
+        if abs(q.y) < BODY.hw(q.x) and q.z <= body_top_z(q.x, q.y):
+            return q
+        s += step
+    raise ValueError('leg misses the fuselage')
+
+
+def body_normal(x, y, e=0.004):
+    gx = (body_top_z(x + e, y) - body_top_z(x - e, y)) / (2 * e)
+    gy = (body_top_z(x, y + e) - body_top_z(x, y - e)) / (2 * e)
+    return V(-gx, -gy, 1.0).normalized()
+
+
 def build_pylon():
     mb = MB('pylon')
-    # four streamlined legs to the top longerons + the rotor starting shaft along the front pair
+    # four streamlined legs down to the top longerons: each leg runs on until it meets the rounded
+    # decking (photos: the feet sit ON the fuselage shoulders, ~0.2 m below the top line) and ends in a
+    # faired shoe on a bolted plate. The old feet stopped ~0.2 m above the skin and looked loose.
     for sy in (1, -1):
-        mb.tube([V(0.37, sy * 0.40, 0.48), V(0.28, sy * 0.09, 1.33)], 0.0, 'Paint_White', n=14,
-                square=(0.07, 0.035, 2.2), cap=True)
-        mb.tube([V(-0.43, sy * 0.38, 0.47), V(-0.05, sy * 0.09, 1.35)], 0.0, 'Paint_White', n=14,
-                square=(0.06, 0.03, 2.2), cap=True)
-        for p in (V(0.37, sy * 0.40, 0.49), V(-0.43, sy * 0.38, 0.48)):
-            mb.box(p, (0.09, 0.06, 0.03), 'Metal_Frame', bevel=0.008, segs=1)
+        for top, fx, sq in ((V(0.28, sy * 0.09, 1.33), 0.38, (0.07, 0.035)),
+                            (V(-0.05, sy * 0.09, 1.35), -0.42, (0.06, 0.03))):
+            # aim 2 cm under the skin at |y| 0.33 (the legs splay about as steeply as the shoulder curves)
+            foot = V(fx, sy * 0.33, body_top_z(fx, 0.33) - 0.02)
+            d = (foot - top).normalized()
+            hit = body_entry(top, d)
+            mb.tube([top, hit + d * 0.03], 0.0, 'Paint_White', n=14, square=(sq[0], sq[1], 2.2), cap=True)
+            n = body_normal(hit.x, hit.y)
+            ax = (V(1, 0, 0) - n * n.x).normalized()
+            R = controls.basis(ax, n.cross(ax), n)
+            # shoe: the leg section flares into the plate
+            mb.tube([hit - d * 0.07, hit - d * 0.02, hit + d * 0.01], [0.0, 0.0, 0.0], 'Paint_White', n=14,
+                    square=(sq[0] * 1.45, sq[1] * 1.6, 2.2), cap=True)
+            mb.box(hit - n * 0.002, (0.13, 0.085, 0.012), 'Metal_Frame', bevel=0.004, segs=1, rot=R)
+            for bx in (-0.045, 0.045):
+                for by in (-0.028, 0.028):
+                    mb.cyl(hit + ax * bx + n.cross(ax) * by + n * 0.003, hit + ax * bx + n.cross(ax) * by + n * 0.008,
+                           0.006, 'Metal_Frame', n=8)
+            print('  pylon leg foot on the skin at (%.3f, %.3f, %.3f)' % tuple(hit))
     mb.cyl(V(0.33, 0.0, 0.50), V(0.20, 0.0, 1.33), 0.018, 'Metal_Frame', n=10)
     # streamline fairing round the head: blunt rounded front, pointed tail, slanted underside
     top = [(0.33, 1.66), (0.30, 1.71), (0.27, 1.72), (-0.02, 1.72), (-0.52, 1.47)]
@@ -757,16 +810,18 @@ def build_markings(fus, tail):
 def build_crew():
     pilot.ensure_materials()
     d = V(0, 0, 1)
+    ctrl = MB('controls_static')
+    knob, lever = controls.throttle_lever(ctrl, THROTTLE_PIVOT, length=0.10, brake=False)
     pf = pilot.build_pilot('pilot_front', PILOT_HIP, 10,
-                           hands={'R': ('stick', GRIP, d), 'L': ('knob', V(-0.84, 0.30, 0.20), V(0.35, 0, 1))},
+                           hands={'R': ('stick', GRIP, d), 'L': ('knob', knob, lever)},
                            feet={'L': V(-0.40, 0.15, -0.31), 'R': V(-0.40, -0.15, -0.31)},
-                           helmet='leather', elbow_out=0.05)
+                           helmet='leather', elbow_out=0.05, rig=True)
     pr = pilot.build_pilot('pilot_rear', PASS_HIP, 8,
                            hands={'R': ('rest', PASS_HIP + V(0.22, -0.13, 0.20), None),
                                   'L': ('rest', PASS_HIP + V(0.22, 0.13, 0.20), None)},
                            feet={'L': V(0.47, 0.15, -0.36), 'R': V(0.47, -0.15, -0.36)},
                            helmet='leather', knee_out=0.03, elbow_out=0.04)
-    return pf, pr
+    return pf, pr, ctrl.finish(sharp_angle=40)
 
 
 # ---------------------------------------------------------------------------
@@ -775,7 +830,10 @@ REQUIRED = {
     'prop': (PROP_C.x, PROP_C.z, 0.0), 'nose_wheel': (TAIL_PIVOT.x, TAIL_PIVOT.z, 0.0),
     'wheel_L': (MAIN_C[0], MAIN_C[2], -MAIN_C[1]), 'wheel_R': (MAIN_C[0], MAIN_C[2], MAIN_C[1]),
     'stick': (HEAD_PIVOT.x, HEAD_PIVOT.z, 0.0), 'pilot_front': None, 'pilot_rear': None, 'eye_front': None,
+    'throttle': None, 'brake_lever': None, 'starter_lever': None,
+    'foot_bar': (FOOT_BAR.x, FOOT_BAR.z, 0.0),
 }
+REQUIRED.update(controls.rig_nodes('pilot_front'))
 
 
 def build_all():
@@ -792,7 +850,7 @@ def build_all():
     build_c30_rotor(HUB, ROTOR_R, CHORD, BLADE_ROOT)
     build_c30_head(HEAD_PIVOT, HUB)
     build_hanging_stick(HEAD_PIVOT, GRIP)
-    build_crew()
+    _pf, _pr, ctrl = build_crew()
     marks = build_markings(fus, tail)
     code = []
     try:
@@ -806,7 +864,8 @@ def build_all():
     eye = PILOT_HIP + u * 0.63 + V(0.035 + 0.08, 0, 0.072)
     make_eye(eye)
     REQUIRED['eye_front'] = (eye.x, eye.z, 0.0)
-    airframe = B.join_objects('airframe', [fus, rim, cockpit, fr1, fr2, pylon, tail, gear, engine] + marks + code)
+    airframe = B.join_objects('airframe', [fus, rim, cockpit, ctrl, fr1, fr2, pylon, tail, gear, engine] + marks
+                              + code)
     glass = B.join_objects('windscreen', [ws1, ws2])
     glass.name = 'windscreen'
     for ob in bpy.context.scene.collection.objects:

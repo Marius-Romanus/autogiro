@@ -1270,32 +1270,7 @@ def build_windscreen():
 
 def build_cockpit():
     mb = MB('cockpit')
-    # --- instrument panel (faces the pilot, top tilted forward 15 deg)
-    tilt = math.radians(15)
-    nrm = V(-math.cos(tilt), 0, math.sin(tilt))
-    upv = V(math.sin(tilt), 0, math.cos(tilt))
-    pc = V(1.10, 0, -0.02)
-    mb.box(pc, (0.03, 0.60, 0.21), 'Panel', bevel=0.012, segs=2, rot=Euler((0, tilt, 0)))
-    face_c = pc + nrm * 0.015
-
-    def on_panel(y, z, d=0.0):
-        return face_c + V(0, y, 0) + upv * z + nrm * d
-
-    gauges = [(0.125, 0.03, 0.036), (0.215, 0.03, 0.033), (-0.125, 0.03, 0.036), (-0.215, 0.03, 0.033),
-              (0.17, -0.055, 0.025), (-0.17, -0.055, 0.025)]
-    for (gy, gz, gr) in gauges:
-        mb.cyl(on_panel(gy, gz, 0.0), on_panel(gy, gz, 0.008), gr, 'Metal_Frame', n=20)
-        mb.cyl(on_panel(gy, gz, 0.008), on_panel(gy, gz, 0.0085), gr * 0.86, 'Gauge_Face', n=20)
-        p = on_panel(gy, gz, 0.0095)
-        mb.box(p + V(0, -gr * 0.25, 0) + upv * gr * 0.18, (0.002, gr * 0.65, 0.004), 'Paint_Accent',
-               rot=Euler((math.radians(-35), tilt, 0)))
-    # central EFIS screen
-    mb.box(on_panel(0, 0.0, 0.004), (0.008, 0.15, 0.105), 'Paint_Dark', bevel=0.004, segs=1, rot=Euler((0, tilt, 0)))
-    mb.box(on_panel(0, 0.0, 0.0085), (0.002, 0.135, 0.09), 'Visor', rot=Euler((0, tilt, 0)))
-    # switches row
-    for k in range(5):
-        mb.cyl(on_panel(-0.06 + k * 0.03, -0.085, 0.0), on_panel(-0.06 + k * 0.03, -0.085, 0.018), 0.004,
-               'Metal_Frame', n=6)
+    # (instrument panel: blender/panel.py, built with the crew once the pod exists)
     # anti-glare coaming hood over the panel
     rings = []
     for k in range(9):
@@ -1342,31 +1317,14 @@ def build_cockpit():
     mb.box((-0.10, 0, -0.55), (0.34, 0.40, 0.18), 'Interior', bevel=0.02, segs=1)
     # stick console
     mb.box((0.85, 0, -0.63), (0.16, 0.12, 0.14), 'Interior', bevel=0.02, segs=2)
-    # rudder pedals
-    for sy in (1, -1):
-        mb.box((1.33, sy * 0.15, -0.56), (0.025, 0.09, 0.13), 'Metal_Frame', bevel=0.006, segs=1,
-               rot=Euler((0, math.radians(-20), 0)))
-        mb.cyl(V(1.36, sy * 0.15, -0.66), V(1.33, sy * 0.15, -0.50), 0.008, 'Metal_Frame', n=8)
-    # throttle quadrant on the left wall
-    mb.box((0.76, 0.335, -0.19), (0.16, 0.04, 0.06), 'Panel', bevel=0.01, segs=2)
-    mb.cyl(V(0.76, 0.315, -0.18), V(0.80, 0.30, -0.13), 0.006, 'Metal_Frame', n=8)
-    mb.sphere(V(0.80, 0.30, -0.13), 0.016, 'Panel', seg=12, rings=8)
+    # (stick, throttle and pedals are moving nodes: blender/controls.py, built with the crew)
     return mb.finish(sharp_angle=40, wn=True)
 
 
-def build_stick():
-    mb = MB('stick')
-    base = V(0.85, 0, -0.55)
-    top = V(0.83, 0, 0.0)
-    d = (top - base).normalized()
-    mb.lathe([(0.0, 0.0), (0.045, 0.0), (0.04, 0.02), (0.03, 0.05), (0.016, 0.085), (0.0, 0.09)], base, d, 'Rubber',
-             n=16)
-    mb.cyl(base, base + d * 0.44, 0.011, 'Metal_Frame', n=12)
-    g0 = base + d * 0.42
-    mb.lathe([(0.0, 0.0), (0.017, 0.0), (0.019, 0.03), (0.018, 0.09), (0.020, 0.115), (0.016, 0.13), (0.0, 0.132)],
-             g0, d, 'Rubber', n=16)
-    mb.cyl(g0 + d * 0.122 + V(0.012, 0, 0), g0 + d * 0.122 + V(0.02, 0, 0), 0.006, 'Paint_Accent', n=8)
-    return mb.finish(origin=base, sharp_angle=40)
+# stick floor pivot and grip top (grip ~0.34 m above the H-point), throttle pivot on the left wall
+STICK_BASE, STICK_TOP = V(0.85, 0, -0.55), V(0.833, 0, -0.08)
+THROTTLE_PIVOT = V(0.77, 0.335, -0.175)
+PEDAL_FLOOR_Z = -0.66
 
 
 # ---------------------------------------------------------------------------
@@ -1455,25 +1413,31 @@ def build_pilots():
     return front, rear
 
 
-def build_crew():
-    """Seated crew from blender/pilot.py (flight suit, open helmet with headset, IK to the controls)."""
+def build_crew(panel_targets=()):
+    """Seated crew from blender/pilot.py (flight suit, open helmet with headset, IK to the controls), the
+    moving controls and the carbon instrument panel (its top follows `panel_targets`)."""
     sys.modules.setdefault('build_autogiro', sys.modules[__name__])   # pilot.py shares this module's MATS
     if HERE not in sys.path:
         sys.path.insert(0, HERE)
     import pilot
+    import controls
     pilot.ensure_materials()
-    base, top = V(0.85, 0, -0.55), V(0.83, 0, 0.0)
-    d = (top - base).normalized()
+    ctrl = MB('controls_static')
+    stick, grip, axis = controls.gyro_stick(STICK_BASE, STICK_TOP)
+    knob, lever = controls.throttle_lever(ctrl, THROTTLE_PIVOT)
     front = pilot.build_pilot('pilot_front', V(0.57, 0, -0.42), 14,
-                              hands={'R': ('stick', base + d * 0.486, d),
-                                     'L': ('knob', V(0.80, 0.30, -0.13), V(0.35, 0, 1))},
-                              feet={'L': V(1.22, 0.16, -0.56), 'R': V(1.22, -0.16, -0.56)})
+                              hands={'R': ('stick', grip, axis), 'L': ('knob', knob, lever)},
+                              feet={'L': V(1.22, 0.16, -0.56), 'R': V(1.22, -0.16, -0.56)}, rig=True)
+    controls.pedals(ctrl, pilot.JOINTS['pilot_front'], PEDAL_FLOOR_Z)
+    import panel
+    panel.build_panel(ctrl, V(1.10, 0, -0.03), 15, list(panel_targets), zone=(0.0, -0.075, 0.56, 0.18),
+                      cw=0.085, v_leg=-0.19, v_sb=-0.42, v_b=-0.47)
     # legs kept inside the tub (half-width 0.40 at knee height, 0.30 at the floor), knees nearly together
     rear = pilot.build_pilot('pilot_rear', V(-0.06, 0, -0.32), 10,
                              hands={'R': ('rest', V(0.12, -0.12, -0.10), None),
                                     'L': ('rest', V(0.12, 0.12, -0.10), None)},
                              feet={'L': V(0.40, 0.16, -0.56), 'R': V(0.40, -0.16, -0.56)}, knee_out=0.03)
-    return front, rear
+    return front, rear, ctrl.finish(sharp_angle=40)
 
 
 def build_registration(pod):
@@ -1554,8 +1518,7 @@ def build_all():
     gear, spats, wl, wr, nose = build_gear()
     ws, seal = build_windscreen()
     cockpit = build_cockpit()
-    stick = build_stick()
-    pf, pr = build_crew()
+    pf, pr, ctrl = build_crew([pod, cockpit])
     regs = build_registration(pod)
     eye = bpy.data.objects.new('eye_front', None)
     eye.empty_display_type = 'PLAIN_AXES'
@@ -1563,7 +1526,7 @@ def build_all():
     eye.location = (0.53, 0.0, 0.27)    # eyes of the pilot.py crew figure
     link(eye)
     # static parts -> one 'airframe' mesh (fewer draw calls), windscreen kept separate
-    airframe = join_objects('airframe', [pod, rim, frame, engine, tail, gear] + spats + [seal, cockpit] + regs)
+    airframe = join_objects('airframe', [pod, rim, frame, engine, tail, gear] + spats + [seal, cockpit, ctrl] + regs)
     ws.name = 'windscreen'
     for ob in bpy.context.scene.collection.objects:
         ob.rotation_euler = (0, 0, 0)
@@ -1580,6 +1543,11 @@ REQUIRED = {
     'rudder': (-3.55, 0.0, 0.0), 'nose_wheel': (1.60, -0.89, 0.0), 'wheel_L': (-0.40, -0.86, -0.95),
     'wheel_R': (-0.40, -0.86, 0.95), 'stick': (0.85, -0.55, 0.0), 'eye_front': (0.53, 0.27, 0.0),
     'pilot_front': None, 'pilot_rear': None,
+    'throttle': None, 'throttle_brake': None, 'pedal_L': None, 'pedal_R': None, 'panel_face': None, 'key': None,
+    'pilot_front_armL_up': None, 'pilot_front_armL_lo': None, 'pilot_front_handL': None,
+    'pilot_front_armR_up': None, 'pilot_front_armR_lo': None, 'pilot_front_handR': None,
+    'pilot_front_legL_up': None, 'pilot_front_legL_lo': None, 'pilot_front_footL': None,
+    'pilot_front_legR_up': None, 'pilot_front_legR_lo': None, 'pilot_front_footR': None,
 }
 
 

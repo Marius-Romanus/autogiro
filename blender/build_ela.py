@@ -23,6 +23,8 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import build_autogiro as B  # noqa: E402
 import pilot  # noqa: E402
+import controls  # noqa: E402
+import panel as PANEL  # noqa: E402
 from build_autogiro import (V, MB, MATS, TAU, hermite, lerp, sgnpow, catmull, airfoil_ring, naca4, link,  # noqa: E402
                             apply_mods, boundary_loops, resample_loop, closed_tube, mark_sharp,
                             remove_faces_with_material, line_through)
@@ -302,7 +304,8 @@ def bucket_seat(mb, hip, back_deg, width=0.44, headrest=True, cushion_len=0.42, 
             mb.cyl(hc - u * 0.08 + V(0, sy * 0.07, 0), hc - u * 0.14 + V(0, sy * 0.07, 0), 0.007, 'Metal_Frame', n=8)
 
 
-def panel(mb, pc, width, height, tilt_deg, gauges=True, glare=None):
+def panel(mb, pc, width, height, tilt_deg, gauges=True, glare=None, center='efis'):
+    """Instrument panel box with dummy gauges. center: 'efis' screen, 'compass' (1930s board) or None."""
     tilt = math.radians(tilt_deg)
     nrm = V(-math.cos(tilt), 0, math.sin(tilt))
     upv = V(math.sin(tilt), 0, math.cos(tilt))
@@ -322,8 +325,16 @@ def panel(mb, pc, width, height, tilt_deg, gauges=True, glare=None):
             p = on(gy, gz, 0.0095)
             mb.box(p + V(0, -gr * 0.25, 0) + upv * gr * 0.18, (0.002, gr * 0.65, 0.004), 'Paint_Dark',
                    rot=Euler((math.radians(-35), tilt, 0)))
-        mb.box(on(0, -0.005, 0.004), (0.008, 0.15, 0.10), 'Paint_Dark', bevel=0.004, segs=1, rot=Euler((0, tilt, 0)))
-        mb.box(on(0, -0.005, 0.0085), (0.002, 0.135, 0.085), 'Visor', rot=Euler((0, tilt, 0)))
+        if center == 'efis':
+            mb.box(on(0, -0.005, 0.004), (0.008, 0.15, 0.10), 'Paint_Dark', bevel=0.004, segs=1,
+                   rot=Euler((0, tilt, 0)))
+            mb.box(on(0, -0.005, 0.0085), (0.002, 0.135, 0.085), 'Visor', rot=Euler((0, tilt, 0)))
+        elif center == 'compass':
+            # P-type compass let into the board: bowl, card, lubber line
+            mb.cyl(on(0, 0.005), on(0, 0.005, 0.016), 0.046, 'Metal_Frame', n=28)
+            mb.cyl(on(0, 0.005, 0.016), on(0, 0.005, 0.0165), 0.039, 'Gauge_Face', n=28)
+            mb.box(on(0, 0.005 + 0.025, 0.018), (0.002, 0.003, 0.014), 'Paint_Dark', rot=Euler((0, tilt, 0)))
+            mb.box(on(0, 0.005, 0.018), (0.002, 0.050, 0.0025), 'Paint_Dark', rot=Euler((0, tilt, 0)))
         for k in range(5):
             mb.cyl(on(-0.06 + k * 0.03, -0.075), on(-0.06 + k * 0.03, -0.075, 0.018), 0.004, 'Metal_Frame', n=6)
     # glare shield over the panel
@@ -333,32 +344,6 @@ def panel(mb, pc, width, height, tilt_deg, gauges=True, glare=None):
     gl, gw = glare if glare else (0.17, width + 0.02)
     mb.box(top + V(gl * 0.35, 0, 0.012), (gl, gw, 0.022), 'Panel', bevel=0.01, segs=2,
            rot=Euler((0, math.radians(-6), 0)))
-
-
-def pedals(mb, x, z, half=0.14):
-    for sy in (1, -1):
-        mb.box((x, sy * half, z), (0.025, 0.09, 0.13), 'Metal_Frame', bevel=0.006, segs=1,
-               rot=Euler((0, math.radians(-20), 0)))
-        mb.cyl(V(x + 0.03, sy * half, z - 0.10), V(x, sy * half, z + 0.06), 0.008, 'Metal_Frame', n=8)
-
-
-def throttle(mb, base, knob):
-    mb.box(base, (0.18, 0.045, 0.06), 'Panel', bevel=0.01, segs=2)
-    mb.cyl(base + V(0, 0, 0.02), knob, 0.006, 'Metal_Frame', n=8)
-    mb.sphere(knob, 0.017, 'Panel', seg=12, rings=8)
-
-
-def build_stick_at(base, top):
-    mb = MB('stick')
-    d = (top - base).normalized()
-    mb.lathe([(0.0, 0.0), (0.045, 0.0), (0.04, 0.02), (0.03, 0.05), (0.016, 0.085), (0.0, 0.09)], base, d,
-             'Rubber', n=16)
-    mb.cyl(base, base + d * 0.44, 0.011, 'Metal_Frame', n=12)
-    g0 = base + d * 0.42
-    mb.lathe([(0.0, 0.0), (0.017, 0.0), (0.019, 0.03), (0.018, 0.09), (0.020, 0.115), (0.016, 0.13), (0.0, 0.132)],
-             g0, d, 'Rubber', n=16)
-    mb.cyl(g0 + d * 0.122 + V(0.012, 0, 0), g0 + d * 0.122 + V(0.02, 0, 0), 0.006, 'Paint_Accent', n=8)
-    return mb.finish(origin=base, sharp_angle=40), base + d * 0.486, d
 
 
 def make_eye(p):
@@ -714,9 +699,7 @@ def build_cockpit_ela10():
     o = V(E_DX, 0, 0)
     bucket_seat(mb, E_FRONT_HIP, 32, width=0.36, base=False)
     bucket_seat(mb, E_REAR_HIP, 30, width=0.40, base=False)
-    panel(mb, V(1.15, 0, -0.29) + o, 0.38, 0.15, 26, glare=(0.09, 0.30))
-    pedals(mb, 1.40 + E_DX, -0.55, half=0.13)
-    throttle(mb, V(0.78, 0.275, -0.38) + o, V(0.84, 0.265, -0.30) + o)
+    # (instrument panel: blender/panel.py, built once the hull exists)
     mb.box(V(1.00, 0, -0.67) + o, (0.18, 0.12, 0.08), 'Interior', bevel=0.02, segs=2)
     for sy in (1, -1):
         mb.tube(catmull([V(0.28, sy * 0.29, -0.18) + o, V(0.35, sy * 0.30, -0.14) + o,
@@ -739,11 +722,20 @@ def build_ela10():
     gear, spats = build_gear(leg_mat='Paint_White', antenna=False, steps=False, root=(0.33, -0.52),
                              nose_bracket_z=-0.62, nose_x=E_NOSE_X)
     cockpit = build_cockpit_ela10()
-    stick, grip, axis = build_stick_at(V(0.95, 0, -0.70) + o, V(0.86, 0, -0.20) + o)
+    # grip top 0.31 m above the H-point (it used to hide the bottom of the panel from the pilot's eye)
+    ctrl = MB('controls_static')
+    stick, grip, axis = controls.gyro_stick(V(0.95, 0, -0.70) + o, V(0.869, 0, -0.25) + o)
+    knob, lever = controls.throttle_lever(ctrl, V(0.79, 0.275, -0.365) + o)
     pilot.build_pilot('pilot_front', E_FRONT_HIP, 32,
-                      hands={'R': ('stick', grip, axis), 'L': ('knob', V(0.84, 0.265, -0.30) + o, V(0.4, 0, 1))},
+                      hands={'R': ('stick', grip, axis), 'L': ('knob', knob, lever)},
                       feet={'L': V(1.31, 0.13, -0.55) + o, 'R': V(1.31, -0.13, -0.55) + o}, knee_out=0.05,
-                      elbow_out=0.05)
+                      elbow_out=0.05, rig=True)
+    controls.pedals(ctrl, pilot.JOINTS['pilot_front'], -0.65)
+    # carbon panel that follows the canopy, live instruments on the shoulders, console between the
+    # legs (the shins cross the panel plane 9-21 cm below its centre, 9-21 cm either side)
+    PANEL.build_panel(ctrl, V(1.45, 0, -0.25), 26, [pod, canopy, cframe], zone=(0.0, 0.007, 0.40, 0.146),
+                      cw=0.062, v_leg=-0.066, v_sb=-0.30, v_b=-0.36, leg_exp=0.25)
+    ctrl = ctrl.finish(sharp_angle=40)
     # the passenger's knees straddle the (narrower) front seat back; boots stay off the rounded belly
     pilot.build_pilot('pilot_rear', E_REAR_HIP, 30,
                       hands={'R': ('rest', E_REAR_HIP + V(0.17, -0.19, 0.27), None),
@@ -756,7 +748,7 @@ def build_ela10():
     vents = vents.finish(sharp_angle=60)
     regs = build_registration(pod, LIVERY['ela10']['reg'], cx=-0.62, cz=0.05, size=0.10, mat='Paint_Accent')
     make_eye(V(0.50, 0.0, 0.05) + o)
-    finalize([pod, cframe, seal, pylon, boom, spons, tail, gear, vents] + spats + [cockpit] + regs, [canopy])
+    finalize([pod, cframe, seal, pylon, boom, spons, tail, gear, vents] + spats + [cockpit, ctrl] + regs, [canopy])
     B.REQUIRED = dict(B.REQUIRED)
     B.REQUIRED['stick'] = (0.95 + E_DX, -0.70, 0.0)
     B.REQUIRED['eye_front'] = (0.50 + E_DX, 0.05, 0.0)
@@ -964,14 +956,12 @@ def build_cockpit_ela07():
     mb = MB('cockpit')
     bucket_seat(mb, C_FRONT_HIP, 14, width=0.44)
     bucket_seat(mb, C_REAR_HIP, 4, width=0.44, headrest=False)
-    panel(mb, V(1.38, 0, -0.17), 0.44, 0.20, 28, glare=False)
+    # (front instrument panel: blender/panel.py, built once the hull exists)
     panel(mb, V(0.355, 0, 0.10), 0.26, 0.10, 6, gauges=False, glare=False)
     for gy in (0.065, -0.065):
         c = V(0.338, gy, 0.10)
         mb.cyl(c, c + V(-0.008, 0, 0.001), 0.028, 'Metal_Frame', n=18)
         mb.cyl(c + V(-0.008, 0, 0.001), c + V(-0.0085, 0, 0.001), 0.024, 'Gauge_Face', n=18)
-    pedals(mb, 1.42, -0.55, half=0.14)
-    throttle(mb, V(0.82, 0.29, -0.33), V(0.86, 0.28, -0.26))
     mb.box((0.92, 0, -0.63), (0.16, 0.12, 0.12), 'Interior', bevel=0.02, segs=2)
     return mb.finish(sharp_angle=40, wn=True)
 
@@ -992,10 +982,18 @@ def build_ela07():
     ws1, fr1 = windscreen('ws_front', pod, 1.60, 1.555, 0.24, 0.42, 25)
     ws2, fr2 = windscreen('ws_rear', pod, 0.42, 0.40, 0.25, 0.26, 25, base_z=0.372)
     cockpit = build_cockpit_ela07()
-    stick, grip, axis = build_stick_at(V(0.92, 0, -0.62), V(0.89, 0, -0.07))
+    ctrl = MB('controls_static')
+    stick, grip, axis = controls.gyro_stick(V(0.92, 0, -0.62), V(0.893, 0, -0.12))
+    knob, lever = controls.throttle_lever(ctrl, V(0.83, 0.29, -0.315))
     pilot.build_pilot('pilot_front', C_FRONT_HIP, 14,
-                      hands={'R': ('stick', grip, axis), 'L': ('knob', V(0.86, 0.28, -0.26), V(0.35, 0, 1))},
-                      feet={'L': V(1.31, 0.14, -0.55), 'R': V(1.31, -0.14, -0.55)}, elbow_out=0.05)
+                      hands={'R': ('stick', grip, axis), 'L': ('knob', knob, lever)},
+                      feet={'L': V(1.31, 0.14, -0.55), 'R': V(1.31, -0.14, -0.55)}, elbow_out=0.05, rig=True)
+    controls.pedals(ctrl, pilot.JOINTS['pilot_front'], -0.65)
+    # (open cockpit: the top follows a fixed arch under the front cowl)
+    PANEL.build_panel(ctrl, V(1.38, 0, -0.18), 28, [pod, chin, ws1], zone=(0.0, -0.01, 0.44, 0.17),
+                      cw=0.08, v_leg=-0.13, v_sb=-0.36, v_b=-0.42, top_arch=(0.285, 0.03, 0.135),
+                      max_u=0.265)
+    ctrl = ctrl.finish(sharp_angle=40)
     # legs inside the tub (half-width 0.33, floor -0.62), feet clear of the front seat
     pilot.build_pilot('pilot_rear', C_REAR_HIP, 4,
                       hands={'R': ('rest', C_REAR_HIP + V(0.22, -0.14, 0.23), None),
@@ -1003,7 +1001,7 @@ def build_ela07():
                       feet={'L': V(0.29, 0.16, -0.52), 'R': V(0.29, -0.16, -0.52)}, knee_out=0.03, elbow_out=0.05)
     regs = build_registration(pod, LIVERY['ela07']['reg'], cx=0.05, cz=-0.40, size=0.10)
     make_eye((0.64, 0.0, 0.27))
-    finalize([pod, rim, chin, frame, engine, tail, gear, fr1, fr2] + spats + [cockpit] + regs, [ws1, ws2])
+    finalize([pod, rim, chin, frame, engine, tail, gear, fr1, fr2] + spats + [cockpit, ctrl] + regs, [ws1, ws2])
     B.REQUIRED = dict(B.REQUIRED)
     B.REQUIRED['eye_front'] = (0.64, 0.27, 0.0)
     B.REQUIRED['stick'] = (0.92, -0.62, 0.0)

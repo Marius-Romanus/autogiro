@@ -684,6 +684,8 @@ export class Multiplayer {
       g: ac.onGround ? 1 : 0,
       ag: Number.isFinite(gy) ? r(ac.pos.y - gy, 100) : 999,
       li: app.view.lights.on ? 1 : 0,
+      th: r(app.ctl.throttle, 100),
+      wb: r(app.ctl.wheelBrake, 100),
     }
     this.send(msg)
   }
