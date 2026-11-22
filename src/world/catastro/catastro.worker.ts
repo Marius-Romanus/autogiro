@@ -22,8 +22,10 @@ const FEED_TTL = 7 * 24 * 3600 * 1000
 /** versión de lo guardado de los índices (se suben al cambiar el formato o la validación) */
 const FEED_V = 2
 const NATIONAL = 'buildings/ES.SDGC.BU.atom.xml'
-/** reintento de un municipio que falló */
-const RETRY_MS = 90_000
+/** reintento de un municipio que falló: a los 20 s, al minuto y después cada 3 minutos */
+const RETRY_MS = [20_000, 60_000, 180_000]
+/** sin respuesta, o sin que llegue nada nuevo, durante este tiempo: la descarga está colgada */
+const STALL_MS = 25_000
 
 interface BBox {
   s: number
@@ -92,6 +94,26 @@ function txDone(tx: IDBTransaction): Promise<void> {
 
 const feeds = new Map<string, Promise<FeedEntry[]>>()
 
+const sleep = (ms: number) => new Promise<void>((res) => setTimeout(res, ms))
+
+/**
+ * fetch que se corta solo si pasan STALL_MS sin respuesta o sin progreso (`touch()` en cada trozo).
+ * Sin esto, una conexión colgada con el Catastro dejaba parada la cola de descargas toda la partida.
+ */
+function watchedFetch(url: string): { res: Promise<Response>; touch: () => void; done: () => void } {
+  const ctrl = new AbortController()
+  const stall = () => ctrl.abort(new Error('el Catastro no responde'))
+  let timer = setTimeout(stall, STALL_MS)
+  return {
+    res: fetch(url, { signal: ctrl.signal }),
+    touch: () => {
+      clearTimeout(timer)
+      timer = setTimeout(stall, STALL_MS)
+    },
+    done: () => clearTimeout(timer),
+  }
+}
+
 function catastroUrl(path: string): string {
   // el servidor del juego reenvía /catastro/<ruta> a https://www.catastro.hacienda.gob.es/INSPIRE/<ruta>
   return '/catastro/' + path.split('/').map(encodeURIComponent).join('/')
@@ -105,8 +127,9 @@ function feed(path: string): Promise<FeedEntry[]> {
       const cached = (await reqP(d.transaction('feeds').objectStore('feeds').get(path))) as { path: string; time: number; v?: number; entries: FeedEntry[] } | undefined
       const valid = cached?.v === FEED_V ? cached : undefined
       if (valid && Date.now() - valid.time < FEED_TTL) return valid.entries
+      const wf = watchedFetch(catastroUrl(path))
       try {
-        const res = await fetch(catastroUrl(path))
+        const res = await wf.res
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         // el índice nacional viene en UTF-8 y los de las gerencias en ISO-8859-1: lo que diga su cabecera
         const raw = new Uint8Array(await res.arrayBuffer())
@@ -130,6 +153,8 @@ function feed(path: string): Promise<FeedEntry[]> {
         feeds.delete(path) // se reintenta en la próxima petición
         if (valid) return valid.entries // caducado pero mejor que nada
         throw e
+      } finally {
+        wf.done()
       }
     })()
     feeds.set(path, p)
@@ -225,15 +250,16 @@ const storedReady: Promise<void> = (async () => {
 /** cola: lo que se quiere ahora, por orden de urgencia */
 let queue: Array<{ entry: FeedEntry; prio: number }> = []
 let current: MuniStatus | null = null
-const failedAt = new Map<string, number>()
+/** fallos seguidos de cada municipio y cuándo fue el último */
+const failures = new Map<string, { at: number; n: number }>()
 /** borrados a mano en esta sesión: no se vuelven a bajar solos hasta reiniciar */
 const deletedNow = new Set<string>()
 let wantSeq = 0
 
 function blocked(code: string): boolean {
   if (deletedNow.has(code)) return true
-  const f = failedAt.get(code)
-  return f !== undefined && Date.now() - f < RETRY_MS
+  const f = failures.get(code)
+  return f !== undefined && Date.now() - f.at < RETRY_MS[Math.min(f.n, RETRY_MS.length) - 1]
 }
 
 async function want(circles: Circle[]): Promise<void> {
@@ -278,7 +304,7 @@ async function pump(): Promise<void> {
         await download(entry)
       } catch (e) {
         console.warn('[catastro] falló', code, entry.name, e)
-        failedAt.set(code, Date.now())
+        failures.set(code, { at: Date.now(), n: (failures.get(code)?.n ?? 0) + 1 })
         current = { code, name: entry.name ?? code, state: 'error' }
         sendStatus()
         // las teselas que lo esperaban dejan de esperar (se reintentará más tarde)
@@ -338,8 +364,18 @@ async function download(entry: FeedEntry): Promise<void> {
   const name = entry.name ?? code
   current = { code, name, state: 'downloading', loaded: 0 }
   sendStatus()
-  const res = await fetch(catastroUrl(entry.path))
+  const wf = watchedFetch(catastroUrl(entry.path))
+  try {
+    await downloadWatched(entry, code, name, wf)
+  } finally {
+    wf.done()
+  }
+}
+
+async function downloadWatched(entry: FeedEntry, code: string, name: string, wf: ReturnType<typeof watchedFetch>): Promise<void> {
+  const res = await wf.res
   if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+  if (!current) return
   const total = Number(res.headers.get('content-length')) || undefined
   current.total = total
 
@@ -404,6 +440,7 @@ async function download(entry: FeedEntry): Promise<void> {
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
+    wf.touch()
     loaded += value.length
     uz.push(value, false)
     if (unzipError) throw unzipError
@@ -443,7 +480,7 @@ async function download(entry: FeedEntry): Promise<void> {
   tx.objectStore('munis').put(muni)
   await txDone(tx)
   stored.set(code, muni)
-  failedAt.delete(code)
+  failures.delete(code)
   console.log(`[catastro] ${muni.name}: ${parts} partes en ${tiles.length} teselas (${(bytes / 1048576).toFixed(1)} MB)`)
   post({ t: 'ready', code, tiles, bbox: entry.bbox })
 }
@@ -473,9 +510,11 @@ function latToY(lat: number): number {
 
 /** ¿Falta algún municipio cuyo recuadro toca la tesela? */
 async function isPending(x: number, y: number): Promise<boolean> {
-  await storedReady
+  await Promise.race([storedReady, sleep(3000)])
   try {
-    const munis = await munisIn(tileBox(x, y))
+    // si el índice aún no ha llegado no se le espera: puede que falte algo (se sabrá cuando llegue)
+    const munis = await Promise.race([munisIn(tileBox(x, y)), sleep(3000).then(() => null)])
+    if (munis === null) return true
     return munis.some((m) => !stored.has(m.code!) && !blocked(m.code!) && !huge(m.bbox))
   } catch {
     return false // sin índice: lo que haya guardado
@@ -486,6 +525,9 @@ async function tile(id: number, x: number, y: number): Promise<void> {
   const pending = await isPending(x, y)
   let data: CatTile[] = []
   try {
+    // sin límite de tiempo: mientras se guarda un municipio grande la lectura espera su turno, y
+    // cortarla dejaría la tesela sin sus edificios sin avisar (el cliente ya no espera más de 6 s
+    // y rehace la tesela cuando llega esta respuesta)
     const d = await db()
     data = (await reqP(d.transaction('tiles').objectStore('tiles').index('byTile').getAll(`${x}/${y}`))) as CatTile[]
   } catch (e) {

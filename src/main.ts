@@ -86,7 +86,6 @@ class App {
   spawnXZ = new Vector3()
   loadingT = 0
   groundSeenT = 0
-  acc = 0
   last = performance.now()
   simDate = new Date()
   rotorBrake = true
@@ -121,6 +120,7 @@ class App {
     this.gfx.sunLight.shadow.camera.layers.enable(SHADOW_ONLY_LAYER)
     this.gfx.scene.add(this.view.root)
     this.crashSys = new CrashSystem(this.gfx.scene, { sun: this.gfx.sunLight, sky: this.gfx.skyLight })
+    this.input = new Input(this.settings, this.gfx.renderer.domElement)
     // interruptores y llave del panel, pulsables en la vista de cabina
     this.view.cockpit.bindPointer(
       this.gfx.renderer.domElement,
@@ -128,7 +128,6 @@ class App {
       () => this.rig.mode === 'cockpit' && !this.menuOpen && this.state === 'flying',
       (a) => this.input.trigger(a),
     )
-    this.input = new Input(this.settings, this.gfx.renderer.domElement)
     this.rig = new CameraRig(this.gfx.camera)
     this.hud = new Hud($('hud') as HTMLCanvasElement)
     this.guide = new Guide(this.settings.guide, (v) => {
@@ -388,6 +387,7 @@ class App {
         cam.updateProjectionMatrix()
       }
     } else {
+      this.rig.timeScale = this.state === 'crashed' ? this.crashSys.timeScale : 1
       this.rig.update(dt, ac, this.view, groundY, this.input.dragging)
     }
     this.view.lights.update(dt, this.gfx.camera, this.gfx.renderer.toneMappingExposure, this.gfx.sunDirWorld.y)
@@ -455,8 +455,11 @@ class App {
     const ac = this.ac
     const w = this.world!
     if (!this.ground.valid) return
-    this.acc += dt
-    let n = 0
+    // Pasos de como mucho DT que cubren justo el fotograma: el aparato se dibuja en el instante
+    // del fotograma (con pasos fijos y sobrante quedaba hasta un paso atrás, distinto en cada
+    // fotograma, y temblaba frente a la cámara). Tras un parón largo se simulan solo 20 pasos.
+    const n = Math.min(20, Math.ceil(dt / DT - 1e-6))
+    const h = Math.min(DT, dt / n)
     const geo = w.frame.worldToGeo(ac.pos)
     const msl = w.mode === 'google' ? geo.h - this.location.geoid : geo.h
     this.env.rho = isaDensity(msl)
@@ -465,14 +468,10 @@ class App {
     this.snap.quat.copy(ac.quat)
     this.snap.vel.copy(ac.vel)
     this.snap.omega.copy(ac.omega)
-    while (this.acc >= DT && n < 20) {
-      this.wind.sample(DT, Math.max(0, ac.agl), ac.tas, this.wv)
-      ac.step(DT, this.ctl, this.env)
-      this.acc -= DT
-      n++
-      if (ac.crash) break
+    for (let i = 0; i < n && !ac.crash; i++) {
+      this.wind.sample(h, Math.max(0, ac.agl), ac.tas, this.wv)
+      ac.step(h, this.ctl, this.env)
     }
-    if (n >= 20) this.acc = 0
     // colisión con edificios/árboles (tiles 3D)
     if (!ac.crash && w.mode === 'google' && ac.vel.length() > 4) {
       const seg = new Vector3().subVectors(ac.pos, this.prevPos)
@@ -682,7 +681,7 @@ class App {
     }
   }
 
-  /** Luces exteriores (botón de la barra superior o tecla O). */
+  /** Luces exteriores (botón de la barra superior o tecla L). */
   private toggleLights(): void {
     const l = this.view.lights
     l.on = !l.on

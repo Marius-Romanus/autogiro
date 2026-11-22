@@ -34,9 +34,24 @@ import { catastro, type BBox, type CatTile, type Circle } from './catastro/Catas
 import type { GeoFrame } from './GeoFrame.ts'
 import type { HeightSource } from './HeightSource.ts'
 import { classifyRings, fetchVectorTile, loadOrthoMosaic, xToLon, yToLat, Z, type Ring } from './mapTiles.ts'
+import { ROOF_CONE, ROOF_DOME, ROOF_FLAT, ROOF_GABLED, ROOF_HIPPED, ROOF_ONION, ROOF_PYRAMIDAL, ROOF_ROUND, ROOF_SKILLION } from './osmRoofFormat.ts'
+import { osmRoofsTile, type OsmRoof } from './osmRoofs.ts'
 import type { RoofJob } from './roof.worker.ts'
 import { buildRoofs } from './roofClient.ts'
-import { orientedBox, rectRoof, type RectKind } from './roofShapes.ts'
+import {
+  orientedBox,
+  PROFILE_DOME,
+  PROFILE_ONION,
+  PROFILE_SPIRE,
+  radialRoof,
+  rectRoof,
+  ringCentroid,
+  skillionHeights,
+  starShaped,
+  type OrientedBox,
+  type RectKind,
+  type SmoothMesh,
+} from './roofShapes.ts'
 import { Slicer, TileLayer, type LayerTile } from './TileLayer.ts'
 
 /** altura de una planta del Catastro (m) */
@@ -90,12 +105,14 @@ export class Buildings extends TileLayer<BuildingTile> {
   private readonly useCatastro: boolean
   private readonly offCatastro: (() => void) | null = null
   private readonly rebuildQueue: string[] = []
+  private readonly rebuildTries = new Map<string, number>()
   private rebuilding = false
   private readonly bornAt = performance.now()
   // para pedir al Catastro lo que viene por delante
   private wantTimer = 0
   private lastGeo: { lat: number; lon: number; t: number } | null = null
-  private vel = { e: 0, n: 0 }
+  /** desplazamientos de los tres últimos segundos (m/s hacia el este y el norte) */
+  private readonly steps: Array<{ e: number; n: number }> = []
 
   constructor(worldFrame: GeoFrame, heights: HeightSource, imageryUrl: string | null, useCatastro = false) {
     super(worldFrame, 'buildings')
@@ -137,22 +154,27 @@ export class Buildings extends TileLayer<BuildingTile> {
     const kx = 111320 * Math.cos((g.lat * Math.PI) / 180)
     if (this.lastGeo) {
       const dtS = Math.max(0.2, now - this.lastGeo.t)
-      const e = ((g.lon - this.lastGeo.lon) * kx) / dtS
-      const n = ((g.lat - this.lastGeo.lat) * 111320) / dtS
-      // saltos (re-centrado, aparecer en otro sitio): no son velocidad
-      if (Math.hypot(e, n) < 150) {
-        this.vel.e += (e - this.vel.e) * 0.5
-        this.vel.n += (n - this.vel.n) * 0.5
-      }
+      this.steps.push({ e: ((g.lon - this.lastGeo.lon) * kx) / dtS, n: ((g.lat - this.lastGeo.lat) * 111320) / dtS })
+      if (this.steps.length > 3) this.steps.shift()
     }
     this.lastGeo = { lat: g.lat, lon: g.lon, t: now }
+    // Velocidad: la media de los tres últimos segundos, y solo si en los tres se ha avanzado.
+    // Un salto de cámara (aparecer, cambiar de vista) dura una muestra y no es velocidad: tomarlo
+    // por tal hacía bajar, parado en la pista, una docena de municipios a 15 km en esa dirección.
+    const vel = { e: 0, n: 0 }
+    if (this.steps.length === 3 && this.steps.every((s) => Math.hypot(s.e, s.n) > 5 && Math.hypot(s.e, s.n) < 150)) {
+      for (const s of this.steps) {
+        vel.e += s.e / 3
+        vel.n += s.n / 3
+      }
+    }
     const circles: Circle[] = [{ lat: g.lat, lon: g.lon, r: this.radius + 1000 }]
-    const speed = Math.hypot(this.vel.e, this.vel.n)
+    const speed = Math.hypot(vel.e, vel.n)
     if (speed > 5) {
       for (const tAhead of [60, 120, 180, 240, 300]) {
         const d = Math.min(speed * tAhead, 12000)
-        const lat = g.lat + (this.vel.n / speed) * (d / 111320)
-        const lon = g.lon + (this.vel.e / speed) * (d / kx)
+        const lat = g.lat + (vel.n / speed) * (d / 111320)
+        const lon = g.lon + (vel.e / speed) * (d / kx)
         circles.push({ lat, lon, r: this.radius })
         if (d >= 12000) break
       }
@@ -197,12 +219,24 @@ export class Buildings extends TileLayer<BuildingTile> {
         const key = this.rebuildQueue.shift()!
         const t = this.tiles.get(key)
         if (!t || t.state === 'loading') continue
-        const built = await this.buildTile(t)
+        let built: Built | null
+        try {
+          built = await this.buildTile(t)
+        } catch (e) {
+          // falló una petición (o la tesela se descargó mientras tanto): las demás siguen,
+          // y esta se reintenta a los 4, 8 y 12 s
+          if (!t.abort.signal.aborted && this.tiles.get(key) === t) {
+            const n = (this.rebuildTries.get(key) ?? 0) + 1
+            this.rebuildTries.set(key, n)
+            if (n <= 3) setTimeout(() => !this.disposed && this.tiles.get(key) === t && this.catastroChanged([key]), 4000 * n)
+            else console.warn('buildings: no se pudo rehacer la tesela', key, e)
+          }
+          continue
+        }
+        this.rebuildTries.delete(key)
         if (!built || t.abort.signal.aborted || this.tiles.get(key) !== t) continue
         this.attach(t, built)
       }
-    } catch (e) {
-      console.warn('buildings: error al rehacer una tesela', e)
     } finally {
       this.rebuilding = false
     }
@@ -289,11 +323,12 @@ export class Buildings extends TileLayer<BuildingTile> {
     const south = yToLat(t.y + 1, n)
     const west = xToLon(t.x, n)
     const east = xToLon(t.x + 1, n)
-    const [vt, ortho, , cat] = await Promise.all([
+    const [vt, ortho, , cat, osmRoofs] = await Promise.all([
       fetchVectorTile(t.x, t.y, signal),
       this.imageryUrl ? loadOrthoMosaic(this.imageryUrl, t.x, t.y, signal) : Promise.resolve(null),
       this.heights.ensure(south - 0.001, west - 0.001, north + 0.001, east + 0.001),
       this.useCatastro ? catastro.tile(t.x, t.y) : Promise.resolve(null),
+      osmRoofsTile(t.x, t.y),
     ])
     if (signal.aborted) return null
     t.catPending = cat?.pending ?? false
@@ -310,11 +345,13 @@ export class Buildings extends TileLayer<BuildingTile> {
     const slicer = new Slicer(6)
     const prisms: Prism[] = []
     const deferred: DeferredRoof[] = []
-    const add = (rings: Array<{ pts: Array<[number, number]>; cut: boolean[] }>, height: number, minHeight: number, colour: string | null, hangar: boolean) =>
-      this.addBuilding(builder, t.frame, prisms, deferred, rings, toGeo, height, minHeight, colour, colours, E, hangar, t.x * E, t.y * E)
+    const add = (rings: Array<{ pts: Array<[number, number]>; cut: boolean[] }>, height: number, minHeight: number, colour: string | null, hangar: boolean, osmRoof: OsmRoof | null = null) =>
+      this.addBuilding(builder, t.frame, prisms, deferred, rings, toGeo, height, minHeight, colour, colours, E, hangar, t.x * E, t.y * E, osmRoof)
     let buildings = 0
     // huellas de OSM (para no repetir con el Catastro los edificios que ya están)
     const osm = new RingGrid(E)
+    // metros por unidad de la tesela vectorial (Mercator: igual en x que en y)
+    const mPerPx = (40075016.7 * Math.cos((((north + south) / 2) * Math.PI) / 180)) / n / E
 
     for (let i = 0; layer && i < layer.length; i++) {
       const f = layer.feature(i)
@@ -336,7 +373,13 @@ export class Buildings extends TileLayer<BuildingTile> {
         osm.add(rings[0].pts)
         if (props.hide_3d) continue // contorno con partes (building:part) que ya se dibujan
         const hangar = aerodromes.length > 0 && inAnyPolygon(aerodromes, rings[0].pts)
-        if (add(rings, height, minHeight, colour, hangar)) buildings++
+        // forma del tejado mapeada en OSM (solo huellas enteras: las recortadas no casan)
+        let osmRoof: OsmRoof | null = null
+        if (osmRoofs && !rings[0].cut.some(Boolean)) {
+          const [cx, cy, a] = ringCentroidArea(rings[0].pts)
+          osmRoof = osmRoofs.match(cx, cy, a * mPerPx * mPerPx, mPerPx, E)
+        }
+        if (add(rings, height, minHeight, colour, hangar, osmRoof)) buildings++
       }
       // trocear el trabajo: ~6 ms por fotograma
       if (!(await slicer.yield(signal))) return null
@@ -344,8 +387,6 @@ export class Buildings extends TileLayer<BuildingTile> {
 
     // Catastro: las partes cuyo centro no cae dentro de un edificio de OSM
     let fromCatastro = 0
-    // metros por unidad de la tesela vectorial (Mercator: igual en x que en y)
-    const mPerPx = (40075016.7 * Math.cos((((north + south) / 2) * Math.PI) / 180)) / n / E
     for (const rec of catData) {
       for (let p = 0; p + 1 < rec.partRing.length; p++) {
         const rings = catastroRings(rec, p, E)
@@ -381,6 +422,7 @@ export class Buildings extends TileLayer<BuildingTile> {
     if (buildings === 0) return { mesh: null, prisms, count: 0 }
     const mesh = new Mesh(builder.build(), this.material)
     mesh.userData.catastro = fromCatastro
+    mesh.userData.osmRoofs = osmRoofs ? `${osmRoofs.matched}/${osmRoofs.size}` : null
     return { mesh, prisms, count: buildings }
   }
 
@@ -399,6 +441,7 @@ export class Buildings extends TileLayer<BuildingTile> {
     hangar: boolean,
     ox: number,
     oy: number,
+    osm: OsmRoof | null = null,
   ): boolean {
     // a coordenadas locales (curvatura incluida) y alturas del suelo
     const local: Vector3[][] = []
@@ -461,13 +504,19 @@ export class Buildings extends TileLayer<BuildingTile> {
     // (en un aeropuerto grande, lo alto —torres, terminales— no es un hangar)
     const industrial = (hangar && height <= 16) || (area > 2500 && height <= 10) || (area > 900 && height <= 6)
     const wall = new Color()
+    // color de fachada: en lo alto y en las partes, por casilla de ~8 m, para que las piezas
+    // apiladas de una misma torre (building:part de OSM) no salgan cada una de un color
+    const wallSeed = height > 12 || parted ? hash2(Math.round((cxp + ox) / 16), Math.round((cyp + oy) / 16)) : seed
     if (colour && /^#?[0-9a-f]{6}$/i.test(colour)) wall.set(colour.startsWith('#') ? colour : `#${colour}`)
-    else wall.set(pickWall(seed, height, industrial))
+    else wall.set(pickWall(wallSeed, height, industrial))
     wall.convertSRGBToLinear()
     const roof = new Color()
     const rc = colours?.at((cxp / E) * colours.size, (cyp / E) * colours.size)
     if (rc) roof.setRGB(rc[0], rc[1], rc[2], SRGBColorSpace)
     else roof.set(industrial ? '#9a9890' : seed > 0.5 ? '#a4583e' : '#8f8a82').convertSRGBToLinear()
+    // color mapeado en OSM: roof:colour siempre; el de roof:material solo en lo alto, donde la
+    // ortofoto (que no es ortogonal en las torres) da el color de la calle o de la fachada
+    if (osm?.rgb && (!osm.fromMaterial || height >= 30)) roof.setRGB(osm.rgb[0] / 255, osm.rgb[1] / 255, osm.rgb[2] / 255, SRGBColorSpace)
     // un tejado en sombra en la foto no debe quedar negro
     const lum = 0.2126 * roof.r + 0.7152 * roof.g + 0.0722 * roof.b
     if (lum < 0.05) roof.multiplyScalar(0.05 / Math.max(lum, 0.005))
@@ -475,12 +524,18 @@ export class Buildings extends TileLayer<BuildingTile> {
     wall.multiplyScalar(0.85)
 
     // ventanas: altura de planta (0 = sin ventanas)
-    const floorH = industrial || height < 3.2 ? 0 : height > 40 ? 3.4 : 3.0
+    // (ni en torres y cúpulas de OSM ni en las partes que empiezan en alto: campanarios,
+    // chapiteles, linternas… no tienen pisos)
+    const monument = parted || (osm !== null && (osm.shape === ROOF_PYRAMIDAL || osm.shape === ROOF_DOME || osm.shape === ROOF_ONION || osm.shape === ROOF_CONE))
+    const floorH = industrial || monument || height < 3.2 ? 0 : height > 40 ? 3.4 : 3.0
+
+    // tejado mapeado en OSM: hasta dónde llegan las paredes y cuánto sube
+    const plan = osm ? planOsmRoof(osm, local, top, base) : null
 
     // paredes
     const yb = base
-    const yt = top
-    for (let r = 0; r < local.length; r++) {
+    const yt = plan ? plan.wallTop : top
+    for (let r = 0; r < local.length && yt - yb >= 0.05; r++) {
       const pts = local[r]
       const cut = rings[r].cut
       const sign = ringArea(pts) > 0 ? 1 : -1
@@ -495,7 +550,7 @@ export class Buildings extends TileLayer<BuildingTile> {
           const s = r === 0 ? sign : -sign
           const nx = (s * (c.z - a.z)) / len
           const nz = (-s * (c.x - a.x)) / len
-          b.wall(a, c, yb, yt, nx, nz, u, u + len, base - gMin, top - gMin, floorH, wall)
+          b.wall(a, c, yb, yt, nx, nz, u, u + len, base - gMin, yt - gMin, floorH, wall)
         }
         u += len
       }
@@ -511,7 +566,8 @@ export class Buildings extends TileLayer<BuildingTile> {
     const anyCut = rings.some((r) => r.cut.some(Boolean))
     const outerArea = Math.abs(ringArea(local[0]))
     let rise = 0
-    if (!parted && !anyCut && height <= 15.5 && area >= 12 && outerArea <= 6000 && (!industrial || hangar)) {
+    if (plan) rise = drawOsmRoof(b, local, plan, yt, roof, wall, yt - gMin, deferred, flatRoof)
+    else if (!parted && !anyCut && height <= 15.5 && area >= 12 && outerArea <= 6000 && (!industrial || hangar)) {
       let yC = 0
       for (const p of local[0]) yC += p.y
       yC /= local[0].length
@@ -547,8 +603,185 @@ export class Buildings extends TileLayer<BuildingTile> {
     } else flatRoof()
 
     // para chocar, el tejado cuenta hasta media altura (por encima del alero, lejos de la cumbrera)
-    prisms.push(makePrism(local[0], base, top + rise * 0.5))
+    prisms.push(makePrism(local[0], base, yt + rise * 0.5))
     return true
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tejados mapeados en OpenStreetMap (osmRoofs.ts)
+
+interface OsmRoofPlan {
+  kind: 'flat' | 'rect' | 'skeleton' | 'radial' | 'skillion'
+  /** altura (absoluta, como `top`) donde acaban las paredes y empieza el tejado */
+  wallTop: number
+  /** subida del tejado sobre las paredes (m) */
+  rise: number
+  osm: OsmRoof
+  /** huella exterior (x, z alternados) */
+  xz: number[]
+  box: OrientedBox
+  /** altura local media de la huella (curvatura) */
+  yC: number
+}
+
+const TAN30 = Math.tan((30 * Math.PI) / 180)
+const TAN12 = Math.tan((12 * Math.PI) / 180)
+
+/**
+ * Cómo dibujar el tejado de OSM sobre esta huella. Con `height` explícita la altura de la tesela
+ * es la de la cima: las paredes acaban `rise` más abajo. Sin ella (solo plantas), el tejado va
+ * encima. Si la forma no cabe en la planta (huecos, planta que no es en estrella…), plano.
+ */
+function planOsmRoof(osm: OsmRoof, local: Vector3[][], top: number, base: number): OsmRoofPlan {
+  const xz: number[] = []
+  let yC = 0
+  for (const p of local[0]) {
+    xz.push(p.x, p.z)
+    yC += p.y
+  }
+  yC /= local[0].length
+  const box = orientedBox(xz)
+  const area = Math.abs(ringArea(local[0]))
+  const holes = local.length > 1
+  const flat: OsmRoofPlan = { kind: 'flat', wallTop: top, rise: 0, osm, xz, box, yC }
+  let kind: OsmRoofPlan['kind'] = 'flat'
+  switch (osm.shape) {
+    case ROOF_FLAT:
+      return flat
+    case ROOF_GABLED:
+    case ROOF_HIPPED:
+    case ROOF_ROUND:
+      kind = !holes && area / box.area >= 0.8 ? 'rect' : local.length <= 8 ? 'skeleton' : 'flat'
+      break
+    case ROOF_SKILLION:
+      kind = holes ? 'flat' : 'skillion'
+      break
+    default: {
+      // chapitel, cono, cúpula, bulbo: de revolución hacia el centro de la planta
+      const [cx, cz] = ringCentroid(xz)
+      if (!holes && starShaped(xz, cx, cz)) kind = 'radial'
+      else if (osm.shape === ROOF_PYRAMIDAL || osm.shape === ROOF_CONE) kind = local.length <= 8 ? 'skeleton' : 'flat'
+    }
+  }
+  if (kind === 'flat') return flat
+  // semiancho de la planta y radio del círculo de la misma área
+  const half = Math.min(box.hu, box.hv)
+  const rEq = Math.sqrt(area / Math.PI)
+  const radial = kind === 'radial'
+  let rise = osm.roofH ?? 0
+  if (!osm.roofH) {
+    if (osm.angle) {
+      const run = osm.shape === ROOF_SKILLION ? 2 * half : radial ? rEq : half
+      rise = Math.tan((Math.min(osm.angle, 80) * Math.PI) / 180) * run
+    } else if (osm.shape === ROOF_DOME) rise = rEq
+    else if (osm.shape === ROOF_ONION || osm.shape === ROOF_CONE) rise = 1.5 * rEq
+    else if (osm.shape === ROOF_PYRAMIDAL) rise = 0.7 * (radial ? rEq : half)
+    else if (osm.shape === ROOF_ROUND) rise = 0.5 * half
+    else if (osm.shape === ROOF_SKILLION) rise = Math.min(2 * half * TAN30 * 0.5, 1 + 2 * half * TAN12 * 0.5)
+    // dos y cuatro aguas: 30° en las casas, más tendido en las plantas anchas
+    else rise = Math.min(half * TAN30, 1.5 + half * TAN12)
+  }
+  let wallTop = top
+  if (osm.height !== null) {
+    wallTop = top - rise
+    if (wallTop < base) {
+      wallTop = base
+      rise = top - base
+    }
+  }
+  if (rise < 0.3) return flat
+  return { kind, wallTop, rise, osm, xz, box, yC }
+}
+
+/** Dibuja el tejado planeado; devuelve lo que sube (0 si se quedó plano). */
+function drawOsmRoof(
+  b: GeometryBuilder,
+  local: Vector3[][],
+  plan: OsmRoofPlan,
+  yt: number,
+  roofCol: Color,
+  wallCol: Color,
+  fv: number,
+  deferred: DeferredRoof[],
+  flatRoof: () => void,
+): number {
+  const { osm, xz, box, yC, rise } = plan
+  switch (plan.kind) {
+    case 'flat':
+      flatRoof()
+      return 0
+    case 'rect': {
+      const kind: RectKind = osm.shape === ROOF_HIPPED ? 'hip' : osm.shape === ROOF_ROUND ? 'barrel' : 'gable'
+      const overhang = 0.2
+      const W = ((box.hu >= box.hv) !== osm.across ? box.hv : box.hu) + overhang
+      const rr = rectRoof(box, kind, rise / W, rise, overhang, osm.across)
+      emitTris(b, rr.roof, yC, yt, roofCol)
+      for (let k = 0, j = 0; k < rr.ends.length; k += 9, j += 2) {
+        const e = rr.ends
+        b.face(
+          e[k], yC + yt + e[k + 2], e[k + 1],
+          e[k + 3], yC + yt + e[k + 5], e[k + 4],
+          e[k + 6], yC + yt + e[k + 8], e[k + 7],
+          rr.endNormals[j], 0, rr.endNormals[j + 1], wallCol, 0, false, fv,
+        )
+      }
+      return rr.rise
+    }
+    case 'skeleton': {
+      // faldones desde cada fachada con la pendiente que da esa subida (worker)
+      const half = Math.max(0.5, Math.min(box.hu, box.hv))
+      deferred.push({
+        job: { rings: local.map((r) => Float64Array.from(r.flatMap((p) => [p.x, p.z]))), pitch: rise / half, cap: rise },
+        emit: (tris) => (tris ? emitTris(b, tris, yC, yt, roofCol) : flatRoof()),
+      })
+      return rise
+    }
+    case 'radial': {
+      const [cx, cz] = ringCentroid(xz)
+      const profile = osm.shape === ROOF_DOME ? PROFILE_DOME : osm.shape === ROOF_ONION ? PROFILE_ONION : PROFILE_SPIRE
+      b.mesh(radialRoof(xz, cx, cz, rise, profile, osm.shape !== ROOF_PYRAMIDAL), yC + yt, roofCol)
+      return rise
+    }
+    case 'skillion': {
+      // hacia dónde cae el agua: roof:direction o, sin ella, a lo ancho
+      let dx: number
+      let dz: number
+      if (osm.dir !== null) {
+        const a = (osm.dir * Math.PI) / 180
+        dx = Math.sin(a) // x = este
+        dz = -Math.cos(a) // z = sur
+      } else if (box.hu < box.hv) {
+        dx = Math.cos(box.angle)
+        dz = Math.sin(box.angle)
+      } else {
+        dx = -Math.sin(box.angle)
+        dz = Math.cos(box.angle)
+      }
+      const hs = skillionHeights(xz, dx, dz, rise)
+      const pts = local[0]
+      for (const [i0, i1, i2] of ShapeUtils.triangulateShape(pts.map((p) => new Vector2(p.x, p.z)), [])) {
+        const p0 = pts[i0]
+        const p1 = pts[i1]
+        const p2 = pts[i2]
+        b.face(p0.x, p0.y + yt + hs[i0], p0.z, p1.x, p1.y + yt + hs[i1], p1.z, p2.x, p2.y + yt + hs[i2], p2.z, 0, 1, 0, roofCol, -1, true)
+      }
+      // paredes de las fachadas hasta el faldón
+      const sign = ringArea(pts) > 0 ? 1 : -1
+      for (let k = 0; k < pts.length; k++) {
+        const k1 = (k + 1) % pts.length
+        if (hs[k] < 0.01 && hs[k1] < 0.01) continue
+        const a = pts[k]
+        const c = pts[k1]
+        const len = Math.hypot(c.x - a.x, c.z - a.z)
+        if (len < 0.05) continue
+        const nx = (sign * (c.z - a.z)) / len
+        const nz = (-sign * (c.x - a.x)) / len
+        b.face(a.x, a.y + yt, a.z, c.x, c.y + yt, c.z, c.x, c.y + yt + hs[k1], c.z, nx, 0, nz, wallCol, 0, false, fv)
+        b.face(a.x, a.y + yt, a.z, c.x, c.y + yt + hs[k1], c.z, a.x, a.y + yt + hs[k], a.z, nx, 0, nz, wallCol, 0, false, fv)
+      }
+      return rise
+    }
   }
 }
 
@@ -578,6 +811,23 @@ function looksLikeBuilding(pts: Array<[number, number]>, mPerPx: number): boolea
   const long = Math.max(box.hu, box.hv)
   const short = Math.max(0.01, Math.min(box.hu, box.hv))
   return !(long / short > 12 && box.area > 2000)
+}
+
+/** Centroide de área y área (sin signo) de un anillo de la tesela vectorial. */
+function ringCentroidArea(pts: Array<[number, number]>): [number, number, number] {
+  let a = 0
+  let cx = 0
+  let cy = 0
+  for (let i = 0; i < pts.length; i++) {
+    const [x0, y0] = pts[i]
+    const [x1, y1] = pts[(i + 1) % pts.length]
+    const c = x0 * y1 - x1 * y0
+    a += c
+    cx += (x0 + x1) * c
+    cy += (y0 + y1) * c
+  }
+  if (Math.abs(a) < 1e-9) return [...ringCentre(pts), 0]
+  return [cx / (3 * a), cy / (3 * a), Math.abs(a / 2)]
 }
 
 function ringCentre(pts: Array<[number, number]>): [number, number] {
@@ -742,6 +992,15 @@ class GeometryBuilder {
     const C = this.v(cx, cy, cz, qx, qy, qz, col, 0, fv, fs)
     if (flip) this.tri(A, C, B)
     else this.tri(A, B, C)
+  }
+
+  /** Malla con normales propias (cúpulas, conos): vértices [x, z, h] a la altura y0 + h. */
+  mesh(m: SmoothMesh, y0: number, col: Color): void {
+    const nv = m.pos.length / 3
+    this.reserve(nv, m.idx.length)
+    const base = this.n
+    for (let i = 0; i < nv; i++) this.v(m.pos[3 * i], y0 + m.pos[3 * i + 2], m.pos[3 * i + 1], m.nor[3 * i], m.nor[3 * i + 1], m.nor[3 * i + 2], col, 0, 0, -1)
+    for (const k of m.idx) this.idx[this.ni++] = base + k
   }
 
   /** Tejado plano: los puntos de la huella (exterior + huecos) y la triangulación. */

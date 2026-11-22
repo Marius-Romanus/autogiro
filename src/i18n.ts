@@ -25,10 +25,10 @@ const es: Dict = {
   'toast.guideOff': 'Guía de pilotaje: OCULTA (J para volver a verla)',
   'guide.ground.title': 'Despegue en autogiro',
   'guide.ground.steps': `
-        <li>Freno de rotor quitado (<kbd>B</kbd>) y freno de parking puesto (<kbd>L</kbd>).</li>
+        <li>Freno de rotor quitado (<kbd>B</kbd>) y freno de parking puesto (<kbd>O</kbd>).</li>
         <li>Palanca <b>adelante</b> (mantén <kbd>W</kbd>) y gas a ~40 % (<kbd>R</kbd>/<kbd>F</kbd>, unas 3000 rpm de motor).</li>
         <li>Mantén el <b>prerrotador</b> (<kbd>P</kbd>) hasta 200-220 rpm de rotor.</li>
-        <li>Suelta a la vez <kbd>P</kbd> y el parking (<kbd>L</kbd>), palanca <b>toda atrás</b> (mantén <kbd>S</kbd>) y gas <b>a fondo</b>.</li>
+        <li>Suelta a la vez <kbd>P</kbd> y el parking (<kbd>O</kbd>), palanca <b>toda atrás</b> (mantén <kbd>S</kbd>) y gas <b>a fondo</b>.</li>
         <li>Se va al aire solo a ~75 km/h tras unos 110 m (155 con pasajero). Entonces <b>cede palanca</b> (toques de <kbd>W</kbd>) para acelerar a 90-100 km/h y subir.</li>`,
   'guide.ground.note':
     'La palanca <b>se queda donde la dejas</b> (mírala en el recuadro de la derecha): su posición fija la velocidad y el gas, la altura. Toques cortos = ajuste fino. <kbd>Inicio</kbd> la centra.',
@@ -52,7 +52,7 @@ const es: Dict = {
   'guide.landing.stop': `
         <li>Gas a ralentí (<kbd>1</kbd>) y <b>palanca toda atrás</b> (<kbd>S</kbd>): el disco frena como un paracaídas.</li>
         <li>Recto con los pedales (<kbd>Q</kbd>/<kbd>E</kbd>); frena (<kbd>Espacio</kbd>) cuando apoye la rueda de morro.</li>
-        <li>Parado: parking (<kbd>L</kbd>), palanca al centro (<kbd>Inicio</kbd>) y freno de rotor (<kbd>B</kbd>).</li>`,
+        <li>Parado: parking (<kbd>O</kbd>), palanca al centro (<kbd>Inicio</kbd>) y freno de rotor (<kbd>B</kbd>).</li>`,
   'guide.landing.goTitle': 'Para volver a despegar',
   'guide.landing.go': `
         <li>Palanca <b>toda atrás</b> (<kbd>S</kbd>) y gas <b>a fondo</b> (<kbd>0</kbd>), sin frenos.</li>
@@ -60,10 +60,10 @@ const es: Dict = {
         <li>Si el rotor ha bajado de ~200 rpm, mejor para y prerrota (<kbd>P</kbd>): con pocas vueltas las palas baten.</li>`,
   'guide.cierva.ground.title': "Despegue en el Cierva C.30A",
   'guide.cierva.ground.steps': `
-        <li>Freno de rotor quitado (<kbd>B</kbd>) y freno de parking puesto (<kbd>L</kbd>).</li>
+        <li>Freno de rotor quitado (<kbd>B</kbd>) y freno de parking puesto (<kbd>O</kbd>).</li>
         <li>Palanca <b>adelante</b> (mantén <kbd>W</kbd>) y gas a ~40 % (<kbd>R</kbd>/<kbd>F</kbd>, unas 1200 rpm de motor).</li>
         <li>Mantén el <b>prerrotador</b> (<kbd>P</kbd>): el embrague lleva el rotor hasta unas 180 rpm.</li>
-        <li>Suelta <kbd>P</kbd> y el parking (<kbd>L</kbd>) —en el C.30 una sola palanca soltaba a la vez frenos y embrague— y gas <b>a fondo</b>, con la palanca aún <b>adelante</b>: el disco frena lo mínimo y acelera, aunque el rotor pierda vueltas.</li>
+        <li>Suelta <kbd>P</kbd> y el parking (<kbd>O</kbd>) —en el C.30 una sola palanca soltaba a la vez frenos y embrague— y gas <b>a fondo</b>, con la palanca aún <b>adelante</b>: el disco frena lo mínimo y acelera, aunque el rotor pierda vueltas.</li>
         <li>Hacia 60 km/h tira de la palanca <b>despacio pero a fondo</b> (mantén <kbd>S</kbd>): el rotor se embala y se va al aire a ~65-70 km/h tras unos 125 m (165 con pasajero). Sube a unos 85 km/h (unos 3 m/s solo, la mitad con pasajero).</li>`,
   'guide.cierva.ground.note': "<b>Mando directo</b>: la palanca cuelga de la cabeza del rotor y la inclina entera (por eso se ve moverse al revés que tu mano). <b>No hay timón</b>: los pedales solo giran la rueda de cola en tierra; en el aire se vira inclinando el disco.",
   'guide.cierva.ground.warn': "Es <b>algo inestable en alabeo</b>, como anotaron los pilotos de pruebas de la RAE: corrige con la palanca. Al cortar gas tiende a irse a la izquierda y al darlo, a la derecha.",
@@ -80,7 +80,7 @@ const es: Dict = {
   'guide.cierva.landing.stop': `
         <li>Gas a ralentí (<kbd>1</kbd>) y palanca <b>toda atrás</b> (<kbd>S</kbd>): con tan poca carrera, casi se para solo.</li>
         <li>Recto con los pedales (<kbd>Q</kbd>/<kbd>E</kbd>, rueda de cola) y frenos (<kbd>Espacio</kbd>).</li>
-        <li>Parado: parking (<kbd>L</kbd>), palanca al centro (<kbd>Inicio</kbd>) y freno de rotor (<kbd>B</kbd>).</li>`,
+        <li>Parado: parking (<kbd>O</kbd>), palanca al centro (<kbd>Inicio</kbd>) y freno de rotor (<kbd>B</kbd>).</li>`,
   'guide.cierva.landing.go': `
         <li>Gas <b>a fondo</b> (<kbd>0</kbd>) con la palanca <b>adelante</b> (<kbd>W</kbd>), sin frenos.</li>
         <li>Hacia 60 km/h tira <b>despacio pero a fondo</b> (<kbd>S</kbd>): se va al aire a ~65-70 km/h.</li>
@@ -340,10 +340,10 @@ const en: Dict = {
   'toast.guideOff': 'Flying guide: HIDDEN (J to bring it back)',
   'guide.ground.title': 'Gyrocopter takeoff',
   'guide.ground.steps': `
-        <li>Rotor brake off (<kbd>B</kbd>) and parking brake on (<kbd>L</kbd>).</li>
+        <li>Rotor brake off (<kbd>B</kbd>) and parking brake on (<kbd>O</kbd>).</li>
         <li>Stick <b>forward</b> (hold <kbd>W</kbd>) and throttle at ~40 % (<kbd>R</kbd>/<kbd>F</kbd>, about 3000 engine rpm).</li>
         <li>Hold the <b>prerotator</b> (<kbd>P</kbd>) up to 200–220 rotor rpm.</li>
-        <li>Release <kbd>P</kbd> and the parking brake (<kbd>L</kbd>) together, stick <b>fully back</b> (hold <kbd>S</kbd>) and <b>full throttle</b>.</li>
+        <li>Release <kbd>P</kbd> and the parking brake (<kbd>O</kbd>) together, stick <b>fully back</b> (hold <kbd>S</kbd>) and <b>full throttle</b>.</li>
         <li>It lifts off by itself at ~75 km/h after about 110 m (155 m with a passenger). Then <b>ease the stick forward</b> (taps of <kbd>W</kbd>) to accelerate to 90–100 km/h and climb.</li>`,
   'guide.ground.note':
     'The stick <b>stays where you leave it</b> (watch it in the box on the right): its position sets the airspeed and the throttle sets the height. Short taps = fine adjustment. <kbd>Home</kbd> centres it.',
@@ -367,7 +367,7 @@ const en: Dict = {
   'guide.landing.stop': `
         <li>Throttle to idle (<kbd>1</kbd>) and <b>stick fully back</b> (<kbd>S</kbd>): the disc brakes like a parachute.</li>
         <li>Keep straight with the pedals (<kbd>Q</kbd>/<kbd>E</kbd>); brake (<kbd>Space</kbd>) once the nose wheel is down.</li>
-        <li>Stopped: parking brake (<kbd>L</kbd>), stick centred (<kbd>Home</kbd>) and rotor brake (<kbd>B</kbd>).</li>`,
+        <li>Stopped: parking brake (<kbd>O</kbd>), stick centred (<kbd>Home</kbd>) and rotor brake (<kbd>B</kbd>).</li>`,
   'guide.landing.goTitle': 'To take off again',
   'guide.landing.go': `
         <li>Stick <b>fully back</b> (<kbd>S</kbd>) and <b>full throttle</b> (<kbd>0</kbd>), no brakes.</li>
@@ -375,10 +375,10 @@ const en: Dict = {
         <li>If rotor rpm has dropped below ~200, better stop and prerotate (<kbd>P</kbd>): with low rpm the blades flap.</li>`,
   'guide.cierva.ground.title': "Cierva C.30A takeoff",
   'guide.cierva.ground.steps': `
-        <li>Rotor brake off (<kbd>B</kbd>) and parking brake on (<kbd>L</kbd>).</li>
+        <li>Rotor brake off (<kbd>B</kbd>) and parking brake on (<kbd>O</kbd>).</li>
         <li>Stick <b>forward</b> (hold <kbd>W</kbd>) and throttle at ~40 % (<kbd>R</kbd>/<kbd>F</kbd>, about 1200 engine rpm).</li>
         <li>Hold the <b>prerotator</b> (<kbd>P</kbd>): its clutch spins the rotor up to about 180 rpm.</li>
-        <li>Release <kbd>P</kbd> and the parking brake (<kbd>L</kbd>) — on the C.30 a single lever freed the brakes and the clutch together — and open to <b>full throttle</b> with the stick still <b>forward</b>: the disc drags as little as possible and the aircraft accelerates, even though the rotor loses rpm.</li>
+        <li>Release <kbd>P</kbd> and the parking brake (<kbd>O</kbd>) — on the C.30 a single lever freed the brakes and the clutch together — and open to <b>full throttle</b> with the stick still <b>forward</b>: the disc drags as little as possible and the aircraft accelerates, even though the rotor loses rpm.</li>
         <li>At about 60 km/h pull the stick back <b>slowly but fully</b> (hold <kbd>S</kbd>): the rotor speeds up and it lifts off at ~65–70 km/h after about 125 m (165 m with a passenger). Climb at about 85 km/h (some 3 m/s solo, half that with a passenger).</li>`,
   'guide.cierva.ground.note': "<b>Direct control</b>: the stick hangs from the rotor head and tilts the whole head (which is why it moves the opposite way to your hand). <b>There is no rudder</b>: the pedals only steer the tail wheel on the ground; in the air you turn by tilting the disc.",
   'guide.cierva.ground.warn': "It is <b>slightly unstable in roll</b>, as the RAE test pilots noted: correct with the stick. Closing the throttle swings it left and opening it swings it right.",
@@ -395,7 +395,7 @@ const en: Dict = {
   'guide.cierva.landing.stop': `
         <li>Throttle to idle (<kbd>1</kbd>) and stick <b>fully back</b> (<kbd>S</kbd>): with so little ground roll it nearly stops by itself.</li>
         <li>Keep straight with the pedals (<kbd>Q</kbd>/<kbd>E</kbd>, tail wheel) and brakes (<kbd>Space</kbd>).</li>
-        <li>Stopped: parking brake (<kbd>L</kbd>), stick centred (<kbd>Home</kbd>) and rotor brake (<kbd>B</kbd>).</li>`,
+        <li>Stopped: parking brake (<kbd>O</kbd>), stick centred (<kbd>Home</kbd>) and rotor brake (<kbd>B</kbd>).</li>`,
   'guide.cierva.landing.go': `
         <li><b>Full throttle</b> (<kbd>0</kbd>) with the stick <b>forward</b> (<kbd>W</kbd>), no brakes.</li>
         <li>At about 60 km/h pull back <b>slowly but fully</b> (<kbd>S</kbd>): it lifts off at ~65–70 km/h.</li>
@@ -409,9 +409,9 @@ const en: Dict = {
         <div><kbd>T</kbd><kbd>G</kbd></div><div>Trim (nose down / up)</div>
         <div><kbd>P</kbd> (hold)</div><div>Prerotator</div>
         <div><kbd>B</kbd></div><div>Rotor brake</div>
-        <div><kbd>Space</kbd> · <kbd>L</kbd></div><div>Wheel brakes · parking brake</div>
+        <div><kbd>Space</kbd> · <kbd>O</kbd></div><div>Wheel brakes · parking brake</div>
         <div><kbd>M</kbd></div><div>Engine on / off</div>
-        <div><kbd>O</kbd></div><div>Exterior lights (navigation, strobes and landing)</div>
+        <div><kbd>L</kbd></div><div>Exterior lights (navigation, strobes and landing)</div>
         <div><kbd>Tab</kbd></div><div>Labels and arrows for the other pilots (multiplayer)</div>
         <div><kbd>C</kbd> · <kbd>V</kbd></div><div>Change camera · look back</div>
         <div>Mouse (drag) · wheel</div><div>Look around · zoom</div>
@@ -547,7 +547,7 @@ const en: Dict = {
   'toast.lightsOn': 'Lights: ON',
   'toast.lightsOff': 'Lights: OFF',
   'lights.label': 'Lights',
-  'lights.title': 'Exterior lights (O)',
+  'lights.title': 'Exterior lights (L)',
   'toast.mouseStickOn': 'Mouse as stick: ON',
   'toast.mouseStickOff': 'Mouse as stick: OFF',
   'toast.wheelThrottle': 'Mouse wheel: THROTTLE',

@@ -59,8 +59,22 @@ class CatastroClient {
 
   /** Edificios guardados en la tesela z14 y si falta algún municipio que la toca. */
   async tile(x: number, y: number): Promise<{ pending: boolean; data: CatTile[] }> {
-    const m = await this.request<Extract<FromWorker, { t: 'tile' }>>((id) => ({ t: 'tile', id, x, y }))
-    return { pending: m.pending, data: m.data }
+    // Los edificios de OpenStreetMap no esperan al Catastro: si el worker tarda (índice lento,
+    // base de datos ocupada), la tesela se monta sin él y se rehace cuando conteste.
+    let late = false
+    let timer = 0
+    const real = this.request<Extract<FromWorker, { t: 'tile' }>>((id) => ({ t: 'tile', id, x, y })).then((m) => {
+      clearTimeout(timer)
+      if (late && m.data.length > 0) for (const fn of this.tileListeners) fn([`${x}/${y}`], null)
+      return { pending: m.pending, data: m.data }
+    })
+    const timeout = new Promise<{ pending: boolean; data: CatTile[] }>((resolve) => {
+      timer = self.setTimeout(() => {
+        late = true
+        resolve({ pending: true, data: [] })
+      }, 6000)
+    })
+    return Promise.race([real, timeout])
   }
 
   /** ¿Falta aún algún municipio que toca la tesela? (sin leer sus datos) */

@@ -16,6 +16,8 @@ export interface LayerTile {
   frame: GeoFrame
   /** distancia de la cámara a la tesela, en teselas (0 = la cámara está encima) */
   dist: number
+  /** cuándo falló (performance.now), para reintentarla */
+  failedAt?: number
 }
 
 export abstract class TileLayer<T extends LayerTile> {
@@ -28,6 +30,8 @@ export abstract class TileLayer<T extends LayerTile> {
   protected disposed = false
   protected maxConcurrent = 2
   private loading = 0
+  /** fallos seguidos de cada tesela (se reintenta 3 veces, cada 10 s) */
+  private readonly failCount = new Map<string, number>()
   private timer = 0
   private readonly label: string
 
@@ -76,9 +80,16 @@ export abstract class TileLayer<T extends LayerTile> {
       if (this.tiles.has(`${w.x}/${w.y}`)) continue
       this.startTile(w.x, w.y)
     }
+    const now = performance.now()
     for (const [key, t] of this.tiles) {
       t.dist = distTo(t.x, t.y)
-      if (t.dist > r * 1.35 + 0.5) this.removeTile(key)
+      if (t.dist > r * 1.35 + 0.5) {
+        this.removeTile(key)
+        this.failCount.delete(key)
+      } else if (t.state === 'failed' && now - (t.failedAt ?? 0) > 10000 && (this.failCount.get(key) ?? 0) <= 3) {
+        // un corte de red al pedirla: fuera, y la próxima revisión la vuelve a cargar
+        this.removeTile(key)
+      } else if (t.state === 'ready' || t.state === 'empty') this.failCount.delete(key)
     }
     this.afterUpdate()
   }
@@ -124,6 +135,8 @@ export abstract class TileLayer<T extends LayerTile> {
         if (t.abort.signal.aborted) return
         console.warn(`${this.label}: error en la tesela`, t.key, e)
         t.state = 'failed'
+        t.failedAt = performance.now()
+        this.failCount.set(t.key, (this.failCount.get(t.key) ?? 0) + 1)
       })
       .finally(() => this.loading--)
   }

@@ -1,6 +1,6 @@
 // Cámaras: persecución, cabina, órbita libre y "torre" (vista desde tierra).
 
-import { MathUtils, PerspectiveCamera, Quaternion, Vector3 } from 'three'
+import { MathUtils, Matrix3, PerspectiveCamera, Quaternion, Vector3 } from 'three'
 import type { Autogyro } from '../sim/autogyro.ts'
 import type { AircraftView } from '../aircraft/AircraftView.ts'
 import { t } from '../i18n.ts'
@@ -18,11 +18,29 @@ export const camName = (m: CamMode): string => t(`cam.${m}`)
 
 const _v = new Vector3()
 const _v2 = new Vector3()
+const _v3 = new Vector3()
 const _q = new Quaternion()
 const _q2 = new Quaternion()
 const Y = new Vector3(0, 1, 0)
 const Z = new Vector3(0, 0, 1)
 const BASE = new Quaternion().setFromAxisAngle(Y, -Math.PI / 2)
+const _m3 = new Matrix3()
+
+/** Fracción de acercamiento de un filtro de primer orden de velocidad `k` (1/s) en `dt`, igual a cualquier ritmo de fotogramas. */
+const damp = (dt: number, k: number): number => 1 - Math.exp(-k * dt)
+
+/**
+ * Media de sin(φ) entre la fase del fotograma anterior y la actual: una vibración más rápida
+ * que los fotogramas se atenúa en vez de convertirse en un vaivén lento (aliasing) cuando
+ * baja el ritmo de fotogramas.
+ */
+function avgSin(prev: number, cur: number): number {
+  const d = cur - prev
+  return d < 1e-4 ? Math.sin(cur) : (Math.cos(prev) - Math.cos(cur)) / d
+}
+
+/** Retraso de la cámara de persecución por la velocidad del aparato (s): la deja algo atrás al ir rápido. */
+const CHASE_LAG = 1 / 8
 
 export class CameraRig {
   mode: CamMode = 'chase'
@@ -34,10 +52,18 @@ export class CameraRig {
   private orbitDist = 16
   private chaseYaw = 0
   private readonly towerPos = new Vector3()
-  private readonly smoothPos = new Vector3()
-  private shakeT = 0
+  // persecución: desplazamiento respecto al aparato y velocidad suavizados (no la posición
+  // absoluta, que daba tirones cuando un fotograma tardaba más)
+  private readonly chaseOff = new Vector3()
+  private readonly chaseVel = new Vector3()
+  private chaseReset = true
+  private rotorPhase = 0
+  private enginePhase = 0
+  private headG = 0
   private fov = 62
   private lookBack = false
+  /** Cámara lenta (restos tras un accidente): el retraso por velocidad va con la que se ve. */
+  timeScale = 1
 
   private cam: PerspectiveCamera
   constructor(cam: PerspectiveCamera) {
@@ -68,7 +94,10 @@ export class CameraRig {
         .addScaledVector(side, 45)
       this.towerPos.y = Math.max(groundY + 1.8, Math.min(ac.pos.y - 5, groundY + 30))
     }
-    if (m === 'chase') this.chaseYaw = headingOf(ac)
+    if (m === 'chase') {
+      this.chaseYaw = headingOf(ac)
+      this.chaseReset = true
+    }
   }
 
   toggleLookBack(): void {
@@ -96,18 +125,25 @@ export class CameraRig {
     const target = _v.copy(ac.pos).add(_v2.set(0, 0.6, 0))
     if (this.mode === 'cockpit') {
       view.eyeWorld(cam.position)
-      // vibración 2/rev del rotor bipala + motor
-      this.shakeT += dt
-      const rpm = ac.rotor.rpm
-      const twoRev = (2 * rpm) / 60
-      const amp = Math.min(1, ac.rotor.thrust / 4500) * 0.0016 * (0.4 + Math.min(1, ac.tas / 40))
-      const eng = 0.0004 * Math.min(1, ac.engineRpm / 5000)
-      cam.position.y += Math.sin(this.shakeT * twoRev * Math.PI * 2) * amp + Math.sin(this.shakeT * 90) * eng
-      // cabeza con fuerzas g
-      cam.position.addScaledVector(_v2.set(0, 1, 0).applyQuaternion(ac.quat), -(ac.gLoad - 1) * 0.015)
+      // Vibración de paso de pala del rotor (2/rev en el bipala) y algo del motor. Es un efecto
+      // de cámara, no sale del modelo de vuelo: en un rotor bien equilibrado son décimas de g,
+      // invisibles a la vista, así que se deja en lo justo para notarla (antes rondaba 1 g).
+      const prevR = this.rotorPhase
+      const prevE = this.enginePhase
+      this.rotorPhase += (ac.rotor.p.blades * ac.rotor.rpm * Math.PI * dt) / 30
+      this.enginePhase += 90 * dt
+      const amp = Math.min(1, ac.rotor.thrust / 4500) * 0.0008 * (0.4 + Math.min(1, ac.tas / 40))
+      const eng = 0.00025 * Math.min(1, ac.engineRpm / 5000)
+      cam.position.y += avgSin(prevR, this.rotorPhase) * amp + avgSin(prevE, this.enginePhase) * eng
+      if (this.rotorPhase > 1e4) this.rotorPhase %= Math.PI * 2
+      if (this.enginePhase > 1e4) this.enginePhase %= Math.PI * 2
+      // cabeza con fuerzas g (asiento y cuello no responden al instante: sin saltos en los botes)
+      this.headG += (ac.gLoad - 1 - this.headG) * damp(dt, 14)
+      cam.position.addScaledVector(_v2.set(0, 1, 0).applyQuaternion(ac.quat), -this.headG * 0.015)
       if (!dragging) {
-        this.yawOff *= 1 - Math.min(1, dt * 0.8)
-        this.pitchOff += (-0.08 - this.pitchOff) * Math.min(1, dt * 0.8)
+        const k = damp(dt, 0.8)
+        this.yawOff *= 1 - k
+        this.pitchOff += (-0.08 - this.pitchOff) * k
       }
       _q.setFromAxisAngle(Y, this.yawOff + (this.lookBack ? Math.PI : 0))
       _q2.setFromAxisAngle(Z, this.pitchOff)
@@ -117,18 +153,29 @@ export class CameraRig {
       const h = headingOf(ac)
       let d = h - this.chaseYaw
       d = Math.atan2(Math.sin(d), Math.cos(d))
-      this.chaseYaw += d * Math.min(1, dt * 2.2)
+      this.chaseYaw += d * damp(dt, 2.2)
       if (!dragging) {
-        this.yawOff *= 1 - Math.min(1, dt * 0.6)
-        this.pitchOff += (0.2 - this.pitchOff) * Math.min(1, dt * 0.6)
+        const k = damp(dt, 0.6)
+        this.yawOff *= 1 - k
+        this.pitchOff += (0.2 - this.pitchOff) * k
       }
       const yaw = this.chaseYaw + this.yawOff + (this.lookBack ? Math.PI : 0)
       const back = _v2.set(-Math.sin(yaw), 0, Math.cos(yaw)) // detrás (rumbo 0 = −Z)
       const off = back.multiplyScalar(this.dist * Math.cos(this.pitchOff)).setY(this.dist * Math.sin(this.pitchOff) + 1.2)
-      const desired = off.add(target)
-      if (this.smoothPos.distanceToSquared(desired) > 2500) this.smoothPos.copy(desired)
-      this.smoothPos.lerp(desired, Math.min(1, dt * 8))
-      cam.position.copy(this.smoothPos)
+      // La cámara va pegada al aparato con un desplazamiento suavizado y se queda atrás según su
+      // velocidad (también suavizada). Las dos cosas son continuas aunque un fotograma tarde más,
+      // así que el aparato ya no se acerca y se aleja de golpe tras un parón.
+      // (en cámara lenta, la velocidad que se ve en pantalla)
+      const vel = _v3.copy(ac.vel).multiplyScalar(this.timeScale)
+      if (this.chaseReset || this.chaseOff.distanceToSquared(off) > 2500) {
+        this.chaseOff.copy(off)
+        this.chaseVel.copy(vel)
+        this.chaseReset = false
+      }
+      const k = damp(dt, 8)
+      this.chaseOff.lerp(off, k)
+      this.chaseVel.lerp(vel, k)
+      cam.position.copy(target).add(this.chaseOff).addScaledVector(this.chaseVel, -CHASE_LAG)
       cam.position.y = Math.max(cam.position.y, groundY + 0.6)
       cam.lookAt(target)
     } else if (this.mode === 'orbit') {
@@ -146,7 +193,7 @@ export class CameraRig {
       // zoom automático para mantener el tamaño aparente
       const dist = cam.position.distanceTo(target)
       const want = MathUtils.clamp(MathUtils.radToDeg(2 * Math.atan(9 / dist)) * 1.6, 8, 70)
-      this.fov += (want - this.fov) * Math.min(1, dt * 2)
+      this.fov += (want - this.fov) * damp(dt, 2)
     }
     if (Math.abs(cam.fov - this.fov) > 0.01) {
       cam.fov = this.fov
@@ -158,7 +205,10 @@ export class CameraRig {
   /** Aplica la transformación de re-centrado a los estados internos. */
   rebase(m: import('three').Matrix4): void {
     this.towerPos.applyMatrix4(m)
-    this.smoothPos.applyMatrix4(m)
+    // vectores (no puntos): solo el giro del re-centrado
+    _m3.setFromMatrix4(m)
+    this.chaseOff.applyMatrix3(_m3)
+    this.chaseVel.applyMatrix3(_m3)
   }
 }
 

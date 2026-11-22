@@ -118,7 +118,7 @@ pantalla completa.
 
 ## Tu primer vuelo
 
-1. Quita el **freno de rotor** (`B`) y suelta el **freno de parking** (`L`).
+1. Quita el **freno de rotor** (`B`) y suelta el **freno de parking** (`O`).
 2. **Palanca adelante** (mantén `W`) y **gas al 40 %** (`R`), unas 3000 rpm de motor.
 3. Mantén el **prerrotador** (`P`) hasta que el rotor llegue a **200–220 rpm**.
 4. A la vez: suelta el prerrotador, **palanca toda atrás** (mantén `S`) y **gas a fondo**.
@@ -151,9 +151,9 @@ Para tomar: aproximación a 80–90 km/h y, a unos 6–8 m del suelo, tira de pa
 | `T` `G` | Compensador |
 | `P` (mantener) | Prerrotador |
 | `B` | Freno de rotor |
-| `Espacio` / `L` | Frenos / freno de parking |
+| `Espacio` / `O` | Frenos / freno de parking |
 | `M` | Arrancar o parar el motor |
-| `O` | Luces |
+| `L` | Luces |
 | `J` | Guía de pilotaje lateral (despegue, vuelo y aterrizaje); también con el botón «Guía» |
 | `C` / `V` | Cambiar de cámara / mirar atrás |
 | Ratón (arrastrar, rueda) | Mirar, zoom |
@@ -222,7 +222,7 @@ si te gusta, [invítame a un café en Ko-fi](https://ko-fi.com/mario_creativecod
 
 - Ortofoto PNOA y MDT05 © Instituto Geográfico Nacional ([scne.es](https://www.scne.es)), CC BY 4.0 ·
   imágenes Esri World Imagery · relieve global Mapzen / AWS Terrain Tiles · Google Photorealistic 3D Tiles © Google.
-- Edificios © colaboradores de OpenStreetMap (ODbL), teselas de [OpenFreeMap](https://openfreemap.org) / OpenMapTiles,
+- Edificios y formas de tejado © colaboradores de OpenStreetMap (ODbL), teselas de [OpenFreeMap](https://openfreemap.org) / OpenMapTiles,
   y © [Dirección General del Catastro](https://www.catastro.hacienda.gob.es) (datos INSPIRE de edificios).
 - [3d-tiles-renderer](https://github.com/NASA-AMMOS/3DTilesRendererJS) (NASA-AMMOS),
   [three-geospatial](https://github.com/takram-design-engineering/three-geospatial) (takram) para
@@ -352,7 +352,7 @@ full screen.
 
 ## Your first flight
 
-1. Release the **rotor brake** (`B`) and the **parking brake** (`L`).
+1. Release the **rotor brake** (`B`) and the **parking brake** (`O`).
 2. **Stick forward** (hold `W`) and **40 % throttle** (`R`), about 3000 engine rpm.
 3. Hold the **pre-rotator** (`P`) until the rotor reaches **200–220 rpm**.
 4. All at once: let go of the pre-rotator, **full back stick** (hold `S`) and **full throttle**.
@@ -385,9 +385,9 @@ To land: approach at 80–90 km/h and, about 6–8 m above the ground, pull the 
 | `T` `G` | Trim |
 | `P` (hold) | Pre-rotator |
 | `B` | Rotor brake |
-| `Space` / `L` | Brakes / parking brake |
+| `Space` / `O` | Brakes / parking brake |
 | `M` | Start or stop the engine |
-| `O` | Lights |
+| `L` | Lights |
 | `J` | Side flying guide (takeoff, flight and landing); also the «Guide» button |
 | `C` / `V` | Change camera / look back |
 | Mouse (drag, wheel) | Look around, zoom |
@@ -457,7 +457,7 @@ if you like it, [buy me a coffee on Ko-fi](https://ko-fi.com/mario_creativecode)
 
 - PNOA orthophoto and MDT05 © Instituto Geográfico Nacional ([scne.es](https://www.scne.es)), CC BY 4.0 ·
   Esri World Imagery · global terrain Mapzen / AWS Terrain Tiles · Google Photorealistic 3D Tiles © Google.
-- Buildings © OpenStreetMap contributors (ODbL), tiles by [OpenFreeMap](https://openfreemap.org) / OpenMapTiles,
+- Buildings and roof shapes © OpenStreetMap contributors (ODbL), tiles by [OpenFreeMap](https://openfreemap.org) / OpenMapTiles,
   and © [Dirección General del Catastro](https://www.catastro.hacienda.gob.es) (INSPIRE building data).
 - [3d-tiles-renderer](https://github.com/NASA-AMMOS/3DTilesRendererJS) (NASA-AMMOS),
   [three-geospatial](https://github.com/takram-design-engineering/three-geospatial) (takram) for
