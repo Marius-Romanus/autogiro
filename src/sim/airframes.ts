@@ -137,6 +137,12 @@ export interface Airframe {
   /** false: sin timón (el Cierva C.30A): los pedales solo mueven la rueda de cola */
   rudder?: boolean
   /**
+   * Rozamiento que añaden los frenos a fondo (sobre 0.025 de rodadura). Por defecto 0.725, el de
+   * los discos hidráulicos actuales en asfalto seco; el Cierva lleva frenos de tambor de los años
+   * 30, más flojos (con los de ahora, frenar a fondo justo al tomar a 80 km/h lo pondría de morro).
+   */
+  brakeMu?: number
+  /**
    * Alabeo por el par de la hélice (1 = el de los Rotax: a la izquierda con potencia) y guiñada
    * por el remolino del soplado sobre la deriva (1 = la de los Rotax). El Cierva lleva una hélice
    * que gira al revés y un estabilizador con curvatura contraria en cada lado que compensa casi
@@ -412,6 +418,7 @@ export const CIERVA_C30: Airframe = {
   wheelRadius: 0.245,
   hangingStick: true,
   rudder: false,
+  brakeMu: 0.55,
   torqueRoll: -0.3,
   swirlYaw: -1,
   rollTrim: -0.2,

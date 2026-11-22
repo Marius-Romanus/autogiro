@@ -13,6 +13,14 @@ import { partLabel, t } from '../i18n.ts'
 
 const DEG = Math.PI / 180
 const G = 9.80665
+/**
+ * Rozamiento que añaden los frenos de las ruedas principales a fondo (sobre 0.025 de rodadura):
+ * μ 0.75 en total, el de un neumático frenado en asfalto seco. Con 0.55 el ELA 07, que apoya el
+ * 40 % del peso en la rueda de morro, deslizaba prerrotando al 40 % de gas con el rotor a 160 rpm;
+ * ahora sujeta hasta pasar las 200-220 rpm a las que se suelta (tools/fdm-ground.ts). Cada aparato
+ * puede llevar el suyo (`brakeMu` en la ficha: el Cierva, con frenos de tambor, 0.55).
+ */
+const BRAKE_MU = 0.725
 
 export interface Controls {
   /** palanca cabeceo −1 (adelante) .. +1 (atrás) */
@@ -144,7 +152,7 @@ export class Autogyro {
   readonly specificForceBody = new Vector3()
 
   /** parámetros de ajuste fino */
-  readonly tune = { stabArea: 0.9, stabSlip: 0.6, stabIncidence: -1.5, headBase: 7.2, headFwd: 8.2, headAft: 8.8, rollTrim: 0.35, swirl: 0.04, sideCPy: 0.3, finArea: 0.82, finDy: 0, dihedral: 0, cdA: 0.6, propEta: 1 }
+  readonly tune = { stabArea: 0.9, stabSlip: 0.6, stabIncidence: -1.5, headBase: 7.2, headFwd: 8.2, headAft: 8.8, rollTrim: 0.35, swirl: 0.04, sideCPy: 0.3, finArea: 0.82, finDy: 0, dihedral: 0, cdA: 0.6, propEta: 1, brakeMu: BRAKE_MU }
 
   private contacts: Contact[] = []
   private passenger = false
@@ -171,6 +179,7 @@ export class Autogyro {
     this.tune.headFwd = af.head.fwd
     this.tune.cdA = af.cdA
     this.tune.rollTrim = af.rollTrim ?? 0.35
+    this.tune.brakeMu = af.brakeMu ?? BRAKE_MU
     this.maxPower = af.engine.maxPower
     this.rotor.p = af.rotor
     this.setLoad(this.passenger)
@@ -544,7 +553,7 @@ export class Autogyro {
         const vf = pv.dot(dir)
         const vl = pv.dot(lat)
         // rodadura (y freno en las principales) a lo largo de la rueda; agarre de lado
-        const muF = c.kind === 'nose' || tw ? 0.025 : 0.025 + 0.55 * Math.max(0, Math.min(1, ctl.wheelBrake))
+        const muF = c.kind === 'nose' || tw ? 0.025 : 0.025 + this.tune.brakeMu * Math.max(0, Math.min(1, ctl.wheelBrake))
         const muL = tw && twSteer === 0 ? 0.12 : 0.75
         const Ff = grip(c.sf, vf, muF * Fn, Fn, dt)
         c.sf = _grip.s

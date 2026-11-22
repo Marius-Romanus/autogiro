@@ -26,7 +26,7 @@ const es: Dict = {
   'guide.ground.title': 'Despegue en autogiro',
   'guide.ground.steps': `
         <li>Freno de rotor quitado (<kbd>B</kbd>) y freno de parking puesto (<kbd>O</kbd>).</li>
-        <li>Palanca <b>adelante</b> (mantén <kbd>W</kbd>) y gas a ~40 % (<kbd>R</kbd>/<kbd>F</kbd>, unas 3000 rpm de motor).</li>
+        <li>Palanca <b>adelante</b> (mantén <kbd>W</kbd>) y gas a ~40 % (<kbd>R</kbd>/<kbd>F</kbd>, unas 3400 rpm de motor).</li>
         <li>Mantén el <b>prerrotador</b> (<kbd>P</kbd>) hasta 200-220 rpm de rotor.</li>
         <li>Suelta a la vez <kbd>P</kbd> y el parking (<kbd>O</kbd>), palanca <b>toda atrás</b> (mantén <kbd>S</kbd>) y gas <b>a fondo</b>.</li>
         <li>Se va al aire solo a ~75 km/h tras unos 110 m (155 con pasajero). Entonces <b>cede palanca</b> (toques de <kbd>W</kbd>) para acelerar a 90-100 km/h y subir.</li>`,
@@ -61,7 +61,7 @@ const es: Dict = {
   'guide.cierva.ground.title': "Despegue en el Cierva C.30A",
   'guide.cierva.ground.steps': `
         <li>Freno de rotor quitado (<kbd>B</kbd>) y freno de parking puesto (<kbd>O</kbd>).</li>
-        <li>Palanca <b>adelante</b> (mantén <kbd>W</kbd>) y gas a ~40 % (<kbd>R</kbd>/<kbd>F</kbd>, unas 1200 rpm de motor).</li>
+        <li>Palanca <b>adelante</b> (mantén <kbd>W</kbd>) y gas a ~40 % (<kbd>R</kbd>/<kbd>F</kbd>, unas 1300 rpm de motor).</li>
         <li>Mantén el <b>prerrotador</b> (<kbd>P</kbd>): el embrague lleva el rotor hasta unas 180 rpm.</li>
         <li>Suelta <kbd>P</kbd> y el parking (<kbd>O</kbd>) —en el C.30 una sola palanca soltaba a la vez frenos y embrague— y gas <b>a fondo</b>, con la palanca aún <b>adelante</b>: el disco frena lo mínimo y acelera, aunque el rotor pierda vueltas.</li>
         <li>Hacia 60 km/h tira de la palanca <b>despacio pero a fondo</b> (mantén <kbd>S</kbd>): el rotor se embala y se va al aire a ~65-70 km/h tras unos 125 m (165 con pasajero). Sube a unos 85 km/h (unos 3 m/s solo, la mitad con pasajero).</li>`,
@@ -341,7 +341,7 @@ const en: Dict = {
   'guide.ground.title': 'Gyrocopter takeoff',
   'guide.ground.steps': `
         <li>Rotor brake off (<kbd>B</kbd>) and parking brake on (<kbd>O</kbd>).</li>
-        <li>Stick <b>forward</b> (hold <kbd>W</kbd>) and throttle at ~40 % (<kbd>R</kbd>/<kbd>F</kbd>, about 3000 engine rpm).</li>
+        <li>Stick <b>forward</b> (hold <kbd>W</kbd>) and throttle at ~40 % (<kbd>R</kbd>/<kbd>F</kbd>, about 3400 engine rpm).</li>
         <li>Hold the <b>prerotator</b> (<kbd>P</kbd>) up to 200–220 rotor rpm.</li>
         <li>Release <kbd>P</kbd> and the parking brake (<kbd>O</kbd>) together, stick <b>fully back</b> (hold <kbd>S</kbd>) and <b>full throttle</b>.</li>
         <li>It lifts off by itself at ~75 km/h after about 110 m (155 m with a passenger). Then <b>ease the stick forward</b> (taps of <kbd>W</kbd>) to accelerate to 90–100 km/h and climb.</li>`,
@@ -376,7 +376,7 @@ const en: Dict = {
   'guide.cierva.ground.title': "Cierva C.30A takeoff",
   'guide.cierva.ground.steps': `
         <li>Rotor brake off (<kbd>B</kbd>) and parking brake on (<kbd>O</kbd>).</li>
-        <li>Stick <b>forward</b> (hold <kbd>W</kbd>) and throttle at ~40 % (<kbd>R</kbd>/<kbd>F</kbd>, about 1200 engine rpm).</li>
+        <li>Stick <b>forward</b> (hold <kbd>W</kbd>) and throttle at ~40 % (<kbd>R</kbd>/<kbd>F</kbd>, about 1300 engine rpm).</li>
         <li>Hold the <b>prerotator</b> (<kbd>P</kbd>): its clutch spins the rotor up to about 180 rpm.</li>
         <li>Release <kbd>P</kbd> and the parking brake (<kbd>O</kbd>) — on the C.30 a single lever freed the brakes and the clutch together — and open to <b>full throttle</b> with the stick still <b>forward</b>: the disc drags as little as possible and the aircraft accelerates, even though the rotor loses rpm.</li>
         <li>At about 60 km/h pull the stick back <b>slowly but fully</b> (hold <kbd>S</kbd>): the rotor speeds up and it lifts off at ~65–70 km/h after about 125 m (165 m with a passenger). Climb at about 85 km/h (some 3 m/s solo, half that with a passenger).</li>`,

@@ -1,11 +1,12 @@
 // Comprobaciones en tierra por aparato: asiento estático, reparto de peso,
-// ángulo de golpe de cola y rotación en el despegue. Los de rueda de cola (Cierva C.30A)
+// ángulo de golpe de cola y rotación en el despegue; frenos y agarre parado (aparcado con
+// viento, prerrotado frenado como dice la guía y frenada a fondo). Los de rueda de cola (Cierva C.30A)
 // se asientan con la cola apoyada; su hélice está delante y toca si el morro baja.
 //   node --experimental-strip-types tools/fdm-ground.ts
 import { Vector3 } from 'three'
 import { Autogyro, defaultControls, type Environment } from '../src/sim/autogyro.ts'
 import { AIRFRAMES } from '../src/sim/airframes.ts'
-import { isaDensity } from '../src/sim/atmosphere.ts'
+import { isaDensity, WindModel } from '../src/sim/atmosphere.ts'
 
 const DT = 1 / 240
 const flat = { heightAt: (_x: number, _z: number, n: Vector3) => (n.set(0, 1, 0), 0) }
@@ -71,4 +72,97 @@ for (const af of Object.values(AIRFRAMES)) {
     `${af.id.padEnd(8)} | batalla ${wheelbase.toFixed(2)} m | ${tw ? 'cola' : 'morro'} carga ${(noseShare * 100).toFixed(0)} % | asiento ${pitchOf(ac).toFixed(1)}° | golpe de cola a ${tailAngle.toFixed(1)}° | hélice toca a ${propAngle.toFixed(1)}°${tw ? ' morro abajo' : ''} | palanca atrás sin corregir: morro arriba a ${noseUpV.toFixed(0)} km/h, despega a ${liftV.toFixed(0)} km/h, cabeceo máx ${maxPitch.toFixed(1)}°${tailTouched ? ', ROZA COLA' : ''}${b.crash ? ` → ${b.crash.title}` : ''} ${okStatic && okRun ? 'OK' : 'FALLA'}`,
   )
 }
-console.log(fails ? `\n${fails} aparato(s) con problemas en tierra.` : '\nTodos los aparatos se comportan bien en tierra.')
+// --- frenos y agarre parado ---
+// 1) Aparcado (parking y freno de rotor, ralentí) con el viento por defecto del juego (250°/6 kt,
+//    turbulencia 25 %) en cuatro rumbos: ni gira ni se arrastra.
+// 2) Prerrotado como dice la guía (gas 40 %, palanca adelante, frenos puestos) hasta las vueltas a
+//    las que se suelta (200-220 rpm; el Cierva, ~180): ni avanza ni lo tuerce la reacción del
+//    prerrotador. Solo y con pasajero, con y sin viento. Se informa de si además sujeta con el
+//    rotor ya al máximo que da el prerrotador.
+// 3) Frenada a fondo rodando a 60 km/h sin capotar.
+console.log('\nFrenos y agarre parado:')
+const headingOf = (ac: Autogyro) => {
+  const f = new Vector3(1, 0, 0).applyQuaternion(ac.quat)
+  return Math.atan2(f.x, -f.z) * 57.2958
+}
+const turned = (a: number, b: number) => Math.abs(((b - a + 540) % 360) - 180)
+for (const af of Object.values(AIRFRAMES)) {
+  const notes: string[] = []
+  let bad = false
+  // 1) aparcado con viento
+  let worstTurn = 0
+  let worstMove = 0
+  for (const hdg of [80, 170, 260, 350]) {
+    const ac = new Autogyro(af)
+    ac.setLoad(false)
+    ac.placeOnGround(0, 0, 0, hdg)
+    const wind = new WindModel()
+    wind.settings = { fromDeg: 250, speed: 6 * 0.514444, turbulence: 0.25 }
+    const wv = new Vector3()
+    const e: Environment = { ...env, wind: wv }
+    const ctl = defaultControls()
+    ctl.wheelBrake = 1
+    ctl.rotorBrake = true
+    const h0 = headingOf(ac)
+    const p0 = ac.pos.clone()
+    for (let i = 0; i < 240 * 60 && !ac.crash; i++) {
+      wind.sample(DT, Math.max(0, ac.agl), ac.tas, wv)
+      ac.step(DT, ctl, e)
+    }
+    worstTurn = Math.max(worstTurn, turned(h0, headingOf(ac)))
+    worstMove = Math.max(worstMove, ac.pos.distanceTo(p0))
+  }
+  if (worstTurn > 0.5 || worstMove > 0.1) bad = true
+  notes.push(`aparcado con viento: gira ${worstTurn.toFixed(1)}°, se mueve ${(worstMove * 100).toFixed(0)} cm`)
+  // 2) prerrotado frenado
+  const release = Math.min(220, (af.prerotator?.maxRpm ?? 320) - 15)
+  const pre: string[] = []
+  for (const [pax, windy] of [[false, false], [true, false], [false, true], [true, true]] as const) {
+    const ac = new Autogyro(af)
+    ac.setLoad(pax)
+    ac.placeOnGround(0, 0, 0, 80)
+    const wind = new WindModel()
+    wind.settings = { fromDeg: 250, speed: windy ? 6 * 0.514444 : 0, turbulence: windy ? 0.25 : 0 }
+    const wv = new Vector3()
+    const e: Environment = { ...env, wind: wv }
+    const ctl = defaultControls()
+    Object.assign(ctl, { wheelBrake: 1, pitch: -1, throttle: 0.4, prerotator: true })
+    const h0 = headingOf(ac)
+    const p0 = ac.pos.clone()
+    let atRelease: { d: number; turn: number } | null = null
+    for (let i = 0; i < 240 * 45 && !ac.crash; i++) {
+      wind.sample(DT, Math.max(0, ac.agl), ac.tas, wv)
+      ac.step(DT, ctl, e)
+      if (!atRelease && ac.rotor.rpm >= release) atRelease = { d: ac.pos.distanceTo(p0), turn: turned(h0, headingOf(ac)) }
+    }
+    const label = `${pax ? 'con pasajero' : 'solo'}${windy ? ' y viento' : ''}`
+    if (!atRelease || atRelease.d > 0.2 || atRelease.turn > 0.5 || ac.crash) {
+      bad = true
+      pre.push(`${label}: NO SUJETA${atRelease ? ` (${atRelease.d.toFixed(1)} m, ${atRelease.turn.toFixed(1)}°)` : ` (rotor ${ac.rotor.rpm.toFixed(0)} rpm)`}`)
+    } else {
+      const still = ac.pos.distanceTo(p0) < 0.2
+      pre.push(`${label}: sujeta${still ? ` también a ${ac.rotor.rpm.toFixed(0)} rpm` : `; pasadas, a ${ac.rotor.rpm.toFixed(0)} rpm, se arrastra`}`)
+    }
+  }
+  notes.push(`prerrotado al 40 % hasta ${release} rpm: ${pre.join(', ')}`)
+  // 3) frenada a fondo a 60 km/h
+  {
+    const ac = new Autogyro(af)
+    ac.setLoad(false)
+    ac.placeOnGround(0, 0, 0, 90)
+    const ctl = defaultControls()
+    ctl.rotorBrake = true
+    for (let i = 0; i < 240 * 2; i++) ac.step(DT, ctl, env)
+    ac.vel.copy(new Vector3(1, 0, 0).applyQuaternion(ac.quat).setY(0).normalize()).multiplyScalar(60 / 3.6)
+    for (let i = 0; i < 240; i++) ac.step(DT, ctl, env)
+    const p0 = ac.pos.clone()
+    ctl.wheelBrake = 1
+    for (let i = 0; i < 240 * 20 && !ac.crash && ac.groundSpeed > 0.05; i++) ac.step(DT, ctl, env)
+    if (ac.crash) bad = true
+    notes.push(`frenada a fondo desde 60 km/h: ${ac.crash ? ac.crash.title : `para en ${ac.pos.distanceTo(p0).toFixed(0)} m`}`)
+  }
+  if (bad) fails++
+  console.log(`${af.id.padEnd(8)} | ${notes.join(' | ')} ${bad ? 'FALLA' : 'OK'}`)
+}
+
+console.log(fails ? `\n${fails} comprobación(es) con problemas en tierra.` : '\nTodos los aparatos se comportan bien en tierra.')
