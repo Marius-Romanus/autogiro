@@ -84,8 +84,8 @@ const IDLE_INTERVAL = 500
 const DEG = Math.PI / 180
 const ROTOR_R = 4.2
 /** inputs del menú que fija el anfitrión */
-const ROOM_INPUTS = ['location', 'customLat', 'customLon', 'hour', 'dayOfYear', 'windFrom', 'windSpeed', 'turbulence', 'clouds']
-const COND_KEYS = ['locationId', 'customLat', 'customLon', 'hour', 'dayOfYear', 'windFrom', 'windSpeed', 'turbulence', 'clouds', 'collisions'] as const
+const ROOM_INPUTS = ['depmode-map', 'depmode-place', 'country', 'location', 'btn-worldmap', 'customLat', 'customLon', 'customHeading', 'hour', 'dayOfYear', 'windFrom', 'windSpeed', 'turbulence', 'clouds']
+const COND_KEYS = ['locationId', 'customLat', 'customLon', 'customHeading', 'customName', 'hour', 'dayOfYear', 'windFrom', 'windSpeed', 'turbulence', 'clouds', 'collisions'] as const
 
 // puntos del fuselaje para los choques (respecto al CG, ejes cuerpo)
 const BODY_PTS = [
@@ -486,6 +486,8 @@ export class Multiplayer {
       locationId: loc?.id ?? s.locationId,
       customLat: loc?.id === 'custom' ? loc.lat : s.customLat,
       customLon: loc?.id === 'custom' ? loc.lon : s.customLon,
+      customHeading: loc?.id === 'custom' ? loc.heading : s.customHeading,
+      customName: loc?.id === 'custom' ? loc.name : s.customName,
       hour: s.hour,
       dayOfYear: s.dayOfYear,
       windFrom: s.windFrom,

@@ -712,6 +712,8 @@ input[type='range'] {
 
 .seg label {
   flex: 1;
+  /* dentro de un .field, sus etiquetas son flex y la opción no llenaría su mitad */
+  display: block;
   cursor: pointer;
 }
 

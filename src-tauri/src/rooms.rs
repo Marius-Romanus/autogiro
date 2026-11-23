@@ -456,6 +456,8 @@ fn sanitize_conditions(c: &Map<String, Value>) -> Option<Value> {
         "locationId": location_id,
         "customLat": json_num(num(c.get("customLat"), -90.0, 90.0, 40.0)),
         "customLon": json_num(num(c.get("customLon"), -180.0, 180.0, -4.0)),
+        "customHeading": json_num(num(c.get("customHeading"), 0.0, 360.0, 0.0)),
+        "customName": clean_text(c.get("customName"), 64),
         "hour": json_num(num(c.get("hour"), 0.0, 24.0, 12.0)),
         "dayOfYear": json_num(num(c.get("dayOfYear"), 1.0, 366.0, 140.0)),
         "windFrom": json_num(num(c.get("windFrom"), 0.0, 360.0, 0.0)),

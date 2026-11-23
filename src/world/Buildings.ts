@@ -37,6 +37,7 @@ import { classifyRings, fetchVectorTile, loadOrthoMosaic, xToLon, yToLat, Z, typ
 import { facadeColour, parseOsmColour, roofColour } from './osmColour.ts'
 import { ROOF_CONE, ROOF_DOME, ROOF_FLAT, ROOF_GABLED, ROOF_HIPPED, ROOF_ONION, ROOF_PYRAMIDAL, ROOF_ROUND, ROOF_SKILLION } from './osmRoofFormat.ts'
 import { osmRoofsTile, type OsmRoof } from './osmRoofs.ts'
+import { landmarkNear, replacedByLandmark } from './Landmarks.ts'
 import type { RoofJob } from './roof.worker.ts'
 import { buildRoofs } from './roofClient.ts'
 import {
@@ -349,6 +350,8 @@ export class Buildings extends TileLayer<BuildingTile> {
     const add = (rings: Array<{ pts: Array<[number, number]>; cut: boolean[] }>, height: number, minHeight: number, colour: string | null, hangar: boolean, osmRoof: OsmRoof | null = null) =>
       this.addBuilding(builder, t.frame, prisms, deferred, rings, toGeo, height, minHeight, colour, colours, E, hangar, t.x * E, t.y * E, osmRoof)
     let buildings = 0
+    // monumentos modelados aparte (Landmarks.ts): fuera sus edificios de OSM
+    const landmarkHere = landmarkNear(south, west, north, east)
     // huellas de OSM (para no repetir con el Catastro los edificios que ya están)
     const osm = new RingGrid(E)
     // metros por unidad de la tesela vectorial (Mercator: igual en x que en y)
@@ -373,14 +376,35 @@ export class Buildings extends TileLayer<BuildingTile> {
         if (rings.length === 0) continue
         osm.add(rings[0].pts)
         if (props.hide_3d) continue // contorno con partes (building:part) que ya se dibujan
-        const hangar = aerodromes.length > 0 && inAnyPolygon(aerodromes, rings[0].pts)
+        if (landmarkHere) {
+          const [cx, cy] = ringCentroidArea(rings[0].pts)
+          const [la, lo] = toGeo(cx, cy)
+          if (replacedByLandmark(la, lo)) continue
+        }
+        // los que cruzan el borde: enteros en la tesela de su centroide si caben en su margen
+        // (así llevan su tejado de OSM y no quedan partidos; p. ej. la pirámide de Keops)
+        let draw = rings
+        if (rings[0].cut.some(Boolean)) {
+          const raw = polygon.map((ring) => {
+            const pts = ring.map((p) => [p.x, p.y] as [number, number])
+            if (pts.length > 1 && pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) pts.pop()
+            return pts
+          })
+          const own = edgeOwner(raw[0], rings[0].pts, E)
+          if (own === 'skip') continue // lo dibuja entero la tesela vecina
+          if (own === 'whole') draw = raw.filter((pts) => pts.length >= 3).map((pts) => ({ pts, cut: pts.map(() => false) }))
+          // aquí solo asoma: se omite si la vecina lo dibuja entero (si no, recortado, como siempre)
+          else if (own !== 'clip' && (await neighbourDrawsWhole(t.x, t.y, own, rings[0].pts, E))) continue
+          if (signal.aborted) return null
+        }
+        const hangar = aerodromes.length > 0 && inAnyPolygon(aerodromes, draw[0].pts)
         // forma del tejado mapeada en OSM (solo huellas enteras: las recortadas no casan)
         let osmRoof: OsmRoof | null = null
-        if (osmRoofs && !rings[0].cut.some(Boolean)) {
-          const [cx, cy, a] = ringCentroidArea(rings[0].pts)
+        if (osmRoofs && !draw[0].cut.some(Boolean)) {
+          const [cx, cy, a] = ringCentroidArea(draw[0].pts)
           osmRoof = osmRoofs.match(cx, cy, a * mPerPx * mPerPx, mPerPx, E)
         }
-        if (add(rings, height, minHeight, colour, hangar, osmRoof)) buildings++
+        if (add(draw, height, minHeight, colour, hangar, osmRoof)) buildings++
       }
       // trocear el trabajo: ~6 ms por fotograma
       if (!(await slicer.yield(signal))) return null
@@ -1242,6 +1266,124 @@ function pointInRing(r: Float32Array, x: number, z: number): boolean {
  * Recorta un anillo al cuadrado [0, E]² (Sutherland–Hodgman) y marca los lados que
  * quedan sobre el borde de la tesela (ahí no se pone pared: el edificio sigue en la vecina).
  */
+/** Margen de las teselas vectoriales de OpenFreeMap (unidades de tesela): ahí se cortan las huellas. */
+const MVT_BUFFER = 64
+
+type EdgeSide = 'left' | 'right' | 'top' | 'bottom'
+const SIDE_OFFSET: Record<EdgeSide, [number, number]> = { left: [-1, 0], right: [1, 0], top: [0, -1], bottom: [0, 1] }
+
+/**
+ * Qué hace esta tesela con un edificio que cruza su borde: 'whole' = dibujarlo entero (cabe en
+ * el margen y su centroide cae aquí), 'skip' = lo dibuja entero una vecina, 'clip' = dibujar
+ * solo lo que cae dentro (como antes; para los que no caben en el margen de nadie). Un lado
+ * ('left'…) = aquí solo asoma una franja de un edificio que sigue en esa vecina más allá de
+ * nuestro margen: hay que preguntarle a ella si lo dibuja entero (neighbourDrawsWhole).
+ * `raw` es la huella tal cual viene (con el margen), `clipped` la recortada a la tesela.
+ */
+function edgeOwner(raw: Array<[number, number]>, clipped: Array<[number, number]>, E: number): 'whole' | 'skip' | 'clip' | EdgeSide {
+  const lo = -MVT_BUFFER
+  const hi = E + MVT_BUFFER
+  const box = (pts: Array<[number, number]>) => {
+    let x0 = Infinity
+    let x1 = -Infinity
+    let y0 = Infinity
+    let y1 = -Infinity
+    for (const [x, y] of pts) {
+      x0 = Math.min(x0, x)
+      x1 = Math.max(x1, x)
+      y0 = Math.min(y0, y)
+      y1 = Math.max(y1, y)
+    }
+    return { x0, x1, y0, y1 }
+  }
+  const r = box(raw)
+  const left = r.x0 <= lo
+  const right = r.x1 >= hi
+  const top = r.y0 <= lo
+  const bottom = r.y1 >= hi
+  if (!left && !right && !top && !bottom) {
+    // se ve entero; solo los que cruzan un único borde (dos teselas): los de las esquinas,
+    // recortados como siempre
+    const spanX = Math.ceil(r.x1 / E) - Math.floor(r.x0 / E)
+    const spanY = Math.ceil(r.y1 / E) - Math.floor(r.y0 / E)
+    if (spanX * spanY !== 2) return 'clip'
+    // lo dibuja la tesela de su centroide, si también le cabe en el margen
+    const [cx, cy] = ringCentroidArea(raw)
+    const ox = Math.floor(cx / E) * E
+    const oy = Math.floor(cy / E) * E
+    if (ox === 0 && oy === 0) return 'whole'
+    return r.x0 - ox > lo && r.x1 - ox < hi && r.y0 - oy > lo && r.y1 - oy < hi ? 'skip' : 'clip'
+  }
+  // cortado por el margen por un solo lado y, dentro de la tesela, tocando solo ese borde: si aquí
+  // solo asoma una franja (que la vecina ve en su margen), puede que la vecina lo vea entero; qué
+  // hace ella no se sabe desde aquí (el edificio puede doblar una esquina fuera de nuestra vista)
+  if (Number(left) + Number(right) + Number(top) + Number(bottom) !== 1) return 'clip'
+  const c = box(clipped)
+  const edges = Number(c.x0 <= 0) + Number(c.x1 >= E) + Number(c.y0 <= 0) + Number(c.y1 >= E)
+  if (edges !== 1) return 'clip'
+  const side: EdgeSide = left ? 'left' : right ? 'right' : top ? 'top' : 'bottom'
+  const strip = left ? c.x1 < MVT_BUFFER : right ? c.x0 > E - MVT_BUFFER : top ? c.y1 < MVT_BUFFER : c.y0 > E - MVT_BUFFER
+  return strip ? side : 'clip'
+}
+
+/** Puntos donde una huella recortada toca el borde de la tesela (a lo largo de él), ordenados. */
+function edgeCrossings(clipped: Array<[number, number]>, side: EdgeSide, E: number): number[] {
+  const axis = side === 'left' || side === 'right' ? 0 : 1
+  const at = side === 'left' || side === 'top' ? 0 : E
+  return clipped.filter((p) => p[axis] === at).map((p) => p[1 - axis]).sort((a, b) => a - b)
+}
+
+/**
+ * Edificios de una tesela que cruzan uno de sus bordes: dónde lo cruzan y si esa tesela los
+ * dibuja enteros. Se calcula una vez por tesela y borde, y lo comparten las teselas vecinas.
+ */
+const edgeIndex = new Map<string, Promise<Array<{ at: number[]; whole: boolean }>>>()
+
+function tileEdgeIndex(x: number, y: number, side: EdgeSide): Promise<Array<{ at: number[]; whole: boolean }>> {
+  const k = `${x}/${y}/${side}`
+  let p = edgeIndex.get(k)
+  if (!p) {
+    p = fetchVectorTile(x, y, new AbortController().signal)
+      .then((vt) => {
+        const layer = vt.layers.building
+        const out: Array<{ at: number[]; whole: boolean }> = []
+        if (!layer) return out
+        const E = layer.extent
+        for (let i = 0; i < layer.length; i++) {
+          const f = layer.feature(i)
+          if (f.type !== 3 || f.properties.hide_3d) continue
+          for (const polygon of classifyRings(f.loadGeometry())) {
+            const raw = polygon[0].map((q) => [q.x, q.y] as [number, number])
+            if (raw.length > 1 && raw[0][0] === raw[raw.length - 1][0] && raw[0][1] === raw[raw.length - 1][1]) raw.pop()
+            const c = clipRing(raw, E)
+            if (c.pts.length < 3) continue
+            const at = edgeCrossings(c.pts, side, E)
+            if (at.length >= 2) out.push({ at, whole: edgeOwner(raw, c.pts, E) === 'whole' })
+          }
+        }
+        return out
+      })
+      .catch(() => [])
+    edgeIndex.set(k, p)
+    if (edgeIndex.size > 64) edgeIndex.delete(edgeIndex.keys().next().value!)
+  }
+  return p
+}
+
+/**
+ * ¿La tesela vecina dibuja entero el edificio del que aquí solo asoma una franja? Se busca su
+ * trozo por los puntos donde cruza el borde común y se decide con edgeOwner desde allí.
+ */
+async function neighbourDrawsWhole(tx: number, ty: number, side: EdgeSide, clipped: Array<[number, number]>, E: number): Promise<boolean> {
+  const [dx, dy] = SIDE_OFFSET[side]
+  const opposite: EdgeSide = side === 'left' ? 'right' : side === 'right' ? 'left' : side === 'top' ? 'bottom' : 'top'
+  const ours = edgeCrossings(clipped, side, E)
+  for (const theirs of await tileEdgeIndex(tx + dx, ty + dy, opposite)) {
+    if (theirs.at.length === ours.length && theirs.at.every((v, j) => Math.abs(v - ours[j]) <= 3)) return theirs.whole
+  }
+  return false
+}
+
 function clipRing(pts: Array<[number, number]>, E: number): { pts: Array<[number, number]>; cut: boolean[] } {
   let out = pts
   const edges: Array<[number, number, boolean]> = [

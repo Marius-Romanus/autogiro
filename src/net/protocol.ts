@@ -57,6 +57,9 @@ export interface RoomConditions {
   locationId: string
   customLat: number
   customLon: number
+  /** rumbo y nombre de la salida personalizada (mapa del mundo); no llegan de versiones anteriores */
+  customHeading?: number
+  customName?: string
   hour: number
   dayOfYear: number
   windFrom: number

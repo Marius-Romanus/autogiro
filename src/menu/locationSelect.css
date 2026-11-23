@@ -1,0 +1,135 @@
+/* «País» del menú: campo que filtra la lista de países (src/menu/locationSelect.ts) */
+
+.combo {
+  position: relative;
+}
+
+.combo input {
+  padding-right: 30px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239aa4b2' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='10.5' cy='10.5' r='6'/%3E%3Cpath d='M15 15l5 5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 15px;
+  cursor: pointer;
+}
+
+.combo input:focus {
+  cursor: text;
+}
+
+.combo-list {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 290px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--panel-solid);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55);
+}
+
+.combo-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.combo-item span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combo-item small {
+  font: 600 11px 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--muted);
+}
+
+.combo-item:hover,
+.combo-item.on {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.combo-item.on {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.combo-item.cur span {
+  color: var(--accent-2);
+  font-weight: 600;
+}
+
+.combo-empty {
+  padding: 9px 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* «Salida desde»: la salida elegida en el mapa y las coordenadas a mano */
+.dep-current {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--line);
+}
+
+.dep-current b {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.dep-current small {
+  font-size: 12px;
+}
+
+.dep-coords {
+  margin: -4px 0 12px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.dep-coords summary {
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.dep-coords[open] summary {
+  margin-bottom: 8px;
+}
+
+.dep-mode {
+  margin-bottom: 2px;
+}
+
+/* cada opción, con el ancho de su texto más el sobrante a partes iguales; si la columna es muy
+   estrecha, el texto pasa a dos líneas en vez de salirse */
+.seg.dep-mode label {
+  flex: 1 1 auto;
+}
+
+.seg.dep-mode span {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 6px;
+  font-size: 12.5px;
+  line-height: 1.2;
+}
+
+#dep-map > .seg {
+  margin-bottom: 12px;
+}

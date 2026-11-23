@@ -281,6 +281,8 @@ function sanitizeConditions(c: any): RoomConditions | null {
     locationId,
     customLat: num(c.customLat, -90, 90, 40),
     customLon: num(c.customLon, -180, 180, -4),
+    customHeading: num(c.customHeading, 0, 360, 0),
+    customName: cleanText(c.customName, 64),
     hour: num(c.hour, 0, 24, 12),
     dayOfYear: num(c.dayOfYear, 1, 366, 140),
     windFrom: num(c.windFrom, 0, 360, 0),

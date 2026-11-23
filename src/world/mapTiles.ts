@@ -35,11 +35,11 @@ function vectorTemplate(): Promise<string | null> {
   return tileTemplate
 }
 
-/** Tesela vectorial z14 de OpenFreeMap (esquema OpenMapTiles). */
-export async function fetchVectorTile(x: number, y: number, signal: AbortSignal): Promise<VectorTile> {
+/** Tesela vectorial (z14 si no se dice otro nivel) de OpenFreeMap (esquema OpenMapTiles). */
+export async function fetchVectorTile(x: number, y: number, signal: AbortSignal, z = Z): Promise<VectorTile> {
   const tpl = await vectorTemplate()
   if (!tpl) throw new Error('sin TileJSON de OpenFreeMap')
-  const url = tpl.replace('{z}', String(Z)).replace('{x}', String(x)).replace('{y}', String(y))
+  const url = tpl.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y))
   const r = await fetch(url, { signal })
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   return new VectorTile(new PbfReader(new Uint8Array(await r.arrayBuffer())))

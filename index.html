@@ -149,18 +149,49 @@
               <select id="aircraft"></select>
               <small id="aircraftNote" class="muted"></small>
             </div>
+            <!-- de dónde se sale: del mapa del mundo (aeródromos, pistas, cualquier punto) o de un
+                 lugar emblemático (país y lugar); solo se ve lo de la opción elegida (locationSelect.ts) -->
             <div class="field">
-              <label for="location" data-i18n="menu.location">Lugar</label>
-              <select id="location"></select>
-              <small id="locationNote" class="muted"></small>
+              <label data-i18n="menu.departFrom">Salida desde</label>
+              <div class="seg dep-mode" role="radiogroup" aria-label="Salida desde" data-i18n-attr="aria-label:menu.departFrom">
+                <label><input type="radio" name="depmode" id="depmode-map" value="map" /><span data-i18n="menu.depMap">Mapa del mundo</span></label>
+                <label><input type="radio" name="depmode" id="depmode-place" value="place" /><span data-i18n="menu.depPlace">Lugar emblemático</span></label>
+              </div>
             </div>
-            <div class="field two" id="custom-coords">
-              <div><label for="customLat" data-i18n="menu.lat">Latitud</label><input id="customLat" type="number" step="0.0001" /></div>
-              <div><label for="customLon" data-i18n="menu.lon">Longitud</label><input id="customLon" type="number" step="0.0001" /></div>
+            <div id="dep-map">
+              <div class="field">
+                <div class="dep-current">
+                  <b id="depCurrent"></b>
+                  <small id="depCurrentNote" class="muted"></small>
+                </div>
+                <button id="btn-worldmap" type="button" class="map-btn"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3.5 9h17M3.5 15h17"/></svg><span data-i18n="wm.open">Elegir en el mapa del mundo</span></button>
+              </div>
+              <details class="dep-coords">
+                <summary data-i18n="menu.coordsByHand">o escribir las coordenadas</summary>
+                <div class="field two" id="custom-coords">
+                  <div><label for="customLat" data-i18n="menu.lat">Latitud</label><input id="customLat" type="number" step="0.0001" /></div>
+                  <div><label for="customLon" data-i18n="menu.lon">Longitud</label><input id="customLon" type="number" step="0.0001" /></div>
+                  <div class="hdg"><label for="customHeading" data-i18n="menu.heading">Rumbo</label><input id="customHeading" type="number" min="0" max="359" step="1" /></div>
+                </div>
+              </details>
+              <div class="seg" role="radiogroup" aria-label="Inicio" data-i18n-attr="aria-label:menu.start">
+                <label><input type="radio" name="start" value="runway" /><span data-i18n="menu.onRunway">En pista</span></label>
+                <label><input type="radio" name="start" value="air" /><span data-i18n="menu.inFlight">En vuelo</span></label>
+              </div>
             </div>
-            <div class="seg" role="radiogroup" aria-label="Inicio" data-i18n-attr="aria-label:menu.start">
-              <label><input type="radio" name="start" value="runway" /><span data-i18n="menu.onRunway">En pista</span></label>
-              <label><input type="radio" name="start" value="air" /><span data-i18n="menu.inFlight">En vuelo</span></label>
+            <div id="dep-place" class="hidden">
+              <div class="field">
+                <label for="country" data-i18n="menu.country">País</label>
+                <div class="combo">
+                  <input id="country" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="country-list" autocomplete="off" spellcheck="false" placeholder="Escribe para filtrar…" data-i18n-attr="placeholder:menu.countryFilter" />
+                  <div id="country-list" class="combo-list hidden" role="listbox"></div>
+                </div>
+              </div>
+              <div class="field">
+                <label for="location" data-i18n="menu.location">Lugar</label>
+                <select id="location"></select>
+                <small id="locationNote" class="muted"></small>
+              </div>
             </div>
             <label class="check"><input id="passenger" type="checkbox" /> <span data-i18n="menu.passenger">Con pasajero (MTOW)</span></label>
           </section>

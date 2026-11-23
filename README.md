@@ -47,13 +47,21 @@ autogiro no se pilota como un avión ni como un helicóptero.
   puedes usar también el 3D fotorrealista de Google en cualquier parte del planeta.
 - **Cielo de verdad.** Atmósfera física, nubes volumétricas con su sombra, la hora y la fecha que
   quieras, viento y turbulencia, y vuelo nocturno con luces de navegación y de aterrizaje.
-- **Aeródromos y aeropuertos.** Casarrubios (LEMT), Cuatro Vientos, Barajas, El Prat, Palma,
-  Málaga, Sevilla, Valencia, Bilbao, Tenerife Norte y Gran Canaria, con salida en cabecera o en
-  final, o las coordenadas que quieras.
-- **Sitios emblemáticos de todas las provincias.** Más de 50 salidas en vuelo, agrupadas por
-  comunidad: la Alhambra, la Mezquita de Córdoba, la Sagrada Familia, Santiago, Las Médulas,
-  Cabárceno, Gaztelugatxe, la Playa de las Catedrales, las Bardenas, el Teide, Timanfaya, Es Vedrà,
-  el Cañón del Río Lobos, Mont-rebei, Ceuta y Melilla…
+- **Sal desde cualquier punto del planeta.** En el menú, «Elegir en el mapa del mundo» abre un globo
+  terráqueo que se gira y se acerca como en los simuladores de vuelo: más de 48 000 aeródromos del
+  mundo con todas sus pistas para despegar de cualquier cabecera o llegar en final, un buscador
+  (OACI, IATA, ciudades, montañas o coordenadas) y, si no, pinchas donde quieras y eliges rumbo, en
+  el suelo o en vuelo.
+  Casarrubios (LEMT), Cuatro Vientos, Barajas, El Prat, Palma, Málaga, Sevilla, Valencia, Bilbao,
+  Tenerife Norte y Gran Canaria tienen además sus salidas preparadas (en cabecera, en final o en
+  el circuito).
+- **Sitios emblemáticos de España y del mundo.** Más de 170 salidas en vuelo: eliges el país (con
+  un buscador) y luego el sitio:
+  en España, al menos uno por provincia (la Alhambra, la Sagrada Familia, Santiago, Las Médulas,
+  Gaztelugatxe, el Teide, Es Vedrà, Ceuta y Melilla…), y por todo el mundo el Cervino, el
+  Mont-Saint-Michel, la torre Eiffel, el Vaticano, la Costa Amalfitana, los fiordos noruegos, las
+  pirámides de Guiza, el Taj Mahal, el monte Fuji, la Ciudad Prohibida, la bahía de Ha Long, Nueva
+  York, Las Vegas, el Gran Cañón, Machu Picchu, Iguazú, la Patagonia, Bora Bora…
 - **Con amigos.** Crea una sala, pasa el código y volad juntos hasta 8 pilotos, con chat.
 - **Accidentes realistas.** Si te la pegas, el aparato se rompe por piezas según los golpes.
 - **Teclado, ratón, mando o joystick/HOTAS**, con una ayuda al pilotaje opcional para volar con
@@ -224,6 +232,8 @@ si te gusta, [invítame a un café en Ko-fi](https://ko-fi.com/mario_creativecod
   imágenes Esri World Imagery · relieve global Mapzen / AWS Terrain Tiles · Google Photorealistic 3D Tiles © Google.
 - Edificios y formas de tejado © colaboradores de OpenStreetMap (ODbL), teselas de [OpenFreeMap](https://openfreemap.org) / OpenMapTiles,
   y © [Dirección General del Catastro](https://www.catastro.hacienda.gob.es) (datos INSPIRE de edificios).
+- Mapa del mundo: aeródromos de [OurAirports](https://ourairports.com/data/) (dominio público), pistas y
+  búsqueda de lugares © colaboradores de OpenStreetMap (OpenFreeMap y [Nominatim](https://nominatim.openstreetmap.org)).
 - [3d-tiles-renderer](https://github.com/NASA-AMMOS/3DTilesRendererJS) (NASA-AMMOS),
   [three-geospatial](https://github.com/takram-design-engineering/three-geospatial) (takram) para
   atmósfera y nubes, [Three.js](https://threejs.org), [Rapier](https://rapier.rs) y [Tauri](https://tauri.app),
@@ -284,13 +294,20 @@ like an aeroplane nor like a helicopter.
   satellite imagery, and with a Google key you can use Google's photorealistic 3D anywhere on Earth.
 - **A real sky.** Physical atmosphere, volumetric clouds with their shadows, any time and date,
   wind and turbulence, and night flying with navigation and landing lights.
-- **Airfields and airports.** Casarrubios (LEMT), Cuatro Vientos, Madrid-Barajas, Barcelona,
-  Palma, Málaga, Seville, Valencia, Bilbao, Tenerife North and Gran Canaria, starting on the runway or
-  on final, or any coordinates you like.
-- **Landmarks in every Spanish province.** Over 50 in-flight starts, grouped by region: the
-  Alhambra, Córdoba's Mosque-Cathedral, the Sagrada Família, Santiago, Las Médulas, Cabárceno,
-  Gaztelugatxe, Cathedrals Beach, the Bardenas, Mount Teide, Timanfaya, Es Vedrà, the Río Lobos
-  canyon, Mont-rebei, Ceuta and Melilla…
+- **Start anywhere on the planet.** In the menu, “Pick on the world map” opens a globe you spin and
+  zoom like in flight simulators: over 48,000 airfields worldwide with all their runways to take off
+  from any threshold or start on final, a search box (ICAO, IATA, cities, mountains or coordinates)
+  or just click anywhere and choose your heading, on the ground or in flight.
+  Casarrubios (LEMT), Cuatro Vientos, Madrid-Barajas, Barcelona, Palma, Málaga, Seville, Valencia,
+  Bilbao, Tenerife North and Gran Canaria also have ready-made starts (on the runway, on final or in
+  the circuit).
+- **Landmarks in Spain and around the world.** Over 170 in-flight starts: pick the country (with a
+  search box) and then the place. At least
+  one in every Spanish province (the Alhambra, the Sagrada Família, Santiago, Las Médulas,
+  Gaztelugatxe, Mount Teide, Es Vedrà, Ceuta and Melilla…), and worldwide the Matterhorn,
+  Mont-Saint-Michel, the Eiffel Tower, the Vatican, the Amalfi Coast, the Norwegian fjords, the
+  Pyramids of Giza, the Taj Mahal, Mount Fuji, the Forbidden City, Ha Long Bay, New York, Las Vegas,
+  the Grand Canyon, Machu Picchu, Iguazú, Patagonia, Bora Bora…
 - **With friends.** Create a room, share the code and fly together, up to 8 pilots, with chat.
 - **Realistic crashes.** If you crash, the aircraft breaks apart piece by piece depending on the impacts.
 - **Keyboard, mouse, gamepad or joystick/HOTAS**, with an optional flying assist so you can fly with
@@ -459,6 +476,8 @@ if you like it, [buy me a coffee on Ko-fi](https://ko-fi.com/mario_creativecode)
   Esri World Imagery · global terrain Mapzen / AWS Terrain Tiles · Google Photorealistic 3D Tiles © Google.
 - Buildings and roof shapes © OpenStreetMap contributors (ODbL), tiles by [OpenFreeMap](https://openfreemap.org) / OpenMapTiles,
   and © [Dirección General del Catastro](https://www.catastro.hacienda.gob.es) (INSPIRE building data).
+- World map: airfields from [OurAirports](https://ourairports.com/data/) (public domain), runways and
+  place search © OpenStreetMap contributors (OpenFreeMap and [Nominatim](https://nominatim.openstreetmap.org)).
 - [3d-tiles-renderer](https://github.com/NASA-AMMOS/3DTilesRendererJS) (NASA-AMMOS),
   [three-geospatial](https://github.com/takram-design-engineering/three-geospatial) (takram) for
   atmosphere and clouds, [Three.js](https://threejs.org), [Rapier](https://rapier.rs) and [Tauri](https://tauri.app),

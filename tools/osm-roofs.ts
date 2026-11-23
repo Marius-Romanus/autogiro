@@ -8,6 +8,7 @@
 //
 // Volcados: https://download.geofabrik.de/europe/spain-latest.osm.pbf (1,5 GB, sin Canarias) y
 // https://download.geofabrik.de/africa/canary-islands-latest.osm.pbf. Tarda unos minutos.
+// Después hay que volver a añadir los monumentos del mundo: tools/world-sites.ts roofs.
 
 import { closeSync, openSync, readSync, statSync, writeFileSync } from 'node:fs'
 import { inflateSync } from 'node:zlib'

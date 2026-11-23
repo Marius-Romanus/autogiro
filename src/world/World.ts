@@ -35,6 +35,7 @@ import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-
 import { GeoFrame } from './GeoFrame.ts'
 import { Buildings } from './Buildings.ts'
 import { Trees } from './Trees.ts'
+import { Landmarks } from './Landmarks.ts'
 import { Runways } from './Runways.ts'
 import { fixIgnAvailability, hasIgnTerrain, QMHeightSource, TerrariumHeightSource, type HeightSource } from './HeightSource.ts'
 import type { Quality, Settings } from '../config.ts'
@@ -118,6 +119,8 @@ export class World {
   buildings: Buildings | null = null
   /** árboles detectados en la ortofoto (modo sin clave) */
   trees: Trees | null = null
+  /** monumentos modelados aparte (torre Eiffel), con los edificios */
+  landmarks: Landmarks | null = null
   /** pistas de OpenStreetMap alisadas sobre el MDT del IGN (dibujo y física) */
   runways: Runways | null = null
   /** alturas para asentar edificios y árboles (compartidas) */
@@ -209,6 +212,11 @@ export class World {
         this.scene.add(this.buildings.group)
         this.buildings.syncFrame()
       }
+      if (this.buildingHeights && this.settings.buildings) {
+        this.landmarks = new Landmarks(this.frame, this.buildingHeights)
+        this.scene.add(this.landmarks.group)
+        this.landmarks.syncFrame()
+      }
       if (this.buildingHeights && this.settings.trees) {
         this.trees = new Trees(this.frame, this.buildingHeights, imageryUrl)
         this.scene.add(this.trees.group)
@@ -291,6 +299,7 @@ export class World {
     this.tiles.update()
     this.buildings?.update(dt, this.camera.position)
     this.trees?.update(dt, this.camera.position)
+    this.landmarks?.update(dt, this.camera.position)
     // malla fina del MDT alrededor de la cámara (≈ ±400 m), para que el suelo del aparato no espere
     this.prefetchTimer -= dt
     if (this.heights && this.prefetchTimer <= 0) {
@@ -329,6 +338,7 @@ export class World {
       this.tiles.group.updateMatrixWorld(true)
       this.buildings?.syncFrame()
       this.trees?.syncFrame()
+      this.landmarks?.syncFrame()
     } catch (e) {
       console.error('Error recolocando el escenario al re-centrar el origen:', e)
     }
@@ -381,12 +391,12 @@ export class World {
 
   /** ¿El punto (mundo) está dentro de un edificio de OpenStreetMap? */
   hitsBuilding(p: Vector3): boolean {
-    return this.buildings?.collides(p) ?? false
+    return (this.buildings?.collides(p) ?? false) || (this.landmarks?.collides(p) ?? false)
   }
 
   /** ¿Choca el punto (mundo) con un edificio o con la copa de un árbol? */
   hitsObstacle(p: Vector3): 'building' | 'tree' | null {
-    if (this.buildings?.collides(p)) return 'building'
+    if (this.buildings?.collides(p) || this.landmarks?.collides(p)) return 'building'
     if (this.trees?.collides(p)) return 'tree'
     return null
   }
@@ -395,6 +405,7 @@ export class World {
   setEnvMap(tex: Texture | null): void {
     this.buildings?.setEnvMap(tex)
     this.trees?.setEnvMap(tex)
+    this.landmarks?.setEnvMap(tex)
   }
 
   /** Raycast contra la geometría cargada (tiles de Google). */
@@ -443,6 +454,10 @@ export class World {
     if (this.trees) {
       this.scene.remove(this.trees.group)
       this.trees.dispose()
+    }
+    if (this.landmarks) {
+      this.scene.remove(this.landmarks.group)
+      this.landmarks.dispose()
     }
     this.runways?.dispose()
     this.heights?.dispose()

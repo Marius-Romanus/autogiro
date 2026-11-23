@@ -36,6 +36,8 @@ import { Sound } from './audio/Sound.ts'
 import { Multiplayer } from './net/Multiplayer.ts'
 import { CrashSystem, type AircraftState, type CrashWorld } from './crash/CrashSystem.ts'
 import type { RoomConditions } from './net/protocol.ts'
+import { WorldMap, type MapPick } from './menu/WorldMap.ts'
+import { buildLocationSelect, localizeLocationSelect, showDeparture, syncCurrentDeparture } from './menu/locationSelect.ts'
 
 const DT = 1 / 240
 const KT = 0.514444
@@ -106,6 +108,8 @@ class App {
   private toastTimer = 0
   private worldKey = ''
   private orbitT = 0
+  /** mapa del mundo del menú para elegir la salida (src/menu/WorldMap.ts) */
+  private worldMap = new WorldMap()
   /** física de accidentes (despiece con Rapier, src/crash) */
   crashSys: CrashSystem
   private crashShown = false
@@ -189,7 +193,15 @@ class App {
   private currentLocation(): Location {
     const s = this.settings
     if (s.locationId === 'custom') {
-      return { id: 'custom', name: t('loc.custom'), lat: s.customLat, lon: s.customLon, heading: 0, geoid: 50, airAGL: 300 }
+      return {
+        id: 'custom',
+        name: s.customName || t('loc.custom'),
+        lat: s.customLat,
+        lon: s.customLon,
+        heading: s.customHeading || 0,
+        geoid: 50,
+        airAGL: 300,
+      }
     }
     return LOCATIONS.find((l) => l.id === s.locationId) ?? LOCATIONS[0]
   }
@@ -405,7 +417,8 @@ class App {
     // focos de aterrizaje sobre el terreno: el propio y los de los demás pilotos
     const lights = this.view.lights
     this.gfx.landingLight.setBeams([lights.beam, ...this.mp.landingBeams()], BEAM.angle, BEAM.penumbra, lights.knee)
-    this.gfx.render(dt)
+    // con el mapa del mundo abierto la escena no se ve: la GPU es para el globo
+    if (!this.worldMap.isOpen) this.gfx.render(dt)
 
     this.updateHud(dt)
     this.guide.update(dt, {
@@ -825,28 +838,8 @@ class App {
   private setupMenu(): void {
     const s = this.settings
     applyI18n()
-    const sel = $('location') as HTMLSelectElement
-    // agrupados (aeródromos y, los sitios emblemáticos, por comunidad) en el orden de LOCATIONS
-    const groups = new Map<string, HTMLOptGroupElement>()
-    for (const l of LOCATIONS) {
-      const o = document.createElement('option')
-      o.value = l.id
-      o.textContent = l.name
-      const g = l.group ?? l.region ?? 'scenic'
-      let og = groups.get(g)
-      if (!og) {
-        og = document.createElement('optgroup')
-        og.dataset.group = g
-        og.label = t(`locgroup.${g}`)
-        groups.set(g, og)
-        sel.appendChild(og)
-      }
-      og.appendChild(o)
-    }
-    const oc = document.createElement('option')
-    oc.value = 'custom'
-    oc.textContent = 'Coordenadas personalizadas…'
-    sel.appendChild(oc)
+    // salida desde el mapa del mundo o desde un lugar emblemático (src/menu/locationSelect.ts)
+    buildLocationSelect($('location') as HTMLSelectElement, s, () => {})
     const acSel = $('aircraft') as HTMLSelectElement
     for (const a of AIRCRAFT) {
       const o = document.createElement('option')
@@ -883,7 +876,6 @@ class App {
       const el = $(id) as HTMLInputElement | HTMLSelectElement
       el.addEventListener('change', () => {
         ;(s as any)[id] = num ? Number(el.value) : el.value
-        if (id === 'locationId') $('custom-coords').classList.toggle('hidden', el.value !== 'custom')
         if (id === 'quality' || id === 'clouds') this.applySettings(false)
       })
     }
@@ -892,6 +884,17 @@ class App {
     bindVal('elevation')
     bindVal('customLat', true)
     bindVal('customLon', true)
+    bindVal('customHeading', true)
+    // coordenadas escritas a mano: la salida pasa a ser esas coordenadas (sin el nombre del mapa)
+    for (const id of ['customLat', 'customLon', 'customHeading']) {
+      $(id).addEventListener('change', () => {
+        if (id !== 'customHeading') s.customName = ''
+        s.locationId = 'custom'
+        s.mapLocationId = 'custom'
+        this.showLocationNote()
+      })
+    }
+    $('btn-worldmap').addEventListener('click', () => this.openWorldMap())
     bindVal('clouds')
     bindVal('quality')
     bindVal('axisPitch', true)
@@ -919,11 +922,6 @@ class App {
     bindCheck('invertPitch')
     bindCheck('mouseStick')
     bindCheck('invertThrottle')
-    ;($('location') as HTMLSelectElement).addEventListener('change', (e) => {
-      s.locationId = (e.target as HTMLSelectElement).value
-      $('custom-coords').classList.toggle('hidden', s.locationId !== 'custom')
-      this.showLocationNote()
-    })
 
     $('btn-fly').addEventListener('click', () => this.fly())
     $('btn-help').addEventListener('click', () => $('help').classList.toggle('hidden'))
@@ -963,18 +961,42 @@ class App {
 
   /** Textos del menú que se generan desde código (lugares y aparatos). */
   private localizeMenu(): void {
-    for (const o of ($('location') as HTMLSelectElement).options) {
-      const l = LOCATIONS.find((x) => x.id === o.value)
-      o.textContent = l ? locationName(l) : o.value === 'custom' ? t('menu.customCoords') : o.textContent
-    }
-    for (const og of $('location').querySelectorAll('optgroup')) og.label = t(`locgroup.${og.dataset.group}`)
+    localizeLocationSelect($('location') as HTMLSelectElement, this.settings)
     for (const o of ($('aircraft') as HTMLSelectElement).options) o.textContent = aircraftName(aircraftById(o.value))
     this.showLocationNote()
   }
 
   private showLocationNote(): void {
-    const l = LOCATIONS.find((x) => x.id === this.settings.locationId)
-    $('locationNote').textContent = l ? locationNote(l) : ''
+    showDeparture(this.settings)
+  }
+
+  /** Mapa del mundo: elegir la salida pinchando en el globo, en un aeródromo o una pista. */
+  private openWorldMap(): void {
+    const s = this.settings
+    const loc = this.currentLocation()
+    this.worldMap.open(
+      { locationId: s.locationId, lat: loc.lat, lon: loc.lon, heading: loc.heading, name: locationName(loc), start: s.start, windFrom: s.windFrom },
+      (p, fly) => this.applyMapPick(p, fly),
+    )
+  }
+
+  private applyMapPick(p: MapPick, fly: boolean): void {
+    const s = this.settings
+    if (p.kind === 'location') s.locationId = p.id
+    else {
+      s.mapLocationId = 'custom'
+      s.locationId = 'custom'
+      s.customLat = Math.round(p.lat * 1e6) / 1e6
+      s.customLon = Math.round(p.lon * 1e6) / 1e6
+      s.customHeading = Math.round(p.heading * 100) / 100
+      s.customName = p.name
+    }
+    s.start = p.start
+    this.refreshMenu()
+    this.localizeMenu()
+    this.applySettings(false) // huso horario del nuevo sitio
+    saveSettings(s)
+    if (fly) this.fly()
   }
 
   private refreshMenu(): void {
@@ -990,9 +1012,11 @@ class App {
     set('buildings', s.buildings)
     set('trees', s.trees)
     set('catastro', s.catastro)
+    syncCurrentDeparture($('location') as HTMLSelectElement, s)
     set('location', s.locationId)
     set('customLat', s.customLat)
     set('customLon', s.customLon)
+    set('customHeading', Math.round(s.customHeading || 0))
     set('hour', s.hour)
     set('dayOfYear', s.dayOfYear)
     set('windFrom', s.windFrom)
@@ -1016,7 +1040,6 @@ class App {
     set('invertThrottle', s.invertThrottle)
     ;(document.querySelector(`input[name=scenery][value=${s.scenery}]`) as HTMLInputElement).checked = true
     ;(document.querySelector(`input[name=start][value=${s.start}]`) as HTMLInputElement).checked = true
-    $('custom-coords').classList.toggle('hidden', s.locationId !== 'custom')
     $('hourOut').textContent = fmtHour(s.hour)
     $('dayOut').textContent = fmtDay(s.dayOfYear)
     $('windFromOut').textContent = `${String(s.windFrom).padStart(3, '0')}°`
@@ -1061,7 +1084,7 @@ class App {
       (airframeChanged && !swapInFlight) ||
       key !== this.worldKey ||
       loc.id !== this.location?.id ||
-      (loc.id === 'custom' && (loc.lat !== this.location.lat || loc.lon !== this.location.lon)) ||
+      (loc.id === 'custom' && (loc.lat !== this.location.lat || loc.lon !== this.location.lon || loc.heading !== this.location.heading)) ||
       this.lastStart !== s.start ||
       this.lastPassenger !== s.passenger ||
       this.state === 'crashed'
@@ -1081,6 +1104,9 @@ class App {
     s.locationId = c.locationId
     s.customLat = c.customLat
     s.customLon = c.customLon
+    // (anfitriones de versiones anteriores no los mandan)
+    s.customHeading = c.customHeading ?? 0
+    s.customName = c.customName ?? ''
     s.hour = c.hour
     s.dayOfYear = c.dayOfYear
     s.windFrom = c.windFrom
