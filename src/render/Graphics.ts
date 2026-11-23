@@ -5,6 +5,8 @@ import {
   CustomBlending,
   Data3DTexture,
   DataTexture,
+  DstAlphaFactor,
+  OneMinusDstAlphaFactor,
   FloatType,
   NearestFilter,
   RGBAFormat,
@@ -88,31 +90,58 @@ export const OVERLAY_LAYER = 12
 const BASE = import.meta.env.BASE_URL
 
 /**
- * Composición de nubes de la librería + máscara de cercanía. Las nubes se trazan a
- * 1/4 de resolución y se reconstruyen con historial temporal; en el borde de
- * geometría muy próxima (arco del parabrisas, palanca, el propio aparato visto
- * desde fuera) ese historial y el recorte por vecindario arrastran nubes del cielo
- * contiguo y "traspasan" el contorno. Si la cámara está a h metros de la capa de
- * nubes, nada a menos de h puede tener nubes delante: ahí se descartan (la neblina
- * que también va en este búfer es < 0,5 % a 100 m, imperceptible).
+ * Máscara de cercanía de las nubes, en la composición que hace el efecto de atmósfera
+ * (la de CloudsEffect se salta: `skipRendering`, las nubes le llegan a la atmósfera como
+ * `overlay`). Las nubes se trazan a 1/4 de resolución y se reconstruyen con historial
+ * temporal; en el borde de geometría muy próxima (arco del parabrisas, palanca, el propio
+ * aparato visto desde fuera) ese historial y el recorte por vecindario arrastran nubes del
+ * cielo contiguo y "traspasan" el contorno. Si la cámara está a h metros de la capa de
+ * nubes, nada a menos de h puede tener nubes delante: ahí se descartan (la neblina que
+ * también va en este búfer es < 0,5 % a 100 m, imperceptible).
  */
-const CLOUDS_COMPOSITE = /* glsl */ `
-uniform sampler2D cloudsBuffer;
-uniform float nearMask; // distancia de vista (m) por debajo de la cual no puede haber nubes
-
-void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
-  #ifdef SKIP_RENDERING
-  outputColor = inputColor;
-  #else
-  vec4 clouds = texture(cloudsBuffer, uv);
-  if (nearMask > 0.0 && depth < 1.0 - 1e-7) {
-    float d = -perspectiveDepthToViewZ(depth, cameraNear, cameraFar);
-    clouds *= smoothstep(0.6 * nearMask, nearMask, d);
+function patchAerialNearClouds(src: string): string {
+  const k = '  vec4 overlay = texture(overlayBuffer, uv);\n'
+  if (!src.includes(k) || !src.includes('void mainImage(')) {
+    console.warn('Graphics: el shader de atmósfera ha cambiado; las nubes pueden tapar lo cercano')
+    return src
   }
-  outputColor.rgb = inputColor.rgb * (1.0 - clouds.a) + clouds.rgb;
-  outputColor.a = inputColor.a * (1.0 - clouds.a) + clouds.a;
-  #endif
-}`
+  return src.replace('void mainImage(', 'uniform float cloudsNearMask; // m (ver Graphics.ts)\nvoid mainImage(').replace(
+    k,
+    /* glsl */ `${k}  if (cloudsNearMask > 0.0) {
+    float cnDepth = readDepthValue(depthBuffer, uv);
+    if (cnDepth < 1.0 - 1e-8) {
+      float cnDist = -getViewZ(reverseLogDepth(cnDepth, cameraNear, cameraFar));
+      overlay *= smoothstep(0.6 * cloudsNearMask, cloudsNearMask, cnDist);
+    }
+  }
+`,
+  )
+}
+
+/**
+ * Trazado de nubes que no se para en lo cercano. Se trazan a 1/4 de resolución, así que
+ * cada muestra vale por un bloque de 4×4 píxeles; si cae sobre algo fino y próximo (hilo
+ * de guiñada, varillas, palas, un poste) la marcha termina a un metro sin nubes y el
+ * bloque entero queda "limpio": un halo claro de cielo sin nubes alrededor del objeto.
+ * Lo que está más cerca que `cloudsSceneIgnore` (donde la composición ya borra las
+ * nubes) se trata como cielo, y el bloque recibe las nubes que hay detrás.
+ */
+function patchCloudsNearScene(src: string): string {
+  const k = 'viewZ = getViewZ(depth);\n    return -viewZ / dot(rayDirection, vCameraDirection);'
+  if (!src.includes(k)) {
+    console.warn('Graphics: el shader de nubes ha cambiado; vuelve el halo de cielo alrededor de lo cercano')
+    return src
+  }
+  return src
+    .replace(
+      'float getRayDistanceToScene(',
+      'uniform float cloudsSceneIgnore; // m: más cerca no hay nubes delante (ver Graphics.ts)\nfloat getRayDistanceToScene(',
+    )
+    .replace(
+      k,
+      'viewZ = getViewZ(depth);\n    if (-viewZ < cloudsSceneIgnore) { viewZ = 0.0; return 0.0; }\n    return -viewZ / dot(rayDirection, vCameraDirection);',
+    )
+}
 const _camEcef = new Vector3()
 const _camGeo = new Geodetic()
 
@@ -168,6 +197,8 @@ export class Graphics {
   private cloudBottom = Infinity
   private cloudTop = -Infinity
   private readonly cloudNearMask = new Uniform(0)
+  /** distancia de vista por debajo de la cual el trazado de nubes ignora la escena (0,6 × nearMask) */
+  private readonly cloudSceneIgnore = new Uniform(0)
 
   constructor(container: HTMLElement) {
     const renderer = new WebGLRenderer({
@@ -199,6 +230,13 @@ export class Graphics {
 
     // Cielo (quad de pantalla)
     this.skyMaterial = new SkyMaterial()
+    // el cielo ya es radiancia: alfa 0 ("ya iluminado", como el aparato) para lo que se
+    // mezcla según el alfa del búfer (polvo de los choques, discos de las palas)
+    this.skyMaterial.blending = CustomBlending
+    this.skyMaterial.blendSrc = OneFactor
+    this.skyMaterial.blendDst = ZeroFactor
+    this.skyMaterial.blendSrcAlpha = ZeroFactor
+    this.skyMaterial.blendDstAlpha = ZeroFactor
     this.sky = new Mesh(new PlaneGeometry(2, 2), this.skyMaterial)
     this.sky.frustumCulled = false
     this.sky.renderOrder = -1
@@ -256,7 +294,8 @@ export class Graphics {
       albedoScale: 0.85,
     } as any)
     // el sol sobre el terreno también se multiplica por la sombra de edificios y árboles
-    ;(this.aerial as any).setFragmentShader(patchAerialShader((this.aerial as any).getFragmentShader()))
+    ;(this.aerial as any).setFragmentShader(patchAerialNearClouds(patchAerialShader((this.aerial as any).getFragmentShader())))
+    this.aerial.uniforms.set('cloudsNearMask', this.cloudNearMask)
     // Máscara de iluminación en el canal alfa del propio render: los materiales
     // del aparato escriben alfa = 0 (ya iluminados por las luces reales) y el
     // terreno alfa = 1 (albedo que se ilumina en posproceso). Es exacta por píxel;
@@ -266,13 +305,11 @@ export class Graphics {
     ;(this.aerial as any).lightingMask = { map: this.maskPass.texture, channel: 'r' }
 
     this.clouds = new CloudsEffect(camera)
-    // el parámetro debe llamarse "depth" para que EffectPass le pase la profundidad
-    ;(this.clouds as any).setFragmentShader(CLOUDS_COMPOSITE)
-    this.clouds.uniforms.set('nearMask', this.cloudNearMask)
     // bases de las nubes gruesas con la luz difusa que las atraviesa (si no, un cubierto es azul marino)
     {
-      const cm = (this.clouds as any).cloudsPass.currentMaterial as ShaderMaterialLike
-      cm.fragmentShader = patchCloudsShader(cm.fragmentShader)
+      const cm = (this.clouds as any).cloudsPass.currentMaterial as ShaderMaterialLike & { uniforms: Record<string, Uniform> }
+      cm.fragmentShader = patchCloudsNearScene(patchCloudsShader(cm.fragmentShader))
+      cm.uniforms.cloudsSceneIgnore = this.cloudSceneIgnore
       cm.needsUpdate = true
     }
     this.loadCloudTextures()
@@ -559,6 +596,8 @@ export class Graphics {
       const camH = _camGeo.setFromECEF(_camEcef).height
       const gap = Math.max(this.cloudBottom - camH, camH - this.cloudTop, 0)
       this.cloudNearMask.value = Number.isFinite(gap) ? Math.min(Math.max((gap - 10) * 0.6, 0), 100) : 100
+      // solo donde la composición borra las nubes del todo (smoothstep desde 0,6 × nearMask)
+      this.cloudSceneIgnore.value = 0.6 * this.cloudNearMask.value
       // para la sombra de las nubes en los materiales iluminados
       this.camHeight = camH
       const cl = Math.cos(_camGeo.latitude)
@@ -670,6 +709,38 @@ export function keepAlpha<T extends Material>(m: T): T {
   m.blending = CustomBlending
   m.blendSrc = SrcAlphaFactor
   m.blendDst = OneMinusSrcAlphaFactor
+  m.blendSrcAlpha = ZeroFactor
+  m.blendDstAlpha = OneFactor
+  return m
+}
+
+/*
+ * Superposición semitransparente que debe verse iluminada (discos de desenfoque de las
+ * palas), en dos pasadas según lo que haya detrás. El búfer lleva albedo donde alfa = 1
+ * (terreno: lo ilumina después el posproceso) y radiancia donde alfa = 0 (aparato,
+ * edificios, árboles, cielo). Un color fijo sin iluminar sólo cuadra con uno de los dos:
+ * un gris claro sumado a lo ya iluminado vale casi como blanco y lo "lava".
+ *  1) `overlayAlbedoPass` (material sin iluminar, el albedo): atenúa todo el fondo por
+ *     (1 − a) y suma albedo·a donde el fondo es albedo;
+ *  2) `overlayLightPass` (material iluminado por el sol y el cielo): suma radiancia·a donde
+ *     el fondo ya es radiancia.
+ * Alfa premultiplicado en ambas, el alfa del búfer no cambia; la 1 se dibuja antes.
+ */
+export function overlayAlbedoPass<T extends Material>(m: T): T {
+  m.premultipliedAlpha = true
+  m.blending = CustomBlending
+  m.blendSrc = DstAlphaFactor
+  m.blendDst = OneMinusSrcAlphaFactor
+  m.blendSrcAlpha = ZeroFactor
+  m.blendDstAlpha = OneFactor
+  return m
+}
+
+export function overlayLightPass<T extends Material>(m: T): T {
+  m.premultipliedAlpha = true
+  m.blending = CustomBlending
+  m.blendSrc = OneMinusDstAlphaFactor
+  m.blendDst = OneFactor
   m.blendSrcAlpha = ZeroFactor
   m.blendDstAlpha = OneFactor
   return m

@@ -26,7 +26,7 @@ import {
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { CG, GEOM } from '../sim/autogyro.ts'
 import { GENERIC, type Airframe } from '../sim/airframes.ts'
-import { keepAlpha, LIGHT_LAYER, OVERLAY_LAYER } from '../render/Graphics.ts'
+import { keepAlpha, LIGHT_LAYER, OVERLAY_LAYER, overlayAlbedoPass, overlayLightPass } from '../render/Graphics.ts'
 import { Cockpit } from './Cockpit.ts'
 import { AircraftLights } from './AircraftLights.ts'
 import { PilotRig } from './PilotRig.ts'
@@ -284,6 +284,7 @@ export class AircraftView {
       // por fuera del disco: detrás de una hélice propulsora, delante de una tractora
       this.propBlur.position.set(this.vis.tractor ? 0.04 : -0.04, 0, 0)
     }
+    this.tintBlurDiscs()
 
     this.cockpit.attach(this.model, this.modelKey, this.glassMeshes, this.eyeLocal.clone().add(CG))
   }
@@ -298,32 +299,33 @@ export class AircraftView {
     for (const m of [this.rotorBlur, this.propBlur]) {
       m.removeFromParent()
       m.geometry.dispose()
-      const mat = m.material as MeshBasicMaterial
-      mat.map?.dispose()
-      mat.dispose()
+      for (const mat of discMaterials(m)) {
+        mat.map?.dispose()
+        mat.dispose()
+      }
     }
   }
 
   private makeBlurDiscs(): void {
     const vis = this.vis
-    const rotorTex = makeBlurTexture(vis.rotorBlades, 512, true)
-    this.rotorBlur = new Mesh(
-      new RingGeometry(0.32, vis.rotorR, 96, 1),
-      keepAlpha(new MeshBasicMaterial({ map: rotorTex, transparent: true, opacity: 0, depthWrite: false, side: DoubleSide })),
-    )
+    // el rotor antes que la hélice (en vista de persecución la hélice queda delante)
+    this.rotorBlur = makeLitDisc(new RingGeometry(0.32, vis.rotorR, 96, 1), makeBlurTexture(vis.rotorBlades, 512, true), ROTOR_BLADE, 3)
     this.rotorBlur.rotation.x = -Math.PI / 2
-    this.rotorBlur.renderOrder = 3
-    this.rotorBlur.layers.set(OVERLAY_LAYER)
     this.rotorBlur.visible = false
-    const propTex = makeBlurTexture(vis.propBlades, 256, false)
-    this.propBlur = new Mesh(
-      new CircleGeometry(vis.propR, 64),
-      keepAlpha(new MeshBasicMaterial({ map: propTex, transparent: true, opacity: 0, depthWrite: false, side: DoubleSide })),
-    )
+    this.propBlur = makeLitDisc(new CircleGeometry(vis.propR, 64), makeBlurTexture(vis.propBlades, 256, false), PROP_BLADE, 5)
     this.propBlur.rotation.y = Math.PI / 2
-    this.propBlur.renderOrder = 3
-    this.propBlur.layers.set(OVERLAY_LAYER)
     this.propBlur.visible = false
+  }
+
+  /** Los discos toman el color de las palas del modelo (material de las palas del rotor y de la hélice). */
+  private tintBlurDiscs(): void {
+    for (const [disc, part, name, fallback] of [
+      [this.rotorBlur, this.parts.rotor, /Rotor_Blade/i, ROTOR_BLADE],
+      [this.propBlur, this.parts.prop, /Carbon|Prop/i, PROP_BLADE],
+    ] as const) {
+      const c = (part && bladeAlbedo(part, name, disc)) ?? fallback
+      for (const m of discMaterials(disc)) m.color.copy(c)
+    }
   }
 
   private glassMaterials: MeshBasicMaterial[] = []
@@ -361,7 +363,7 @@ export class AircraftView {
       p.rotor.position.copy(ac.hubBody).add(CG)
       // desenfoque según el paso de palas (con tres palas se emborrona a menos vueltas)
       const blur = smooth(110, 230, (ac.rotor.rpm * this.vis.rotorBlades) / 2)
-      ;(this.rotorBlur.material as MeshBasicMaterial).opacity = 0.85 * blur
+      for (const m of discMaterials(this.rotorBlur)) m.opacity = blur
       this.rotorBlur.visible = blur > 0
       this.rotorBlurAngle = (this.rotorBlurAngle + ac.rotor.omega * 0.07 * dt) % (Math.PI * 2)
       this.rotorBlur.rotation.z = -this.rotorBlurAngle
@@ -386,7 +388,7 @@ export class AircraftView {
       // a 0.9× la velocidad real el disco saltaba casi media vuelta por fotograma: deriva lenta
       this.propBlurAngle = (this.propBlurAngle + propOmega * 0.03 * dt) % (Math.PI * 2)
       this.propBlur.rotation.z = -vis.propSpin * this.propBlurAngle
-      ;(this.propBlur.material as MeshBasicMaterial).opacity = 0.45 * blur
+      for (const m of discMaterials(this.propBlur)) m.opacity = blur
       this.propBlur.visible = blur > 0
     }
 
@@ -525,19 +527,64 @@ function tuneMaterial(mat: Material): void {
   }
 }
 
-/** Textura de desenfoque de palas (vista desde arriba). */
+/** albedo (lineal) de las palas si el modelo no tiene su material: aluminio pintado, hélice de carbono */
+const ROTOR_BLADE = new Color(0.35, 0.37, 0.4)
+const PROP_BLADE = new Color(0.02, 0.02, 0.022)
+
+/**
+ * Disco de desenfoque iluminado: malla de la pasada de albedo con una hija (misma
+ * geometría) para la de luz; ver `overlayAlbedoPass` en Graphics.ts. La textura solo
+ * lleva la cobertura de las palas (alfa); el color sale del material.
+ */
+function makeLitDisc(geo: RingGeometry | CircleGeometry, tex: CanvasTexture, color: Color, renderOrder: number): Mesh {
+  const common = { map: tex, color, transparent: true, opacity: 0, depthWrite: false, side: DoubleSide } as const
+  const disc = new Mesh(geo, overlayAlbedoPass(new MeshBasicMaterial(common)))
+  disc.renderOrder = renderOrder
+  disc.layers.set(OVERLAY_LAYER)
+  // las palas pintadas tienen algo de brillo: un reflejo del sol que barre el disco
+  const lit = new Mesh(geo, overlayLightPass(new MeshStandardMaterial({ ...common, roughness: 0.45, metalness: 0 })))
+  lit.renderOrder = renderOrder + 1
+  lit.layers.set(OVERLAY_LAYER)
+  disc.add(lit)
+  return disc
+}
+
+function discMaterials(disc: Mesh): [MeshBasicMaterial, MeshStandardMaterial] {
+  return [disc.material as MeshBasicMaterial, (disc.children[0] as Mesh).material as MeshStandardMaterial]
+}
+
+/** Albedo difuso de las palas de una pieza del modelo (sin contar el propio disco). */
+function bladeAlbedo(part: Object3D, name: RegExp, disc: Mesh): Color | null {
+  let out: Color | null = null
+  part.traverse((o) => {
+    const m = o as Mesh
+    if (out || !m.isMesh || m === disc || m.parent === disc) return
+    for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
+      const s = mat as MeshStandardMaterial
+      if (!s.isMeshStandardMaterial || !name.test(s.name)) continue
+      // lo metálico apenas difunde: para un disco borroso, mitad del albedo por su parte metálica
+      out = s.color.clone().multiplyScalar(1 - 0.5 * s.metalness)
+      return
+    }
+  })
+  return out
+}
+
+/** Textura de desenfoque de palas (vista desde arriba): blanca, la cobertura en el alfa. */
 function makeBlurTexture(blades: number, size: number, rotor: boolean): CanvasTexture {
   const c = document.createElement('canvas')
   c.width = c.height = size
   const g = c.getContext('2d')!
   const cx = size / 2
   g.clearRect(0, 0, size, size)
-  // halo general muy tenue
+  // halo general tenue y el aro de las puntas, lo que más deja ver el disco (y su inclinación).
+  // Como el disco va iluminado igual que las palas, más cobertura lo hace visible sin "lavar"
+  // lo de detrás (el gris claro sin iluminar de antes sí lo aclaraba).
   const rg = g.createRadialGradient(cx, cx, size * 0.08, cx, cx, cx)
-  rg.addColorStop(0, rotor ? 'rgba(150,155,160,0.03)' : 'rgba(25,25,28,0.22)')
-  rg.addColorStop(0.92, rotor ? 'rgba(150,155,160,0.10)' : 'rgba(25,25,28,0.28)')
-  rg.addColorStop(0.985, rotor ? 'rgba(120,125,130,0.30)' : 'rgba(20,20,20,0.45)')
-  rg.addColorStop(1, 'rgba(0,0,0,0)')
+  rg.addColorStop(0, rotor ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.1)')
+  rg.addColorStop(0.92, rotor ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.125)')
+  rg.addColorStop(0.985, rotor ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.2)')
+  rg.addColorStop(1, 'rgba(255,255,255,0)')
   g.fillStyle = rg
   g.beginPath()
   g.arc(cx, cx, cx, 0, Math.PI * 2)
@@ -547,8 +594,8 @@ function makeBlurTexture(blades: number, size: number, rotor: boolean): CanvasTe
   const TAU = Math.PI * 2
   const trail = 26 * 0.035 // largo de la estela (rad)
   const lead = 0.03 // borde de ataque suavizado (rad)
-  const peak = rotor ? 0.3 : 0.32
-  const [cr, cgr, cb] = rotor ? [170, 175, 180] : [15, 15, 15]
+  const peak = rotor ? 0.5 : 0.145
+  const [cr, cgr, cb] = [255, 255, 255]
   const st = document.createElement('canvas')
   st.width = st.height = size
   const sg = st.getContext('2d')!
@@ -560,8 +607,10 @@ function makeBlurTexture(blades: number, size: number, rotor: boolean): CanvasTe
       const r = Math.hypot(dx, dy) / cx
       if (r < 0.1 || r > 1) continue
       // raíz y punta con un borde suave de ~1 píxel
-      const radial = Math.min(1, (r - 0.1) * 40, (0.995 - r) * cx)
+      let radial = Math.min(1, (r - 0.1) * 40, (0.995 - r) * cx)
       if (radial <= 0) continue
+      // estelas del rotor más suaves junto al buje: si no, tapan el aparato visto desde arriba
+      if (rotor) radial *= 0.4 + 0.6 * smooth(0.15, 0.6, r)
       const a = Math.atan2(dy, dx)
       let alpha = 0
       for (let b = 0; b < blades; b++) {
