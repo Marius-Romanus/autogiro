@@ -14,7 +14,7 @@ import {
   type Texture,
 } from 'three'
 import { SkyMaterial } from '@takram/three-atmosphere'
-import { isInSpain, LOCATIONS, loadSettings, locationName, locationNote, saveSettings, type Location, type Quality, type Settings } from './config.ts'
+import { LOCATIONS, loadSettings, locationName, locationNote, saveSettings, type Location, type Quality, type Settings } from './config.ts'
 import { applyI18n, getLang, locale, onLangChange, setLang, t, type Lang } from './i18n.ts'
 import { Graphics, LIGHT_LAYER } from './render/Graphics.ts'
 import { usesIgnTerrain, World, type GroundSample } from './world/World.ts'
@@ -38,6 +38,8 @@ import { CrashSystem, type AircraftState, type CrashWorld } from './crash/CrashS
 import type { RoomConditions } from './net/protocol.ts'
 import { WorldMap, type MapPick } from './menu/WorldMap.ts'
 import { buildLocationSelect, localizeLocationSelect, showDeparture, syncCurrentDeparture } from './menu/locationSelect.ts'
+import { menuBack, refreshMenuUi, setupMenuUi, updateAxisBars } from './menu/menuUi.ts'
+import { localUtcOffset } from './menu/sun.ts'
 
 const DT = 1 / 240
 const KT = 0.514444
@@ -644,8 +646,10 @@ class App {
     for (const a of this.input.consumeActions()) {
       switch (a) {
         case 'pause':
-          if (this.menuOpen) this.closeMenu()
-          else this.openMenu()
+          // en Ajustes, Esc vuelve a las pestañas del menú
+          if (this.menuOpen) {
+            if (!menuBack()) this.closeMenu()
+          } else this.openMenu()
           break
         case 'help':
           $('help').classList.toggle('hidden')
@@ -848,7 +852,7 @@ class App {
     const s = this.settings
     applyI18n()
     // salida desde el mapa del mundo o desde un lugar emblemático (src/menu/locationSelect.ts)
-    buildLocationSelect($('location') as HTMLSelectElement, s, () => {})
+    buildLocationSelect($('location') as HTMLSelectElement, s, () => refreshMenuUi())
     const acSel = $('aircraft') as HTMLSelectElement
     for (const a of AIRCRAFT) {
       const o = document.createElement('option')
@@ -859,6 +863,7 @@ class App {
     acSel.addEventListener('change', () => {
       s.aircraft = acSel.value
       $('aircraftNote').textContent = aircraftNote(aircraftById(s.aircraft))
+      this.previewAircraft()
     })
 
     const bindRange = (id: keyof Settings, out: string, fmt: (v: number) => string) => {
@@ -957,6 +962,13 @@ class App {
     })
     this.localizeMenu()
 
+    // pestañas, tarjetas, plan de vuelo y pantalla de ajustes (src/menu/menuUi.ts)
+    setupMenuUi({
+      settings: s,
+      location: () => this.currentLocation(),
+      canFly: () => this.menuOpen && !this.worldMap.isOpen && $('help').classList.contains('hidden'),
+      fly: () => this.fly(),
+    })
     this.refreshMenu()
     // ejes del joystick en vivo
     setInterval(() => {
@@ -965,6 +977,7 @@ class App {
       const gp = pads.find((p) => p && p.connected)
       $('padName').textContent = gp ? `· ${gp.id.slice(0, 40)}` : t('pad.none')
       $('axesLive').textContent = gp ? gp.axes.map((a, i) => `${i}:${a.toFixed(2)}`).join('  ') : ''
+      updateAxisBars(gp ?? null, s)
     }, 150)
   }
 
@@ -1068,7 +1081,44 @@ class App {
         : `GPU: ${gpuName}`
     }
     gi.classList.toggle('warn', this.gfx.gpuIntegrated)
-    $('btn-fly').textContent = t(this.state === 'flying' && this.world ? 'menu.continue' : 'menu.fly')
+    $('flyLabel').textContent = t(this.state === 'flying' && this.world ? 'menu.continue' : 'menu.fly')
+    refreshMenuUi()
+  }
+
+  /**
+   * Menú → Aparato: el aparato y el pasajero elegidos se ven ya en la escena. Hace antes lo mismo
+   * que haría «Volar»: en el aire cambia la geometría de vuelo y el peso sin más y, parado en la
+   * salida, lo vuelve a colocar (las ruedas no apoyan en el mismo sitio). Si se ha rodado o la
+   * salida es otra, espera a «Volar» para no perder la posición (el pasajero se ve igualmente).
+   */
+  private previewAircraft(): void {
+    const s = this.settings
+    this.view.setPassenger(s.passenger)
+    if (!this.world || this.state === 'crashed' || !this.location) return
+    const loc = this.currentLocation()
+    const sameSpot =
+      this.worldKeyFor(loc) === this.worldKey &&
+      loc.id === this.location.id &&
+      loc.lat === this.location.lat &&
+      loc.lon === this.location.lon &&
+      loc.heading === this.location.heading &&
+      this.lastStart === s.start
+    if (!sameSpot) return
+    const airframe = airframeById(s.aircraft)
+    const inFlight = this.state === 'flying' && !this.ac.onGround
+    const parked =
+      this.state === 'loading' ||
+      (this.ac.onGround && this.ac.vel.length() < 0.5 && Math.hypot(this.ac.pos.x - this.spawnXZ.x, this.ac.pos.z - this.spawnXZ.z) < 40)
+    if (!inFlight && !parked) return
+    this.loadAircraft()
+    const airframeChanged = airframe !== this.ac.af
+    const passengerChanged = s.passenger !== this.lastPassenger
+    if (!airframeChanged && !passengerChanged) return
+    if (inFlight) {
+      if (airframeChanged) this.ac.setAirframe(airframe)
+      if (passengerChanged) this.ac.setLoad(s.passenger)
+    } else this.spawn()
+    this.lastPassenger = s.passenger
   }
 
   /** Botón Volar: re-aparece si cambió el escenario/lugar; si no, continúa. */

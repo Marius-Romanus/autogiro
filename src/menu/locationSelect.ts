@@ -169,10 +169,10 @@ export function showDeparture(s: Settings): void {
     return
   }
   if (l) {
-    $('depCurrent').textContent = `✈ ${locationName(l)}`
+    $('depCurrent').textContent = locationName(l)
     $('depCurrentNote').textContent = locationNote(l)
   } else {
-    $('depCurrent').textContent = s.customName ? `📍 ${s.customName}` : t('menu.customCoords')
+    $('depCurrent').textContent = s.customName || t('menu.customCoords')
     $('depCurrentNote').textContent = t('loc.customNote', {
       lat: s.customLat.toFixed(5),
       lon: s.customLon.toFixed(5),

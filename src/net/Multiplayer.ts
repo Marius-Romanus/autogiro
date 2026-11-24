@@ -760,8 +760,9 @@ export class Multiplayer {
           <small class="muted" data-i18n="mp.serverNote">${t('mp.serverNote')}</small>
         </details>
       </div>`
-    const grid = document.querySelector('#menu .grid')
-    if (grid) grid.prepend(section)
+    // (pestaña Multijugador del menú)
+    const slot = document.getElementById('mp-slot')
+    if (slot) slot.append(section)
     else document.getElementById('menu')?.appendChild(section)
 
     // nota en la sección de condiciones (invitados)
@@ -770,7 +771,7 @@ export class Multiplayer {
     if (condSection) {
       condNote = el('p', 'mp-cond-note hidden', t('mp.condNote'))
       condNote.dataset.i18n = 'mp.condNote'
-      condSection.querySelector('h4')?.after(condNote)
+      condSection.querySelector('.pane-head, h4')?.after(condNote)
     }
 
     // lista de pilotos en vuelo, chat y etiquetas

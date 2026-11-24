@@ -101,7 +101,7 @@ interface Marker {
 
 /** tamaño del punto (px), color, altura de la vista máxima a la que se ve y a la que lleva nombre */
 const STYLE: Record<MarkerKind, { size: number; color: number; maxAlt: number; labelAlt: number; rank: number }> = {
-  C: { size: 12, color: 0xff7a3d, maxAlt: Infinity, labelAlt: 2500 * KM, rank: 0 },
+  C: { size: 12, color: 0xf6c400, maxAlt: Infinity, labelAlt: 2500 * KM, rank: 0 },
   P: { size: 9, color: 0x3fd4c8, maxAlt: 6000 * KM, labelAlt: 600 * KM, rank: 1 },
   L: { size: 7.5, color: 0xffffff, maxAlt: Infinity, labelAlt: 1500 * KM, rank: 2 },
   M: { size: 6, color: 0xcfe2ff, maxAlt: 2500 * KM, labelAlt: 450 * KM, rank: 3 },

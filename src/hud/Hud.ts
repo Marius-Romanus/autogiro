@@ -142,11 +142,11 @@ export class Hud {
     c.strokeStyle = '#3a3e45'
     c.stroke()
     c.fillStyle = 'rgba(255,255,255,0.55)'
-    c.font = `600 ${r * 0.13}px Inter, system-ui, sans-serif`
+    c.font = `600 ${r * 0.13}px "Barlow Condensed", Barlow, system-ui, sans-serif`
     c.textAlign = 'center'
     c.fillText(label, x, y - r * 0.32)
     c.fillStyle = 'rgba(255,255,255,0.38)'
-    c.font = `500 ${r * 0.11}px Inter, system-ui, sans-serif`
+    c.font = `500 ${r * 0.11}px "Barlow Condensed", Barlow, system-ui, sans-serif`
     c.fillText(unit, x, y + r * 0.5)
     c.restore()
     return r
@@ -178,7 +178,7 @@ export class Hud {
     c.fillStyle = '#f0f0f0'
     c.textAlign = 'center'
     c.textBaseline = 'middle'
-    c.font = `600 ${r * 0.15}px Inter, system-ui, sans-serif`
+    c.font = `600 ${r * 0.15}px "Barlow Condensed", Barlow, system-ui, sans-serif`
     for (let v = min; v <= max + 1e-6; v += minor) {
       const a = a0 + ((v - min) / (max - min)) * (a1 - a0)
       const isMajor = Math.abs(v / major - Math.round(v / major)) < 1e-6
@@ -313,7 +313,7 @@ export class Hud {
         c.save()
         c.translate(Math.cos(a) * r * 0.63, Math.sin(a) * r * 0.63)
         c.rotate(a + Math.PI / 2)
-        c.font = `${h % 90 === 0 ? 700 : 600} ${r * (h % 90 === 0 ? 0.19 : 0.14)}px Inter, system-ui, sans-serif`
+        c.font = `${h % 90 === 0 ? 700 : 600} ${r * (h % 90 === 0 ? 0.19 : 0.14)}px "Barlow Condensed", Barlow, system-ui, sans-serif`
         c.fillStyle = h === 0 ? '#ff7a45' : '#f0f0f0'
         c.fillText(lbl, 0, 0)
         c.restore()
@@ -339,7 +339,7 @@ export class Hud {
     // avión
     c.save()
     c.translate(x, y)
-    c.fillStyle = '#ffb74d'
+    c.fillStyle = '#f6c400'
     c.beginPath()
     c.moveTo(0, -r * 0.3)
     c.lineTo(r * 0.06, r * 0.1)
@@ -353,14 +353,14 @@ export class Hud {
     c.fill()
     c.restore()
     // índice
-    c.fillStyle = '#ffb74d'
+    c.fillStyle = '#f6c400'
     c.beginPath()
     c.moveTo(x, y - r * 0.93)
     c.lineTo(x - r * 0.06, y - r * 1.04)
     c.lineTo(x + r * 0.06, y - r * 1.04)
     c.fill()
     c.fillStyle = '#fff'
-    c.font = `700 ${r * 0.16}px Inter, system-ui, sans-serif`
+    c.font = `700 ${r * 0.16}px "Barlow Condensed", Barlow, system-ui, sans-serif`
     c.textAlign = 'center'
     c.fillText(`${String(Math.round((d.heading + 360) % 360)).padStart(3, '0')}°`, x, y + r * 0.55)
   }
@@ -388,10 +388,10 @@ export class Hud {
     c.fill()
     const th = d.throttle * (h - 4)
     roundRect(c, x + 2, y + h - 2 - th, w - 4, th, 4)
-    c.fillStyle = '#ff9b3d'
+    c.fillStyle = '#f6c400'
     c.fill()
     c.fillStyle = 'rgba(255,255,255,0.7)'
-    c.font = '600 10px Inter, system-ui, sans-serif'
+    c.font = '600 10px "Barlow Condensed", Barlow, system-ui, sans-serif'
     c.textAlign = 'center'
     c.fillText(t('hud.throttle'), x + w / 2, y - 6)
     // compensador
@@ -426,7 +426,7 @@ export class Hud {
     c.lineWidth = 1
     c.stroke()
 
-    c.font = '600 12px Inter, system-ui, sans-serif'
+    c.font = '600 12px "Barlow Condensed", Barlow, system-ui, sans-serif'
     c.textAlign = 'left'
     const lines: [string, string, string?][] = [
       ['G', d.g.toFixed(2), d.g < 0.4 || d.g > 2.8 ? '#ff6b5a' : undefined],
@@ -468,8 +468,9 @@ export class Hud {
     yy = y + 97
     const tags: [string, boolean, string][] = [
       [t('hud.prerot'), d.prerot, '#ffcf3a'],
-      [t('hud.rotorBrake'), d.rotorBrake, '#ff8a65'],
-      [t('hud.parkBrake'), d.parkBrake, '#ff8a65'],
+      // frenos en rojo: tienen que saltar a la vista antes de prerrotar o rodar
+      [t('hud.rotorBrake'), d.rotorBrake, '#ff6b5a'],
+      [t('hud.parkBrake'), d.parkBrake, '#ff6b5a'],
       [t('hud.mouseStick'), d.mouseStick, '#4fc3f7'],
       [t('hud.wheelThrottle'), d.wheelThrottle, '#4fc3f7'],
     ]
@@ -477,14 +478,14 @@ export class Hud {
     // caben 4 a 14 px antes de la línea de cámara; con más, se aprietan (y letra más pequeña)
     const tight = active.length > 4
     const step = tight ? Math.floor((SIDE_H - 103) / (active.length - 1)) : 14
-    c.font = `700 ${tight ? 10 : 11}px Inter, system-ui, sans-serif`
+    c.font = `700 ${tight ? 10 : 11}px "Barlow Condensed", Barlow, system-ui, sans-serif`
     for (const [t, , col] of active) {
       c.fillStyle = col
       c.fillText(`● ${t}`, x, yy)
       yy += step
     }
     c.fillStyle = 'rgba(255,255,255,0.72)'
-    c.font = '600 11px Inter, system-ui, sans-serif'
+    c.font = '600 11px "Barlow Condensed", Barlow, system-ui, sans-serif'
     c.fillText(t('hud.camera', { name: d.camName }), x, y + SIDE_H + 6)
     // mini indicador de mandos (palanca arriba, pedales a la altura de la bola)
     const my = y + 4
@@ -513,23 +514,23 @@ export class Hud {
   private drawWarnings(c: CanvasRenderingContext2D, d: HudData, W: number): void {
     if (d.hint) {
       c.save()
-      c.font = '700 16px Inter, system-ui, sans-serif'
+      c.font = '700 16px "Barlow Condensed", Barlow, system-ui, sans-serif'
       c.textAlign = 'center'
       const tw = c.measureText(d.hint).width + 32
       const y = 84 + d.warnings.length * 40
       roundRect(c, W / 2 - tw / 2, y - 19, tw, 30, 10)
       c.fillStyle = 'rgba(20,24,30,0.72)'
       c.fill()
-      c.strokeStyle = 'rgba(255,183,77,0.8)'
+      c.strokeStyle = 'rgba(246,196,0,0.85)'
       c.lineWidth = 1.5
       c.stroke()
-      c.fillStyle = '#ffcf7a'
+      c.fillStyle = '#f6c400'
       c.fillText(d.hint, W / 2, y + 2)
       c.restore()
     }
     if (!d.warnings.length) return
     c.save()
-    c.font = '800 18px Inter, system-ui, sans-serif'
+    c.font = '800 18px "Barlow Condensed", Barlow, system-ui, sans-serif'
     c.textAlign = 'center'
     let y = 84
     const on = this.blink % 0.8 < 0.55
@@ -546,7 +547,9 @@ export class Hud {
   }
 }
 
-function roundRect(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+// (estilo «Pista»: paneles rectos; el radio se ignora)
+function roundRect(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, _r: number): void {
+  const r = 0
   c.beginPath()
   c.moveTo(x + r, y)
   c.arcTo(x + w, y, x + w, y + h, r)

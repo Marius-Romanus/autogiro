@@ -106,22 +106,10 @@ export class CrashSystem {
     this.lights = lights ?? null
     scene.add(this.fx.root)
     void loadRapier().catch((e) => console.warn('No se pudo cargar Rapier (física de accidentes):', e))
+    // (aspecto en src/style.css, .crash-hint)
     this.hint = document.createElement('div')
-    Object.assign(this.hint.style, {
-      position: 'fixed',
-      left: '50%',
-      top: '14px',
-      transform: 'translateX(-50%)',
-      padding: '6px 12px',
-      borderRadius: '8px',
-      background: 'rgba(10,12,16,0.55)',
-      color: '#e8edf3',
-      font: '600 12px system-ui, sans-serif',
-      letterSpacing: '0.04em',
-      pointerEvents: 'none',
-      zIndex: '30',
-      display: 'none',
-    })
+    this.hint.className = 'crash-hint'
+    this.hint.style.display = 'none'
     document.body.appendChild(this.hint)
     window.addEventListener('keydown', (e) => {
       if (!this.wreck || e.repeat) return

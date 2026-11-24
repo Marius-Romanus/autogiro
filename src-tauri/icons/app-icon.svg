@@ -1,32 +1,30 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <!-- Icono de la app (fuente de `npx tauri icon`): autogiro de perfil sobre el naranja del juego -->
+  <!-- Icono de la app (fuente de `npx tauri icon`): estilo «Pista» del juego, como un cartel de
+       posición de aeropuerto: autogiro de perfil en amarillo sobre negro, con marco amarillo -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ff8a4c" />
-      <stop offset="1" stop-color="#e2430c" />
-    </linearGradient>
     <mask id="cut">
       <rect width="1024" height="1024" fill="#fff" />
       <!-- parabrisas -->
       <path d="M318 548 C340 515 378 498 425 494 L438 548 Z" fill="#000" />
     </mask>
   </defs>
-  <rect x="40" y="40" width="944" height="944" rx="210" fill="url(#bg)" />
-  <g fill="#fff" stroke="#fff" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="16" y="16" width="992" height="992" fill="#0d0d0d" />
+  <rect x="70" y="70" width="884" height="884" fill="none" stroke="#f6c400" stroke-width="44" />
+  <g transform="translate(512 512) scale(0.84) translate(-512 -498)" fill="#f6c400" stroke="#f6c400" stroke-linecap="square" stroke-linejoin="miter">
     <!-- pala del rotor, disco inclinado hacia atrás -->
-    <path d="M118 262 L906 330" stroke-width="34" fill="none" />
-    <circle cx="526" cy="296" r="30" stroke="none" />
+    <path d="M118 262 L906 330" stroke-width="36" fill="none" />
+    <circle cx="526" cy="296" r="32" stroke="none" />
     <!-- mástil -->
-    <path d="M526 300 L552 520" stroke-width="34" fill="none" />
+    <path d="M526 300 L552 520" stroke-width="36" fill="none" />
     <!-- quilla y cola -->
-    <path d="M560 612 L830 612" stroke-width="26" fill="none" />
+    <path d="M560 612 L830 612" stroke-width="28" fill="none" />
     <path d="M800 628 L822 452 L878 452 L892 628 Z" stroke-width="10" />
-    <path d="M770 630 L912 630" stroke-width="22" fill="none" />
+    <path d="M770 630 L912 630" stroke-width="24" fill="none" />
     <!-- hélice propulsora -->
-    <ellipse cx="664" cy="560" rx="16" ry="124" stroke="none" />
+    <ellipse cx="664" cy="560" rx="17" ry="124" stroke="none" />
     <!-- tren -->
-    <path d="M500 630 L566 720" stroke-width="20" fill="none" />
-    <path d="M300 630 L300 708" stroke-width="18" fill="none" />
+    <path d="M500 630 L566 720" stroke-width="22" fill="none" />
+    <path d="M300 630 L300 708" stroke-width="20" fill="none" />
     <circle cx="566" cy="734" r="44" stroke="none" />
     <circle cx="300" cy="722" r="32" stroke="none" />
     <!-- cabina -->

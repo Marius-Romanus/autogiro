@@ -1,4 +1,5 @@
-/* Mapa del mundo del menú (src/menu/WorldMap.ts) */
+/* Mapa del mundo del menú (src/menu/WorldMap.ts), estilo «Pista» como el menú: paneles oscuros
+   y rectos, letra condensada y el amarillo de los carteles de aeropuerto para lo elegido. */
 
 .wm {
   position: fixed;
@@ -7,6 +8,7 @@
   overflow: hidden;
   background: radial-gradient(ellipse at 50% 45%, #0d1a2e 0%, #060a12 55%, #020306 100%);
   color: var(--text);
+  font-family: var(--font);
   user-select: none;
   -webkit-user-select: none;
 }
@@ -36,9 +38,9 @@
   position: absolute;
   left: 0;
   top: 0;
-  font: 600 11px/18px 'JetBrains Mono', ui-monospace, monospace;
-  letter-spacing: 0.02em;
-  color: #e9eef6;
+  font: 600 13px/18px var(--font-cond);
+  letter-spacing: 0.03em;
+  color: #eef2f6;
   white-space: nowrap;
   text-shadow:
     0 0 3px #000,
@@ -47,13 +49,12 @@
   will-change: transform;
 }
 .wm-label.kC {
-  color: #ffb27f;
-  font-size: 12px;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 14px;
 }
 .wm-label.kP {
   color: #8ff0e6;
-  font-family: Inter, system-ui, sans-serif;
-  font-weight: 600;
 }
 .wm-label.kS {
   color: #c4cedb;
@@ -77,10 +78,10 @@
   height: 16px;
   border-radius: 50%;
   background: var(--accent);
-  border: 3px solid #fff;
+  border: 3px solid var(--ink);
   box-shadow:
-    0 0 0 2px rgba(0, 0, 0, 0.45),
-    0 0 18px rgba(255, 90, 31, 0.9);
+    0 0 0 2px #fff,
+    0 0 18px rgba(246, 196, 0, 0.9);
 }
 .wm-dep .arrow {
   position: absolute;
@@ -98,15 +99,16 @@
   stroke-width: 1.5;
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
 }
+/* «SALIDA» = cartel de posición (amarillo sobre negro) */
 .wm-dep .tag {
   position: absolute;
   left: 14px;
   top: 6px;
-  padding: 1px 7px;
-  border-radius: 6px;
-  background: var(--accent);
-  color: #fff;
-  font: 700 10px/16px Inter, system-ui, sans-serif;
+  padding: 0 6px;
+  background: var(--ink);
+  border: 1.5px solid var(--accent);
+  color: var(--accent);
+  font: 700 13px/17px var(--font-cond);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -132,7 +134,7 @@
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  border: 2px solid #fff;
+  border: 2px solid var(--accent);
   box-shadow:
     0 0 0 2px rgba(0, 0, 0, 0.35),
     inset 0 0 0 2px rgba(0, 0, 0, 0.35);
@@ -155,17 +157,17 @@
   top: 0;
   max-width: 320px;
   padding: 7px 10px;
-  border-radius: 9px;
-  background: rgba(10, 13, 18, 0.92);
-  border: 1px solid var(--line);
+  background: rgba(8, 10, 12, 0.92);
+  border-left: 3px solid var(--accent);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   pointer-events: none;
-  font-size: 12px;
+  font-size: 13px;
   z-index: 3;
 }
 .wm-tip b {
   display: block;
-  font-size: 13px;
+  font: 700 16px/1.2 var(--font-cond);
+  text-transform: uppercase;
 }
 .wm-tip small {
   color: var(--muted);
@@ -178,7 +180,7 @@
   left: 16px;
   right: 16px;
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: flex-start;
   pointer-events: none;
   z-index: 4;
@@ -194,53 +196,54 @@
 }
 .wm-search input {
   width: 100%;
+  height: 44px;
   font: inherit;
-  font-size: 14px;
+  font-size: 15px;
   color: var(--text);
-  background: rgba(14, 17, 23, 0.86);
+  background: rgba(8, 10, 12, 0.86);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 12px;
-  padding: 11px 14px 11px 40px;
+  border: 0;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 0;
+  padding: 10px 14px 10px 42px;
   outline: none;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
 }
 .wm-search input:focus {
-  border-color: rgba(255, 140, 80, 0.7);
+  border-bottom-color: var(--accent);
 }
 .wm-search-ico {
   position: absolute;
+  z-index: 1;
   left: 13px;
-  top: 12px;
+  top: 13px;
   width: 18px;
   height: 18px;
   fill: none;
-  stroke: var(--muted);
+  stroke: var(--accent);
   stroke-width: 2.2;
-  stroke-linecap: round;
+  stroke-linecap: square;
   pointer-events: none;
 }
 
 .wm-results {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 4px);
   left: 0;
   right: 0;
   max-height: min(60vh, 460px);
   overflow-y: auto;
-  background: rgba(14, 17, 23, 0.96);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
-  padding: 5px;
+  scrollbar-width: thin;
+  background: rgba(10, 12, 15, 0.97);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  padding: 4px;
 }
 .wm-res {
   display: flex;
   gap: 10px;
   align-items: center;
   padding: 8px 10px;
-  border-radius: 8px;
   cursor: pointer;
 }
 .wm-res:hover,
@@ -255,22 +258,21 @@
   width: 22px;
   text-align: center;
   font-size: 15px;
-  color: var(--accent-2);
+  color: var(--accent);
 }
 .wm-res .txt {
   min-width: 0;
 }
 .wm-res b {
   display: block;
-  font-size: 13px;
-  font-weight: 600;
+  font: 600 17px/1.2 var(--font-cond);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .wm-res small {
   display: block;
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -279,53 +281,54 @@
 .wm-res-msg {
   padding: 10px 12px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 13.5px;
 }
 
 .wm-tools {
   margin-left: auto;
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
   justify-content: flex-end;
 }
 .wm-btn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  height: 42px;
+  gap: 8px;
+  height: 44px;
   padding: 0 14px;
-  border-radius: 12px;
-  background: rgba(14, 17, 23, 0.86);
+  border-radius: 0;
+  background: rgba(8, 10, 12, 0.86);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 0;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
-  font-size: 13px;
-  font-weight: 600;
+  font: 600 16px/1 var(--font-cond);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   cursor: pointer;
   color: var(--text);
 }
 .wm-btn:hover {
-  background: rgba(30, 35, 44, 0.92);
+  background: rgba(24, 27, 32, 0.94);
 }
 .wm-btn svg {
   width: 17px;
   height: 17px;
   fill: none;
-  stroke: var(--accent-2);
+  stroke: var(--accent);
   stroke-width: 2.2;
-  stroke-linecap: round;
+  stroke-linecap: square;
 }
 .wm-check input {
   accent-color: var(--accent);
   margin: 0;
 }
 .wm-close {
-  width: 42px;
+  width: 44px;
   justify-content: center;
   padding: 0;
-  font-size: 16px;
+  font-size: 17px;
 }
 
 /* ficha de la derecha */
@@ -338,10 +341,10 @@
   display: flex;
   flex-direction: column;
   background: var(--panel);
-  backdrop-filter: blur(18px) saturate(1.25);
-  -webkit-backdrop-filter: blur(18px) saturate(1.25);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: var(--radius);
+  backdrop-filter: blur(18px) saturate(1.15);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  border: 0;
+  border-radius: 0;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   z-index: 4;
   user-select: text;
@@ -355,16 +358,16 @@
   top: 10px;
   right: 10px;
   display: flex;
-  gap: 6px;
+  gap: 4px;
 }
 .wm-mini {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   display: grid;
   place-items: center;
-  border-radius: 8px;
-  font-size: 13px;
+  border-radius: 0;
+  font-size: 14px;
 }
 .wm-mini svg {
   width: 16px;
@@ -372,63 +375,65 @@
   fill: none;
   stroke: currentColor;
   stroke-width: 2.2;
-  stroke-linecap: round;
+  stroke-linecap: square;
 }
 .wm-card-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-width: thin;
   padding: 16px 18px 6px;
 }
 .wm-card header {
-  padding-right: 70px;
+  padding-right: 76px;
 }
 .wm-card h3 {
   margin: 4px 0 4px;
-  font-size: 18px;
-  line-height: 1.25;
+  font: 700 25px/1.05 var(--font-cond);
+  text-transform: uppercase;
 }
 .wm-card h4 {
-  margin: 16px 0 8px;
-  font-size: 11px;
+  margin: 18px 0 8px;
+  font: 700 15px/1.2 var(--font-cond);
   text-transform: uppercase;
-  letter-spacing: 0.16em;
-  color: var(--accent-2);
+  letter-spacing: 0.1em;
+  color: var(--accent);
 }
 .wm-kind {
-  font-size: 10.5px;
-  font-weight: 700;
+  font: 600 14px/1.2 var(--font-cond);
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   color: var(--muted);
 }
 .wm-kind.kC {
-  color: #ff9a66;
+  color: var(--accent);
 }
 .wm-kind.kP {
   color: #5fe0d4;
 }
 .wm-sub {
   margin: 2px 0;
-  font-size: 13px;
-  color: #cbd3de;
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.82);
 }
 .wm-facts {
   margin: 6px 0 0;
-  font: 600 11.5px 'JetBrains Mono', ui-monospace, monospace;
+  font: 600 15px/1.3 var(--font-cond);
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
 .wm-empty {
   margin: 0;
   padding: 4px 0 8px;
-  color: #cbd3de;
-  font-size: 14px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 14.5px;
   line-height: 1.5;
 }
 .wm-muted {
   margin: 4px 0;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.45;
 }
 .wm-loading::before {
@@ -437,8 +442,7 @@
   width: 10px;
   height: 10px;
   margin-right: 8px;
-  border-radius: 50%;
-  border: 2px solid var(--accent-2);
+  border: 2px solid var(--accent);
   border-right-color: transparent;
   vertical-align: -1px;
   animation: wm-spin 0.8s linear infinite;
@@ -454,8 +458,8 @@
   padding: 0;
   border: 0;
   background: none;
-  color: var(--accent-2);
-  font-size: 12.5px;
+  color: var(--accent);
+  font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
@@ -467,7 +471,7 @@
 .wm-opts {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 .wm-opt {
   display: flex;
@@ -477,19 +481,23 @@
   width: 100%;
   text-align: left;
   padding: 9px 12px;
-  border-radius: 10px;
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.07);
+}
+.wm-opt:hover {
+  background: rgba(255, 255, 255, 0.14);
 }
 .wm-opt b {
-  font-size: 13.5px;
+  font: 700 17px/1.15 var(--font-cond);
+  text-transform: uppercase;
 }
 .wm-opt small {
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--muted);
 }
 .wm-opt.on {
-  background: rgba(255, 90, 31, 0.18);
-  border-color: rgba(255, 120, 60, 0.75);
-  box-shadow: inset 0 0 0 1px rgba(255, 120, 60, 0.35);
+  background: rgba(246, 196, 0, 0.12);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .wm-rw {
@@ -506,24 +514,25 @@
   margin-bottom: 6px;
 }
 .wm-rw-name b {
-  font: 700 13px 'JetBrains Mono', ui-monospace, monospace;
+  font: 700 18px/1.1 var(--font-cond);
+  letter-spacing: 0.03em;
 }
 .wm-rw-name small {
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: 12.5px;
 }
 .wm-rw-grid {
   display: grid;
   grid-template-columns: auto 1fr 1fr;
-  gap: 6px;
+  gap: 4px;
   align-items: center;
 }
 .wm-rw-k {
-  font-size: 11px;
+  font: 600 13px var(--font-cond);
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  padding-right: 2px;
+  padding-right: 4px;
 }
 .wm-end {
   flex-direction: row;
@@ -535,10 +544,10 @@
   flex: none;
   width: 18px;
   height: 18px;
-  fill: var(--accent-2);
+  fill: var(--accent);
 }
 .wm-end b {
-  font: 700 13px 'JetBrains Mono', ui-monospace, monospace;
+  font: 700 17px/1.1 var(--font-cond);
 }
 .wm-end small {
   margin-left: auto;
@@ -553,7 +562,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--muted);
 }
 .wm-hdg-row input {
@@ -561,7 +570,7 @@
   accent-color: var(--accent);
 }
 .wm-hdg-row output {
-  font: 700 13px 'JetBrains Mono', ui-monospace, monospace;
+  font: 700 17px var(--font-cond);
   color: var(--text);
   min-width: 42px;
   text-align: right;
@@ -573,47 +582,50 @@
 }
 .wm-seg {
   display: flex;
-  padding: 3px;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid var(--line);
+  gap: 2px;
 }
 .wm-seg button {
   flex: 1;
   border: 0;
-  background: none;
-  padding: 7px 8px;
-  border-radius: 7px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--muted);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 8px 8px;
+  font: 600 16px/1.2 var(--font-cond);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: rgba(255, 255, 255, 0.75);
+}
+.wm-seg button:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
 }
 .wm-seg button.on {
-  background: rgba(255, 255, 255, 0.12);
-  color: var(--text);
+  background: #fff;
+  color: var(--ink);
 }
 .wm-seg.disabled button {
   cursor: default;
 }
 .wm-summary {
   margin: 10px 0;
-  font-size: 12.5px;
-  color: #cbd3de;
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.85);
   line-height: 1.4;
 }
 .wm-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 .wm-actions button {
   flex: 1;
-  padding: 10px 12px;
-  font-weight: 700;
+  padding: 11px 12px;
+  font: 700 19px/1 var(--font-cond);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .wm-actions button:disabled {
   opacity: 0.45;
   cursor: default;
-  box-shadow: none;
 }
 
 /* abajo: cursor, altura de la vista, leyenda y créditos (sobre un degradado oscuro que
@@ -639,15 +651,17 @@
   gap: 18px;
   pointer-events: none;
   z-index: 3;
-  font-size: 11.5px;
+  font-size: 12.5px;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
 }
 .wm-readout {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font: 600 12px 'JetBrains Mono', ui-monospace, monospace;
-  color: #dfe6ef;
+  font: 600 15px/1.2 var(--font-cond);
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
   min-width: 260px;
 }
 .wm-alt {
@@ -656,7 +670,7 @@
 .wm-legend {
   display: flex;
   gap: 14px;
-  color: #c9d2de;
+  color: rgba(255, 255, 255, 0.85);
 }
 .wm-legend .dot {
   display: inline-block;
@@ -668,7 +682,7 @@
   vertical-align: -1px;
 }
 .dot.c {
-  background: #ff7a3d;
+  background: var(--accent);
 }
 .dot.p {
   background: #3fd4c8;
@@ -689,12 +703,11 @@
   left: calc((100% - 392px) / 2);
   bottom: 56px;
   translate: -50% 0;
-  padding: 8px 14px;
-  border-radius: 10px;
-  background: rgba(10, 13, 18, 0.75);
-  border: 1px solid var(--line);
-  font-size: 12.5px;
-  color: #d6dde7;
+  padding: 8px 14px 8px 12px;
+  background: rgba(8, 10, 12, 0.8);
+  border-left: 3px solid var(--accent);
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.88);
   pointer-events: none;
   width: max-content;
   max-width: calc(100% - 440px);
@@ -704,41 +717,6 @@
 }
 .wm-hint.gone {
   opacity: 0;
-}
-
-/* rumbo junto a las coordenadas personalizadas del menú */
-#custom-coords > div.hdg {
-  flex: 0 0 64px;
-}
-
-/* botón del menú que abre el mapa */
-.map-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  margin-top: 2px;
-  padding: 8px 10px;
-  font-size: 13px;
-  font-weight: 600;
-  border-radius: 9px;
-  border-color: rgba(255, 140, 80, 0.35);
-  background: rgba(255, 90, 31, 0.1);
-}
-.map-btn:hover {
-  background: rgba(255, 90, 31, 0.2);
-}
-.map-btn svg {
-  width: 17px;
-  height: 17px;
-  fill: none;
-  stroke: var(--accent-2);
-  stroke-width: 1.8;
-}
-.map-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 @media (max-width: 820px) {

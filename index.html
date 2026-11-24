@@ -4,10 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Autogiro · Simulador sobre el mundo real</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23ff5a1f'/%3E%3Cpath d='M4 26 L60 20' stroke='white' stroke-width='4'/%3E%3Ccircle cx='32' cy='38' r='8' fill='white'/%3E%3C/svg%3E" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Cdefs%3E%3Cmask id='cut'%3E%3Crect width='1024' height='1024' fill='%23fff'/%3E%3Cpath d='M318 548 C340 515 378 498 425 494 L438 548 Z' fill='%23000'/%3E%3C/mask%3E%3C/defs%3E%3Crect x='16' y='16' width='992' height='992' fill='%230d0d0d'/%3E%3Crect x='70' y='70' width='884' height='884' fill='none' stroke='%23f6c400' stroke-width='44'/%3E%3Cg transform='translate(512 512) scale(0.84) translate(-512 -498)' fill='%23f6c400' stroke='%23f6c400' stroke-linecap='square' stroke-linejoin='miter'%3E%3Cpath d='M118 262 L906 330' stroke-width='36' fill='none'/%3E%3Ccircle cx='526' cy='296' r='32' stroke='none'/%3E%3Cpath d='M526 300 L552 520' stroke-width='36' fill='none'/%3E%3Cpath d='M560 612 L830 612' stroke-width='28' fill='none'/%3E%3Cpath d='M800 628 L822 452 L878 452 L892 628 Z' stroke-width='10'/%3E%3Cpath d='M770 630 L912 630' stroke-width='24' fill='none'/%3E%3Cellipse cx='664' cy='560' rx='17' ry='124' stroke='none'/%3E%3Cpath d='M500 630 L566 720' stroke-width='22' fill='none'/%3E%3Cpath d='M300 630 L300 708' stroke-width='20' fill='none'/%3E%3Ccircle cx='566' cy='734' r='44' stroke='none'/%3E%3Ccircle cx='300' cy='722' r='32' stroke='none'/%3E%3Cpath mask='url(%23cut)' stroke='none' d='M226 612 C236 548 312 492 420 482 C520 474 616 500 632 548 L630 612 C578 650 340 662 226 612 Z'/%3E%3C/g%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
@@ -55,7 +55,6 @@
     </div>
 
     <div id="loading" class="hidden">
-      <div class="spinner"></div>
       <div id="loading-text">Cargando escenario…</div>
       <div class="bar"><div id="loading-bar"></div></div>
     </div>
@@ -72,44 +71,260 @@
       </div>
     </div>
 
-    <div id="menu" class="overlay">
-      <div class="menu-inner">
-        <header>
-          <div class="logo">
-            <svg viewBox="0 0 64 64" width="44" height="44" aria-hidden="true">
-              <ellipse cx="29" cy="13" rx="27" ry="3" fill="currentColor" opacity=".9" />
-              <rect x="27.5" y="13" width="3" height="20" fill="currentColor" />
-              <path d="M6 39 Q12 30 28 32 L38 35 L38 43 L10 45 Z" fill="currentColor" />
-              <path d="M36 36 L55 36 L55 39.5 L36 41 Z" fill="currentColor" />
-              <path d="M51 39.5 L55 25 L61 25 L60 41.5 L52 41.5 Z" fill="currentColor" />
-              <rect x="47" y="41.5" width="14" height="2.2" rx="1.1" fill="currentColor" />
-              <circle cx="13" cy="51" r="3.5" fill="currentColor" />
-              <circle cx="33" cy="51" r="3.5" fill="currentColor" />
-            </svg>
-            <div>
-              <h1>AUTOGIRO</h1>
-              <p data-i18n="menu.tagline">Vuela un autogiro sobre el mundo real</p>
-              <p class="credit" data-i18n="menu.credit">Hecho con ❤️ por <a href="https://creativecode.es/" target="_blank" rel="noopener noreferrer"><strong>Mario</strong></a> · <a href="https://ko-fi.com/mario_creativecode" target="_blank" rel="noopener noreferrer">☕ Invítame a un café</a></p>
-            </div>
+    <!-- Menú: pestañas (aparato, salida, hora y meteo, escenario, multijugador), el centro libre para
+         ver el aparato en la escena, el plan de vuelo con «Volar» a la derecha y los ajustes en otra
+         pantalla. Los selectores ocultos (aircraft, clouds, quality) siguen siendo la fuente de verdad:
+         las tarjetas y botones los cambian (src/menu/menuUi.ts). Estilo: src/menu/menu.css -->
+    <div id="menu" class="overlay" data-tab="aparato" data-screen="main">
+      <header class="m-head">
+        <div class="m-brand">
+          <!-- la misma silueta que el icono de la app (src-tauri/icons/app-icon.svg) -->
+          <svg class="m-logo" viewBox="96 236 832 554" aria-hidden="true">
+            <defs>
+              <mask id="m-logo-cut">
+                <rect x="96" y="236" width="832" height="554" fill="#fff" />
+                <path d="M318 548 C340 515 378 498 425 494 L438 548 Z" fill="#000" />
+              </mask>
+            </defs>
+            <g fill="currentColor" stroke="currentColor" stroke-linecap="square">
+              <path d="M118 262 L906 330" stroke-width="36" fill="none" />
+              <circle cx="526" cy="296" r="32" stroke="none" />
+              <path d="M526 300 L552 520" stroke-width="36" fill="none" />
+              <path d="M560 612 L830 612" stroke-width="28" fill="none" />
+              <path d="M800 628 L822 452 L878 452 L892 628 Z" stroke-width="10" />
+              <path d="M770 630 L912 630" stroke-width="24" fill="none" />
+              <ellipse cx="664" cy="560" rx="17" ry="124" stroke="none" />
+              <path d="M500 630 L566 720" stroke-width="22" fill="none" />
+              <path d="M300 630 L300 708" stroke-width="20" fill="none" />
+              <circle cx="566" cy="734" r="44" stroke="none" />
+              <circle cx="300" cy="722" r="32" stroke="none" />
+              <path mask="url(#m-logo-cut)" stroke="none" d="M226 612 C236 548 312 492 420 482 C520 474 616 500 632 548 L630 612 C578 650 340 662 226 612 Z" />
+            </g>
+          </svg>
+          <div>
+            <h1 class="m-word">AUTOGIRO</h1>
+            <p class="m-tagline" data-i18n="menu.tagline">Vuela un autogiro sobre el mundo real</p>
           </div>
-          <div class="seg lang-switch" role="radiogroup" aria-label="Idioma · Language" title="Idioma · Language">
+        </div>
+
+        <nav class="m-tabs" aria-label="Secciones del menú" data-i18n-attr="aria-label:menu.sections">
+          <button type="button" data-tab="aparato"><span class="m-n">1</span><span data-i18n="menu.tabAircraft">Aparato</span></button>
+          <button type="button" data-tab="salida"><span class="m-n">2</span><span data-i18n="menu.tabDeparture">Salida</span></button>
+          <button type="button" data-tab="meteo"><span class="m-n">3</span><span data-i18n="menu.tabWeather">Hora y meteo</span></button>
+          <button type="button" data-tab="escenario"><span class="m-n">4</span><span data-i18n="menu.tabScenery">Escenario</span></button>
+          <button type="button" data-tab="multi"><span class="m-n">5</span><span data-i18n="menu.tabMulti">Multijugador</span></button>
+        </nav>
+
+        <div class="m-screen-title">
+          <button type="button" class="m-back" data-screen="main"><span aria-hidden="true">←</span> <span data-i18n="menu.back">Volver</span></button>
+          <h2 data-i18n="menu.settings">Ajustes</h2>
+        </div>
+
+        <div class="m-right">
+          <div class="m-lang" role="radiogroup" aria-label="Idioma · Language" title="Idioma · Language">
             <label><input type="radio" name="lang" value="es" /><span>ES</span></label>
             <label><input type="radio" name="lang" value="en" /><span>EN</span></label>
           </div>
-          <button id="btn-fly" class="primary big">Volar</button>
-        </header>
+          <button type="button" class="m-icon" id="btn-settings" data-screen="settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="3.2" stroke-dasharray="3.1 3.18" /><circle cx="12" cy="12" r="6.2" fill="none" stroke="currentColor" stroke-width="2" /><circle cx="12" cy="12" r="2.2" fill="currentColor" /></svg>
+            <span data-i18n="menu.settings">Ajustes</span>
+          </button>
+          <button type="button" class="m-icon" id="btn-help" title="Mandos (H)" data-i18n-attr="title:menu.controlsTitle">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2.5" y="6" width="19" height="12" rx="2" /><path d="M6 10h1M9.5 10h1M13 10h1M16.5 10h1M6 14h1M8.5 14h7M17 14h1" /></svg>
+            <span data-i18n="menu.controls">Mandos</span>
+          </button>
+        </div>
+      </header>
 
-        <div class="grid">
-          <section>
-            <h4 data-i18n="menu.scenery">Escenario</h4>
-            <label class="choice"><input type="radio" name="scenery" value="google" /><span data-i18n="menu.google"><b>Fotorrealista 3D de Google</b><small>Edificios, árboles y relieve reales en 3D. Necesita una clave de Google Maps Platform.</small></span></label>
-            <label class="choice"><input type="radio" name="scenery" value="terrain" /><span data-i18n="menu.terrain"><b>Ortofoto + relieve</b><small>Sin clave. Ortofoto PNOA sobre el relieve de 5 m del IGN, con los edificios de OpenStreetMap en 3D (fuera de España: Esri y relieve global).</small></span></label>
-            <div class="field">
-              <label for="googleKey" data-i18n="menu.googleKey">Clave API de Google (Map Tiles API)</label>
-              <input id="googleKey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…" />
-              <details>
+      <main class="m-body">
+        <div class="m-content">
+          <!-- 1 · aparato -->
+          <section class="m-pane" data-pane="aparato">
+            <div class="pane-head"><span class="m-kicker" data-i18n="menu.step1">Paso 1 de 4</span><h2 data-i18n="menu.pickAircraft">Elige el aparato</h2></div>
+            <select id="aircraft" class="m-src" aria-hidden="true" tabindex="-1"></select>
+            <div id="acCards" class="ac-cards" data-for="aircraft"></div>
+            <label class="m-row">
+              <span><b data-i18n="menu.passengerT">Con pasajero</b><small id="passengerNote"></small></span>
+              <span class="m-sw"><input id="passenger" type="checkbox" /><i></i></span>
+            </label>
+          </section>
+
+          <!-- 2 · salida: del mapa del mundo o un lugar emblemático (src/menu/locationSelect.ts) -->
+          <section class="m-pane" data-pane="salida">
+            <div class="pane-head"><span class="m-kicker" data-i18n="menu.step2">Paso 2 de 4</span><h2 data-i18n="menu.whereFrom">¿Desde dónde sales?</h2></div>
+            <div class="m-seg" role="radiogroup" aria-label="Salida desde" data-i18n-attr="aria-label:menu.departFrom">
+              <label><input type="radio" name="depmode" id="depmode-map" value="map" /><span data-i18n="menu.depMap">Mapa del mundo</span></label>
+              <label><input type="radio" name="depmode" id="depmode-place" value="place" /><span data-i18n="menu.depPlace">Lugar emblemático</span></label>
+            </div>
+            <div id="dep-map">
+              <div class="dep-card">
+                <div class="dep-top">
+                  <span id="depIcao" class="dep-icao hidden"></span>
+                  <div class="dep-names"><b id="depCurrent"></b><small id="depCurrentNote"></small></div>
+                </div>
+                <dl id="depFacts" class="dep-facts"></dl>
+              </div>
+              <button id="btn-worldmap" type="button" class="m-mapbtn">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><ellipse cx="12" cy="12" rx="4" ry="9" /><path d="M3.5 9h17M3.5 15h17" /></svg>
+                <span data-i18n="wm.open">Elegir en el mapa del mundo</span>
+                <small data-i18n="menu.mapSub">Más de 48 000 aeródromos con sus pistas, o cualquier punto del globo</small>
+              </button>
+              <div class="m-field">
+                <span class="m-label" data-i18n="menu.startAt">Empezar</span>
+                <div class="m-seg" role="radiogroup" aria-label="Empezar" data-i18n-attr="aria-label:menu.startAt">
+                  <label><input type="radio" name="start" value="runway" /><span data-i18n="menu.onRunway">En pista</span></label>
+                  <label><input type="radio" name="start" value="air" /><span data-i18n="menu.inFlight">En vuelo</span></label>
+                </div>
+              </div>
+              <details class="m-more dep-coords">
+                <summary data-i18n="menu.coordsHand">Escribir las coordenadas a mano</summary>
+                <div class="m-three" id="custom-coords">
+                  <div><label for="customLat" data-i18n="menu.lat">Latitud</label><input id="customLat" type="number" step="0.0001" /></div>
+                  <div><label for="customLon" data-i18n="menu.lon">Longitud</label><input id="customLon" type="number" step="0.0001" /></div>
+                  <div><label for="customHeading" data-i18n="menu.heading">Rumbo</label><input id="customHeading" type="number" min="0" max="359" step="1" /></div>
+                </div>
+              </details>
+            </div>
+            <div id="dep-place" class="hidden">
+              <div class="m-field">
+                <label for="country" data-i18n="menu.country">País</label>
+                <div class="combo">
+                  <input id="country" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="country-list" autocomplete="off" spellcheck="false" placeholder="Escribe para filtrar…" data-i18n-attr="placeholder:menu.countryFilter" />
+                  <div id="country-list" class="combo-list hidden" role="listbox"></div>
+                </div>
+              </div>
+              <div class="m-field">
+                <label for="location" data-i18n="menu.location">Lugar</label>
+                <select id="location"></select>
+              </div>
+              <p id="locationNote" class="m-note"></p>
+              <p class="m-hint" data-i18n="menu.placeInFlight">Los lugares emblemáticos empiezan siempre en vuelo.</p>
+            </div>
+          </section>
+
+          <!-- 3 · hora y meteo -->
+          <section class="m-pane" data-pane="meteo">
+            <div class="pane-head"><span class="m-kicker" data-i18n="menu.step3">Paso 3 de 4</span><h2 data-i18n="menu.tabWeather">Hora y meteo</h2></div>
+            <div class="sun-box">
+              <svg id="sunArc" class="sun-arc" viewBox="0 0 300 128" aria-hidden="true"></svg>
+              <div class="sun-read"><b id="hourBig"></b><span id="dayBig"></span></div>
+            </div>
+            <div class="m-field">
+              <label for="hour"><span data-i18n="menu.hour">Hora</span> <output id="hourOut"></output></label>
+              <input id="hour" type="range" min="5" max="21.5" step="0.25" />
+            </div>
+            <div class="m-field">
+              <label for="dayOfYear"><span data-i18n="menu.date">Fecha</span> <output id="dayOut"></output></label>
+              <input id="dayOfYear" type="range" min="1" max="365" step="1" />
+            </div>
+            <div class="wind-box">
+              <div class="wind-left">
+                <svg id="windRose" class="wind-rose" viewBox="0 0 160 160" aria-hidden="true"></svg>
+                <small id="windComp" class="wind-comp"></small>
+              </div>
+              <div class="wind-fields">
+                <div class="m-field">
+                  <label for="windFrom"><span data-i18n="menu.windFrom">Viento desde</span> <output id="windFromOut"></output></label>
+                  <input id="windFrom" type="range" min="0" max="355" step="5" />
+                </div>
+                <div class="m-field">
+                  <label for="windSpeed"><span data-i18n="menu.windSpeed">Intensidad</span> <output id="windSpeedOut"></output></label>
+                  <input id="windSpeed" type="range" min="0" max="25" step="1" />
+                </div>
+                <div class="m-field">
+                  <label for="turbulence"><span data-i18n="menu.turbulence">Turbulencia</span> <output id="turbOut"></output></label>
+                  <input id="turbulence" type="range" min="0" max="1" step="0.05" />
+                </div>
+              </div>
+            </div>
+            <div class="m-field">
+              <span class="m-label" data-i18n="menu.sky">Cielo</span>
+              <select id="clouds" class="m-src" aria-hidden="true" tabindex="-1">
+                <option value="clear" data-i18n="menu.clouds.clear">Despejado</option>
+                <option value="fair" data-i18n="menu.clouds.fair">Cúmulos de buen tiempo</option>
+                <option value="scattered" data-i18n="menu.clouds.scattered">Nubes dispersas</option>
+                <option value="overcast" data-i18n="menu.clouds.overcast">Cubierto</option>
+              </select>
+              <div class="sky-tiles" data-for="clouds">
+                <button type="button" data-value="clear"><svg viewBox="0 0 40 28" aria-hidden="true"><circle cx="20" cy="14" r="6" /><path d="M20 2v4M20 22v4M8 14h4M28 14h4M11.5 5.5l2.8 2.8M25.7 19.7l2.8 2.8M11.5 22.5l2.8-2.8M25.7 8.3l2.8-2.8" /></svg><span data-i18n="menu.clouds.clear">Despejado</span></button>
+                <button type="button" data-value="fair"><svg viewBox="0 0 40 28" aria-hidden="true"><circle cx="25" cy="10" r="5" /><path d="M10 23h15a5 5 0 0 0 0-10 7 7 0 0 0-13.4 1.6A4.3 4.3 0 0 0 10 23z" /></svg><span data-i18n="menu.clouds.fair">Cúmulos de buen tiempo</span></button>
+                <button type="button" data-value="scattered"><svg viewBox="0 0 40 28" aria-hidden="true"><path d="M5 21h12a4 4 0 0 0 0-8 5.6 5.6 0 0 0-10.7 1.3A3.4 3.4 0 0 0 5 21z" /><path d="M20 15h13a4.3 4.3 0 0 0 0-8.6 6 6 0 0 0-11.5 1.4A3.6 3.6 0 0 0 20 15z" /></svg><span data-i18n="menu.clouds.scattered">Nubes dispersas</span></button>
+                <button type="button" data-value="overcast"><svg viewBox="0 0 40 28" aria-hidden="true"><path d="M4 12h32M2 18h36M5 24h30" /></svg><span data-i18n="menu.clouds.overcast">Cubierto</span></button>
+              </div>
+            </div>
+          </section>
+
+          <!-- 4 · escenario: solo se ven las opciones del modo elegido -->
+          <section class="m-pane" data-pane="escenario">
+            <div class="pane-head"><span class="m-kicker" data-i18n="menu.step4">Paso 4 de 4</span><h2 data-i18n="menu.scenery">Escenario</h2></div>
+            <div class="scen-cards" role="radiogroup" aria-label="Escenario" data-i18n-attr="aria-label:menu.scenery">
+              <label class="scen-card">
+                <input type="radio" name="scenery" value="terrain" />
+                <svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 6 L36 14 L20 22 L4 14 Z" /><path d="M4 20 L20 28 L36 20" /><path d="M4 26 L20 34 L36 26" /></svg>
+                <span class="sc-badge" data-i18n="menu.free">Gratis</span>
+                <b data-i18n="menu.terrainT">Ortofoto + relieve</b>
+                <small data-i18n="menu.terrainD">Sin clave. Ortofoto PNOA sobre el relieve de 5 m del IGN, con edificios y árboles en 3D (fuera de España: Esri y relieve global).</small>
+              </label>
+              <label class="scen-card">
+                <input type="radio" name="scenery" value="google" />
+                <svg viewBox="0 0 40 40" aria-hidden="true"><path d="M6 34V18l8-4v20M14 34V10l10-4v28M24 34V16l10 3v15M3 34h34" /></svg>
+                <span class="sc-badge" data-i18n="menu.needsKey">Tu clave API</span>
+                <b data-i18n="menu.googleT">Fotorrealista 3D de Google</b>
+                <small data-i18n="menu.googleD">Ciudades, árboles y relieve reales en 3D de todo el mundo, con tu clave de Google Maps Platform.</small>
+              </label>
+            </div>
+            <div class="scen-opts scen-terrain">
+              <div class="m-two">
+                <div class="m-field">
+                  <label for="imagery" data-i18n="menu.imageryT">Ortofoto</label>
+                  <select id="imagery">
+                    <option value="auto" data-i18n="menu.imagery.auto">Automática (PNOA en España)</option>
+                    <option value="pnoa" data-i18n="menu.imagery.pnoa">PNOA · IGN (España)</option>
+                    <option value="esri">Esri World Imagery</option>
+                  </select>
+                </div>
+                <div class="m-field">
+                  <label for="elevation" data-i18n="menu.elevationT">Relieve</label>
+                  <select id="elevation">
+                    <option value="auto" data-i18n="menu.elevation.auto">Automático (MDT de 5 m del IGN)</option>
+                    <option value="global" data-i18n="menu.elevation.global">Global de ~30 m (Mapzen/AWS)</option>
+                  </select>
+                </div>
+              </div>
+              <label class="m-row">
+                <span><b data-i18n="menu.buildingsT">Edificios 3D</b><small data-i18n="menu.buildingsD">De OpenStreetMap, con sus tejados</small></span>
+                <span class="m-sw"><input id="buildings" type="checkbox" /><i></i></span>
+              </label>
+              <label class="m-row">
+                <span><b data-i18n="menu.treesT">Árboles 3D</b><small data-i18n="menu.treesD">Sacados de la ortofoto</small></span>
+                <span class="m-sw"><input id="trees" type="checkbox" /><i></i></span>
+              </label>
+              <label class="m-row">
+                <span><b data-i18n="menu.trafficT">Tráfico</b><small data-i18n="menu.trafficD">Coches, furgonetas, camiones y autobuses por las calles de OpenStreetMap: carriles, cedas, rotondas y semáforos</small></span>
+                <span class="m-sw"><input id="traffic" type="checkbox" /><i></i></span>
+              </label>
+              <label class="m-row">
+                <span><b data-i18n="menu.powerT">Tendidos eléctricos</b><small data-i18n="menu.powerD">Torres y cables de alta, media y baja tensión de OpenStreetMap; se choca con ellos</small></span>
+                <span class="m-sw"><input id="power" type="checkbox" /><i></i></span>
+              </label>
+              <label class="m-row">
+                <span><b data-i18n="menu.catastroT">Completar con el Catastro</b><small data-i18n="menu.catastroD">Edificios que faltan en OpenStreetMap (España, se descargan por municipios)</small></span>
+                <span class="m-sw"><input id="catastro" type="checkbox" /><i></i></span>
+              </label>
+              <details id="catastro-data" class="catastro-data m-more">
+                <summary data-i18n="menu.catastroData">Datos del Catastro descargados</summary>
+                <div id="catastro-list"></div>
+              </details>
+            </div>
+            <div class="scen-opts scen-google">
+              <div class="m-field">
+                <label for="googleKey" data-i18n="menu.googleKey">Clave API de Google (Map Tiles API)</label>
+                <input id="googleKey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…" />
+                <small class="m-hint" data-i18n="menu.keyLocal">Se guarda solo en este equipo.</small>
+              </div>
+              <details class="m-more" open>
                 <summary data-i18n="menu.keyHow">¿Cómo consigo la clave?</summary>
-                <ol data-i18n="menu.keySteps">
+                <ol class="m-steps" data-i18n="menu.keySteps">
                   <li>Entra en <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">console.cloud.google.com</a> y crea un proyecto.</li>
                   <li>Activa la facturación (hay cuota gratuita mensual).</li>
                   <li>En «APIs y servicios», habilita <b>Map Tiles API</b>.</li>
@@ -117,163 +332,113 @@
                   <li>Pégala aquí. Se guarda solo en este navegador.</li>
                 </ol>
               </details>
-            </div>
-            <div class="field">
-              <label for="imagery" data-i18n="menu.imagery">Ortofoto (modo sin clave)</label>
-              <select id="imagery">
-                <option value="auto" data-i18n="menu.imagery.auto">Automática (PNOA en España)</option>
-                <option value="pnoa" data-i18n="menu.imagery.pnoa">PNOA · IGN (España)</option>
-                <option value="esri">Esri World Imagery</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="elevation" data-i18n="menu.elevation">Relieve (modo sin clave)</label>
-              <select id="elevation">
-                <option value="auto" data-i18n="menu.elevation.auto">Automático (MDT de 5 m del IGN en España)</option>
-                <option value="global" data-i18n="menu.elevation.global">Global de ~30 m (Mapzen/AWS)</option>
-              </select>
-            </div>
-            <label class="check"><input id="buildings" type="checkbox" /> <span data-i18n="menu.buildings">Edificios 3D de OpenStreetMap (modo sin clave)</span></label>
-            <label class="check"><input id="trees" type="checkbox" /> <span data-i18n="menu.trees">Árboles 3D sacados de la ortofoto (modo sin clave)</span></label>
-            <label class="check"><input id="catastro" type="checkbox" /> <span data-i18n="menu.catastro">Completar con los edificios del Catastro (España, se descargan por municipios)</span></label>
-            <details id="catastro-data" class="catastro-data">
-              <summary data-i18n="menu.catastroData">Datos del Catastro descargados</summary>
-              <div id="catastro-list"></div>
-            </details>
-          </section>
-
-          <section>
-            <h4 data-i18n="menu.start">Salida</h4>
-            <div class="field">
-              <label for="aircraft" data-i18n="menu.aircraft">Aparato</label>
-              <select id="aircraft"></select>
-              <small id="aircraftNote" class="muted"></small>
-            </div>
-            <!-- de dónde se sale: del mapa del mundo (aeródromos, pistas, cualquier punto) o de un
-                 lugar emblemático (país y lugar); solo se ve lo de la opción elegida (locationSelect.ts) -->
-            <div class="field">
-              <label data-i18n="menu.departFrom">Salida desde</label>
-              <div class="seg dep-mode" role="radiogroup" aria-label="Salida desde" data-i18n-attr="aria-label:menu.departFrom">
-                <label><input type="radio" name="depmode" id="depmode-map" value="map" /><span data-i18n="menu.depMap">Mapa del mundo</span></label>
-                <label><input type="radio" name="depmode" id="depmode-place" value="place" /><span data-i18n="menu.depPlace">Lugar emblemático</span></label>
-              </div>
-            </div>
-            <div id="dep-map">
-              <div class="field">
-                <div class="dep-current">
-                  <b id="depCurrent"></b>
-                  <small id="depCurrentNote" class="muted"></small>
-                </div>
-                <button id="btn-worldmap" type="button" class="map-btn"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3.5 9h17M3.5 15h17"/></svg><span data-i18n="wm.open">Elegir en el mapa del mundo</span></button>
-              </div>
-              <details class="dep-coords">
-                <summary data-i18n="menu.coordsByHand">o escribir las coordenadas</summary>
-                <div class="field two" id="custom-coords">
-                  <div><label for="customLat" data-i18n="menu.lat">Latitud</label><input id="customLat" type="number" step="0.0001" /></div>
-                  <div><label for="customLon" data-i18n="menu.lon">Longitud</label><input id="customLon" type="number" step="0.0001" /></div>
-                  <div class="hdg"><label for="customHeading" data-i18n="menu.heading">Rumbo</label><input id="customHeading" type="number" min="0" max="359" step="1" /></div>
-                </div>
-              </details>
-              <div class="seg" role="radiogroup" aria-label="Inicio" data-i18n-attr="aria-label:menu.start">
-                <label><input type="radio" name="start" value="runway" /><span data-i18n="menu.onRunway">En pista</span></label>
-                <label><input type="radio" name="start" value="air" /><span data-i18n="menu.inFlight">En vuelo</span></label>
-              </div>
-            </div>
-            <div id="dep-place" class="hidden">
-              <div class="field">
-                <label for="country" data-i18n="menu.country">País</label>
-                <div class="combo">
-                  <input id="country" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="country-list" autocomplete="off" spellcheck="false" placeholder="Escribe para filtrar…" data-i18n-attr="placeholder:menu.countryFilter" />
-                  <div id="country-list" class="combo-list hidden" role="listbox"></div>
-                </div>
-              </div>
-              <div class="field">
-                <label for="location" data-i18n="menu.location">Lugar</label>
-                <select id="location"></select>
-                <small id="locationNote" class="muted"></small>
-              </div>
-            </div>
-            <label class="check"><input id="passenger" type="checkbox" /> <span data-i18n="menu.passenger">Con pasajero (MTOW)</span></label>
-          </section>
-
-          <section>
-            <h4 data-i18n="menu.conditions">Condiciones</h4>
-            <div class="field">
-              <label for="hour"><span data-i18n="menu.hour">Hora</span> <output id="hourOut"></output></label>
-              <input id="hour" type="range" min="5" max="21.5" step="0.25" />
-            </div>
-            <div class="field">
-              <label for="dayOfYear"><span data-i18n="menu.date">Fecha</span> <output id="dayOut"></output></label>
-              <input id="dayOfYear" type="range" min="1" max="365" step="1" />
-            </div>
-            <div class="field">
-              <label for="windFrom"><span data-i18n="menu.windFrom">Viento desde</span> <output id="windFromOut"></output></label>
-              <input id="windFrom" type="range" min="0" max="355" step="5" />
-            </div>
-            <div class="field">
-              <label for="windSpeed"><span data-i18n="menu.windSpeed">Intensidad</span> <output id="windSpeedOut"></output></label>
-              <input id="windSpeed" type="range" min="0" max="25" step="1" />
-            </div>
-            <div class="field">
-              <label for="turbulence"><span data-i18n="menu.turbulence">Turbulencia</span> <output id="turbOut"></output></label>
-              <input id="turbulence" type="range" min="0" max="1" step="0.05" />
-            </div>
-            <div class="field">
-              <label for="clouds" data-i18n="menu.clouds">Nubes</label>
-              <select id="clouds">
-                <option value="clear" data-i18n="menu.clouds.clear">Despejado</option>
-                <option value="fair" data-i18n="menu.clouds.fair">Cúmulos de buen tiempo</option>
-                <option value="scattered" data-i18n="menu.clouds.scattered">Nubes dispersas</option>
-                <option value="overcast" data-i18n="menu.clouds.overcast">Cubierto</option>
-              </select>
+              <p class="m-callout" data-i18n="menu.googleNote">Con Google, la ortofoto, el relieve, los edificios y los árboles vienen en sus mallas 3D: las opciones del modo sin clave no se usan.</p>
             </div>
           </section>
 
-          <section>
-            <h4 data-i18n="menu.gfx">Gráficos y mandos</h4>
-            <div class="field">
-              <label for="quality" data-i18n="menu.quality">Calidad</label>
-              <select id="quality">
+          <!-- 5 · multijugador: la sección la pone src/net/Multiplayer.ts en #mp-slot -->
+          <section class="m-pane" data-pane="multi">
+            <div class="pane-head"><span class="m-kicker" data-i18n="menu.optional">Opcional</span><h2 data-i18n="menu.flyFriends">Vuela con amigos</h2></div>
+            <div id="mp-slot"></div>
+          </section>
+        </div>
+
+        <!-- centro libre: el aparato en la escena y, en la pestaña Aparato, su ficha -->
+        <div class="m-stage">
+          <div class="m-show">
+            <div id="acMaker" class="sh-maker"></div>
+            <div id="acName" class="sh-name"></div>
+            <p id="aircraftNote" class="sh-note"></p>
+            <dl id="acSpecs" class="sh-specs"></dl>
+          </div>
+        </div>
+
+        <!-- plan de vuelo: resumen de todo y el botón de volar -->
+        <aside class="m-plan">
+          <div class="plan-h" data-i18n="menu.plan">Plan de vuelo</div>
+          <ul id="planList" class="plan-list"></ul>
+          <div class="plan-foot">
+            <label class="m-row m-compact">
+              <span><b data-i18n="menu.assistT">Ayuda al pilotaje</b></span>
+              <span class="m-sw"><input id="assist" type="checkbox" /><i></i></span>
+            </label>
+            <button id="btn-fly" type="button" class="m-fly"><span class="fly-arrow" aria-hidden="true">↗</span><span id="flyLabel">Volar</span></button>
+            <div class="fly-hint" data-i18n="menu.flyHint"><kbd>Intro</kbd> volar · <kbd>Esc</kbd> abre y cierra el menú</div>
+          </div>
+        </aside>
+
+        <!-- pantalla de ajustes (botón «Ajustes» de la cabecera) -->
+        <div class="m-settings">
+          <section class="m-group">
+            <h3 data-i18n="menu.gfxT">Gráficos</h3>
+            <div class="m-field">
+              <span class="m-label" data-i18n="menu.quality">Calidad</span>
+              <select id="quality" class="m-src" aria-hidden="true" tabindex="-1">
                 <option value="auto" data-i18n="menu.quality.auto">Automática (según tu GPU)</option>
                 <option value="low" data-i18n="menu.quality.low">Baja (gráfica integrada)</option>
                 <option value="medium" data-i18n="menu.quality.medium">Media</option>
                 <option value="high" data-i18n="menu.quality.high">Alta</option>
                 <option value="ultra" data-i18n="menu.quality.ultra">Ultra (GPU potente)</option>
               </select>
-              <div id="gpuInfo" class="muted"></div>
+              <div class="m-seg m-choice" data-for="quality">
+                <button type="button" data-value="auto" data-i18n="menu.q.auto">Auto</button>
+                <button type="button" data-value="low" data-i18n="menu.q.low">Baja</button>
+                <button type="button" data-value="medium" data-i18n="menu.q.medium">Media</button>
+                <button type="button" data-value="high" data-i18n="menu.q.high">Alta</button>
+                <button type="button" data-value="ultra" data-i18n="menu.q.ultra">Ultra</button>
+              </div>
+              <div id="gpuInfo" class="m-hint"></div>
             </div>
-            <div class="field">
+            <div class="m-field">
               <label for="exposure"><span data-i18n="menu.exposure">Exposición</span> <output id="expOut"></output></label>
               <input id="exposure" type="range" min="0.5" max="8" step="0.1" />
             </div>
-            <div class="field">
+          </section>
+          <section class="m-group">
+            <h3 data-i18n="menu.pilotingT">Pilotaje</h3>
+            <label class="m-row">
+              <span><b data-i18n="menu.assistT">Ayuda al pilotaje</b><small data-i18n="menu.assistD">Amortigua el fugoide, nivela alas, coordina pedales y modera la recogida</small></span>
+              <span class="m-sw"><input id="assistMirror" type="checkbox" /><i></i></span>
+            </label>
+            <label class="m-row">
+              <span><b data-i18n="menu.invertPitch">Invertir cabeceo</b></span>
+              <span class="m-sw"><input id="invertPitch" type="checkbox" /><i></i></span>
+            </label>
+            <label class="m-row">
+              <span><b data-i18n="menu.mouseStickT">Ratón como palanca</b><small data-i18n="menu.mouseStickD">Tecla <kbd>K</kbd> · en ese modo, la rueda hace de gas</small></span>
+              <span class="m-sw"><input id="mouseStick" type="checkbox" /><i></i></span>
+            </label>
+          </section>
+          <section class="m-group">
+            <h3 data-i18n="menu.soundT">Sonido</h3>
+            <div class="m-field">
               <label for="volume"><span data-i18n="menu.volume">Volumen</span> <output id="volOut"></output></label>
               <input id="volume" type="range" min="0" max="1" step="0.05" />
             </div>
-            <label class="check"><input id="assist" type="checkbox" /> <span data-i18n="menu.assist">Ayuda al pilotaje (amortigua el fugoide, nivela alas, coordina pedales y modera la recogida)</span></label>
-            <label class="check"><input id="invertPitch" type="checkbox" /> <span data-i18n="menu.invertPitch">Invertir cabeceo</span></label>
-            <label class="check"><input id="mouseStick" type="checkbox" /> <span data-i18n="menu.mouseStick">Ratón como palanca (<kbd>K</kbd>)</span></label>
-            <details class="joy">
-              <summary>Joystick / HOTAS <span id="padName"></span></summary>
-              <div class="field two">
-                <div><label for="axisPitch" data-i18n="menu.axisPitch">Eje cabeceo</label><input id="axisPitch" type="number" min="-1" max="9" /></div>
-                <div><label for="axisRoll" data-i18n="menu.axisRoll">Eje alabeo</label><input id="axisRoll" type="number" min="-1" max="9" /></div>
-              </div>
-              <div class="field two">
-                <div><label for="axisYaw" data-i18n="menu.axisYaw">Eje pedales</label><input id="axisYaw" type="number" min="-1" max="9" /></div>
-                <div><label for="axisThrottle" data-i18n="menu.axisThrottle">Eje gas</label><input id="axisThrottle" type="number" min="-1" max="9" /></div>
-              </div>
-              <label class="check"><input id="invertThrottle" type="checkbox" /> <span data-i18n="menu.invertThrottle">Invertir eje de gas</span></label>
-              <div id="axesLive" class="mono muted"></div>
-            </details>
+          </section>
+          <section class="m-group">
+            <h3><span>Joystick / HOTAS</span> <small id="padName" class="m-pad"></small></h3>
+            <div class="m-axes">
+              <div class="m-axis"><label for="axisPitch" data-i18n="menu.axisPitch">Eje cabeceo</label><input id="axisPitch" type="number" min="-1" max="9" /><span class="m-abar"><i id="axBarPitch"></i></span></div>
+              <div class="m-axis"><label for="axisRoll" data-i18n="menu.axisRoll">Eje alabeo</label><input id="axisRoll" type="number" min="-1" max="9" /><span class="m-abar"><i id="axBarRoll"></i></span></div>
+              <div class="m-axis"><label for="axisYaw" data-i18n="menu.axisYaw">Eje pedales</label><input id="axisYaw" type="number" min="-1" max="9" /><span class="m-abar"><i id="axBarYaw"></i></span></div>
+              <div class="m-axis"><label for="axisThrottle" data-i18n="menu.axisThrottle">Eje gas</label><input id="axisThrottle" type="number" min="-1" max="9" /><span class="m-abar"><i id="axBarThrottle"></i></span></div>
+            </div>
+            <label class="m-row">
+              <span><b data-i18n="menu.invertThrottle">Invertir eje de gas</b></span>
+              <span class="m-sw"><input id="invertThrottle" type="checkbox" /><i></i></span>
+            </label>
+            <div id="axesLive" class="m-mono"></div>
           </section>
         </div>
-        <footer>
-          <span data-i18n="menu.footer"><kbd>H</kbd> mandos · <kbd>Esc</kbd> este menú · <kbd>C</kbd> cámaras</span>
-          <a class="blog-link" href="https://creativecode.es/" target="_blank" rel="noopener noreferrer" data-i18n="menu.blog">Más proyectos en <b>creativecode.es</b> <span aria-hidden="true">↗</span></a>
-          <button id="btn-help" data-i18n="menu.viewControls">Ver mandos</button>
-        </footer>
-      </div>
+      </main>
+
+      <footer class="m-foot">
+        <span class="m-keys" data-i18n="menu.footer"><kbd>H</kbd> mandos · <kbd>Esc</kbd> este menú · <kbd>C</kbd> cámaras</span>
+        <span class="m-credit" data-i18n="menu.credit">Hecho con ❤️ por <a href="https://creativecode.es/" target="_blank" rel="noopener noreferrer"><strong>Mario</strong></a> · <a href="https://ko-fi.com/mario_creativecode" target="_blank" rel="noopener noreferrer">☕ Invítame a un café</a></span>
+        <a class="m-blog" href="https://creativecode.es/" target="_blank" rel="noopener noreferrer" data-i18n="menu.blog">Más proyectos en <b>creativecode.es</b> <span aria-hidden="true">↗</span></a>
+        <span id="menuVersion" class="m-ver"></span>
+      </footer>
     </div>
 
     <script type="module" src="/src/main.ts"></script>
