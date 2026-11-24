@@ -200,6 +200,30 @@ const REFS: Record<string, Ref> = {
   generic: { vmax: [145, 185], climbSolo: [4.0, 6.5], climbDual: [2.3, 4.5], glide: [3.5, 4.8] },
   ela07: { vmax: [160, 185], climbSolo: [5.5, 8.5], climbDual: [3.5, 6.0], glide: [3.5, 4.8] },
   ela10: { vmax: [175, 200], climbSolo: [5.5, 8.5], climbDual: [3.8, 6.0], glide: [4.0, 5.6] },
+  // MT-03 con el 912 ULS (manual del MTOsport y hoja BG01 de la CAA): VNE 185 km/h, ascenso 6 m/s con
+  // 360 kg y 4 m/s con 450 kg, planeo 1:3 (el del manual, conservador)
+  mt03: { vmax: [145, 185], climbSolo: [4.5, 6.8], climbDual: [2.8, 4.5], glide: [3.5, 4.8] },
+  // Sport Copter Lightning (monoplaza de 50 CV, ~220 kg en vuelo): máxima 63-80 mph, crucero 55 mph,
+  // ascenso de 500-1000 ft/min; «con pasajero» es el mismo vuelo (monoplaza)
+  sclightning: {
+    vmax: [100, 135], climbSolo: [2.5, 5.5], climbDual: [2.5, 5.5], glide: [3.0, 4.6], minSink: [3.5, 6.5],
+    vmin: [25, 50], pmin: [8, 22], rpmGlide: [310, 410], rpmCruise: [330, 420], rpmDual: [330, 420], cruiseIas: [75, 105],
+  },
+  sclightning_f: {
+    vmax: [100, 140], climbSolo: [2.5, 5.8], climbDual: [2.5, 5.8], glide: [3.0, 4.8], minSink: [3.5, 6.5],
+    vmin: [25, 50], pmin: [8, 22], rpmGlide: [310, 410], rpmCruise: [330, 420], rpmDual: [330, 420], cruiseIas: [75, 105],
+  },
+  // DTA J-RO con el 914 (manual de vuelo): VNE 180 km/h, crucero rápido 135 km/h
+  jro: { vmax: [160, 190], climbSolo: [5.0, 8.0], climbDual: [3.0, 5.5], glide: [3.5, 5.2] },
+  // Niki Lightning con el 914: crucero 135-160 km/h, VNE 180-190 km/h, ascenso 3-7 m/s
+  niki: { vmax: [165, 195], climbSolo: [5.0, 8.5], climbDual: [3.2, 6.0], glide: [3.8, 5.4] },
+  // ELA 07 Scorpion (hoja de ELA): crucero 150 km/h, VNE 160 km/h, 500 kg de máximo
+  scorpion: { vmax: [155, 185], climbSolo: [5.5, 8.5], climbDual: [3.5, 6.0], glide: [3.5, 4.9] },
+  // Calidus con el 914 (manual de vuelo): VNE 185 km/h, ascenso 3,6 m/s con 500 kg, planeo 1:3
+  calidus: { vmax: [170, 200], climbSolo: [5.0, 8.5], climbDual: [3.4, 6.0], glide: [4.0, 5.6] },
+  // Cavalon con el 914 (manual de vuelo): VNE 160-195 km/h según el rotor, crucero 145, ascenso
+  // 3,8 m/s con 500 kg, planeo 1:3
+  cavalon: { vmax: [155, 185], climbSolo: [4.5, 7.0], climbDual: [3.0, 4.8], glide: [3.3, 4.8], vmin: [35, 60] },
   cierva: {
     vmax: [142, 165],
     climbSolo: [2.1, 3.4],

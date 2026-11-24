@@ -10,6 +10,7 @@ import { Matrix3, Matrix4, Quaternion, Vector3 } from 'three'
 import { DEFAULT_ROTOR, Rotor } from './rotor.ts'
 import { DEFAULT_PREROTATOR, GENERIC, PASSENGER_MASS, PILOT_MASS, propCoeffs, type Airframe } from './airframes.ts'
 import { partLabel, t } from '../i18n.ts'
+import { Compound } from './compound.ts'
 
 const DEG = Math.PI / 180
 const G = 9.80665
@@ -155,12 +156,20 @@ export class Autogyro {
   readonly tune = { stabArea: 0.9, stabSlip: 0.6, stabIncidence: -1.5, headBase: 7.2, headFwd: 8.2, headAft: 8.8, rollTrim: 0.35, swirl: 0.04, sideCPy: 0.3, finArea: 0.82, finDy: 0, dihedral: 0, cdA: 0.6, propEta: 1, brakeMu: BRAKE_MU }
 
   private contacts: Contact[] = []
+  /** puntos de contacto (respecto al origen del modelo) de `contacts`, en el mismo orden */
+  private contactPts: Vector3[] = []
   private passenger = false
+  /** centro de gravedad con la carga actual (origen del modelo): el de la ficha más lo que lo mueven los ocupantes */
+  readonly cg = new Vector3(0.08, 0.1, 0)
+  /** desplazamiento del CG respecto al de la ficha (lo usa la vista para colocar el modelo) */
+  readonly cgOff = new Vector3()
   private readonly accel = new Vector3()
   private lowRpmTimer = 0
 
   /** geometría del aparato en uso */
   af: Airframe = GENERIC
+  /** ala, hélice de paso variable y rotor frenado (Carter PAV); null en los autogiros de siempre */
+  cmp: Compound | null = null
 
   constructor(airframe: Airframe = GENERIC) {
     this.setAirframe(airframe)
@@ -172,6 +181,8 @@ export class Autogyro {
    */
   setAirframe(af: Airframe): void {
     this.af = af
+    this.cmp = af.wing || af.slowedRotor || af.cspProp ? new Compound(af) : null
+    this.rotor.collective = 0
     this.tune.stabArea = af.stabArea
     this.tune.finArea = af.finArea
     this.tune.headBase = af.head.base
@@ -180,14 +191,18 @@ export class Autogyro {
     this.tune.cdA = af.cdA
     this.tune.rollTrim = af.rollTrim ?? 0.35
     this.tune.brakeMu = af.brakeMu ?? BRAKE_MU
+    this.tune.stabIncidence = af.stabIncidence ?? -1.5
     this.maxPower = af.engine.maxPower
     this.rotor.p = af.rotor
+    this.contacts = []
     this.setLoad(this.passenger)
     this.restHeight = this.restAttitude().height
-    const c = (name: string, kind: ContactKind, p: Vector3, k: number, cDamp: number): Contact => ({
+    // buje del aparato nuevo, con la cabeza en reposo (hasta el primer paso o la colocación)
+    this.computeHub(0, 0)
+    const c =(name: string, kind: ContactKind, p: Vector3, k: number, cDamp: number): Contact => ({
       name,
       kind,
-      r: p.clone().sub(af.cg),
+      r: p.clone().sub(this.cg),
       k,
       c: cDamp,
       wasInContact: false,
@@ -198,7 +213,7 @@ export class Autogyro {
     // rigidez y amortiguación del tren (las cifras son las de un aparato de ~480 kg)
     const kg = af.gearScale ?? 1
     this.contacts = [
-      ...(af.noseWheel ? [c('rueda de morro', 'nose', af.noseWheel, 38000, 2600)] : []),
+      ...(af.noseWheel ? [c('rueda de morro', 'nose', af.noseWheel, 38000 * (af.noseGearScale ?? 1), 2600 * (af.noseGearScale ?? 1))] : []),
       ...(af.tailWheel ? [c('rueda de cola', 'tailwheel', af.tailWheel, 30000 * kg, 2400 * kg)] : []),
       c('rueda principal izquierda', 'wheel', af.mainL, 60000 * kg, 4200 * kg),
       c('rueda principal derecha', 'wheel', af.mainR, 60000 * kg, 4200 * kg),
@@ -208,12 +223,30 @@ export class Autogyro {
         return c(cp.name, 'crash', cp.p, tailPart ? 60000 : 80000, tailPart ? 4000 : 5000)
       }),
     ]
+    this.contactPts = [
+      ...(af.noseWheel ? [af.noseWheel] : []),
+      ...(af.tailWheel ? [af.tailWheel] : []),
+      af.mainL,
+      af.mainR,
+      af.tail,
+      ...af.crashPoints.map((cp) => cp.p),
+    ]
   }
 
   /** Masa en orden de vuelo del aparato en uso: vacío + combustible + piloto (+ pasajero). */
   setLoad(passenger: boolean): void {
+    // (un monoplaza no lleva pasajero aunque el menú lo pida)
     this.passenger = passenger
-    this.mass = this.af.emptyMass + this.af.fuelMass + PILOT_MASS + (passenger ? PASSENGER_MASS : 0)
+    const pax = passenger && (this.af.seats ?? 2) > 1 ? PASSENGER_MASS : 0
+    this.mass = this.af.emptyMass + this.af.fuelMass + PILOT_MASS + pax
+    // asientos lado a lado: cada ocupante tira del CG hacia su lado
+    const sz = this.af.seatZ
+    this.cgOff.set(0, 0, sz ? (PILOT_MASS * sz.pilot + pax * sz.passenger) / this.mass : 0)
+    this.cg.copy(this.af.cg).add(this.cgOff)
+    // el piloto lo compensa con el compensador de alabeo: la cabeza se inclina hacia el lado ligero
+    // lo justo para que el empuje del rotor pase por el CG (el fuselaje cuelga algo ladeado)
+    if (sz) this.tune.rollTrim = (this.af.rollTrim ?? 0.35) - Math.atan2(this.cgOff.z, this.af.hub.y - this.cg.y) / DEG
+    for (let i = 0; i < this.contacts.length; i++) this.contacts[i].r.copy(this.contactPts[i]).sub(this.cg)
     const s = this.mass / 400
     const [ix, iy, iz] = this.af.inertia ?? [320, 470, 540]
     this.inertia.set(ix * s, iy * s, iz * s)
@@ -226,14 +259,23 @@ export class Autogyro {
   restAttitude(): { pitch: number; height: number } {
     const af = this.af
     const pitch = af.tailWheel ? Math.atan2(af.tailWheel.y - af.mainL.y, af.mainL.x - af.tailWheel.x) : 0
-    const rx = af.mainL.x - af.cg.x
-    const ry = af.mainL.y - af.cg.y
+    const rx = af.mainL.x - this.cg.x
+    const ry = af.mainL.y - this.cg.y
     return { pitch, height: -(rx * Math.sin(pitch) + ry * Math.cos(pitch)) }
   }
 
   /** vueltas de rotor de referencia: las del genérico × `rpmScale` del aparato */
   get rpmScale(): number {
     return this.af.rpmScale ?? 1
+  }
+
+  /**
+   * Escala de las vueltas para los avisos de bajas vueltas: la fija del aparato o, con rotor
+   * frenado, la que pide su ley de vueltas a la velocidad actual (a 110 rpm en crucero rápido no
+   * pasa nada; a 110 rpm a 90 km/h, sí).
+   */
+  get rpmWarnScale(): number {
+    return this.cmp && this.af.slowedRotor ? this.cmp.warnScale : this.rpmScale
   }
 
   /** altura del CG sobre el suelo con el aparato parado (para la altura AGL) */
@@ -269,6 +311,11 @@ export class Autogyro {
       c.wasInContact = true
       c.sf = c.sl = 0
     }
+    if (this.cmp) {
+      this.cmp.reset(this)
+      this.computeHub(0, 0)
+      this.rotor.alignTo(_hubN)
+    }
   }
 
   /** Coloca el aparato en vuelo nivelado. */
@@ -283,6 +330,7 @@ export class Autogyro {
     this.omega.set(0, 0, 0)
     this.rotor.rpm = 365 * this.rpmScale
     this.rotor.vi = 1.5
+    if (this.cmp) this.cmp.placeInAir(this, speed)
     this.computeHub(0.25, 0)
     this.rotor.alignTo(_hubN)
     // disco algo hacia atrás (blowback de equilibrio)
@@ -306,14 +354,32 @@ export class Autogyro {
     _qh.setFromAxisAngle(Z, this.headPitch)
     _q.setFromAxisAngle(X, this.headRoll)
     _qh.multiply(_q)
+    if (this.cmp && this.af.slowedRotor) {
+      // mástil basculante: el mástil gira sobre su pie (`headPivot`) y lleva el buje adelante o
+      // atrás; la palanca inclina además el plano de la cabeza sobre el buje
+      const mast = this.cmp.mast
+      this.headPitch += mast + this.cmp.headTrim
+      _qh.setFromAxisAngle(Z, this.headPitch).multiply(_q.setFromAxisAngle(X, this.headRoll))
+      _q.copy(this.quat).multiply(_qh)
+      _hubN.copy(Y).applyQuaternion(_q)
+      _hubF.copy(X).applyQuaternion(_q)
+      _hubPos.copy(this.af.hub).sub(this.af.headPivot).applyAxisAngle(Z, mast).add(this.af.headPivot).sub(this.cg)
+      this.hubBody.copy(_hubPos)
+      return
+    }
     _q.copy(this.quat).multiply(_qh)
     _hubN.copy(Y).applyQuaternion(_q)
     _hubF.copy(X).applyQuaternion(_q)
     // posición del buje (la cabeza bascula alrededor de su pivote)
-    _hubPos.copy(this.af.hub).sub(this.af.headPivot).applyQuaternion(_qh).add(this.af.headPivot).sub(this.af.cg)
+    _hubPos.copy(this.af.hub).sub(this.af.headPivot).applyQuaternion(_qh).add(this.af.headPivot).sub(this.cg)
+    this.hubBody.copy(_hubPos)
   }
 
-  /** Posición del buje en coordenadas del cuerpo (respecto al CG) del último paso. */
+  /**
+   * Posición del buje en coordenadas del cuerpo (respecto al CG) del último paso, o de la
+   * colocación: la vista pone ahí el rotor también mientras carga la salida y con el menú
+   * abierto (a cero, las palas atravesaban la cabina).
+   */
   readonly hubBody = new Vector3()
 
   step(dt: number, ctl: Controls, env: Environment): void {
@@ -325,8 +391,9 @@ export class Autogyro {
 
     // ---------------- Mandos ----------------
     const pitchCmd = Math.max(-1, Math.min(1, ctl.pitch + ctl.trim * 0.45))
+    // automatismos del rotor frenado (mástil, colectivo, salto) y profundidad
+    if (this.cmp) this.cmp.update(dt, this, ctl, pitchCmd)
     this.computeHub(pitchCmd, ctl.roll)
-    this.hubBody.copy(_hubPos)
     // (sin timón, como el Cierva C.30A, los pedales solo giran la rueda de cola)
     this.rudder = this.af.rudder === false ? 0 : ctl.yaw * 25 * DEG
     this.noseSteer = ctl.yaw * 22 * DEG
@@ -353,6 +420,7 @@ export class Autogyro {
 
     // prerrotador y freno de rotor
     let shaftTorque = 0
+    if (this.cmp) this.cmp.prerotTorque = 0
     const airborneFast = V > 18 && !this.onGround
     const pre = this.af.prerotator ?? DEFAULT_PREROTATOR
     if (ctl.prerotator && this.engineOn && !airborneFast && this.engineRpm > pre.minEngineRpm) {
@@ -360,6 +428,7 @@ export class Autogyro {
       const targetOmega = (targetRpm * 2 * Math.PI) / 60
       const t = Math.max(0, Math.min(1, (targetOmega - this.rotor.omega) / 2.5))
       shaftTorque += pre.torque * t
+      if (this.cmp) this.cmp.prerotTorque = pre.torque * t
       // reacción sobre el fuselaje (guiñada a la derecha)
       _m.y -= pre.torque * t * 0.9
     }
@@ -398,51 +467,59 @@ export class Autogyro {
     // (El Cierva C.30A lleva un radial de toma directa y una bipala de madera con sus
     // propias curvas: `engine.gear` y `propCoef` en su ficha.)
     const thr = Math.max(0, Math.min(1, ctl.throttle))
-    const eng = this.af.engine
-    const GEAR = eng.gear
-    const Dp = 2 * this.af.propRadius
-    const Ap = Math.PI * this.af.propRadius * this.af.propRadius
-    const Vax = Math.max(0, vx)
-    const nProp = Math.max(0.2, this.engineRpm / GEAR / 60) // rev/s
-    const J = Vax / (nProp * Dp)
-    const pc = propCoeffs(this.af)
-    const J0 = pc.j0 // avance de empuje nulo
-    const J1 = pc.j1 // avance de potencia absorbida nula
-    const D4 = Dp * Dp * Dp * Dp
-    // empuje
     let T: number
-    if (J < J0) T = pc.ct0 * (1 - Math.pow(J / J0, 2.4)) * rho * nProp * nProp * D4
-    else T = -0.5 * rho * Vax * Vax * Ap * 0.09 * Math.min(1, (J - J0) / (0.6 * J0)) // frenado en molinete
-    T *= this.tune.propEta
-    // par absorbido por la hélice (negativo = el aire la arrastra)
-    let Qp = (pc.cp0 * (1 - Math.pow(J / J1, 3.8)) * rho * nProp * nProp * D4 * Dp) / (2 * Math.PI)
-    const QpMin = -0.5 * rho * Vax * Vax * Ap * this.af.propRadius * 0.02
-    if (Qp < QpMin) Qp = QpMin
-    // par del motor en el cigüeñal
-    const rpm = this.engineRpm
-    const dR = rpm - eng.rpmPeak
-    const na = rho / 1.225
-    const air = eng.turbo ? na + (Math.min(1, rho / eng.rhoCrit) - na) * thr : na
-    let Tmax = (eng.torquePeak - (dR < 0 ? eng.dropBelow : eng.dropAbove) * dR * dR) * air
-    if (rpm > eng.rpmLimit) Tmax *= Math.max(0, 1 - ((rpm - eng.rpmLimit) / 250) * (5900 / eng.rpmLimit)) // limitador
-    const Tfric = eng.friction[0] + eng.friction[1] * rpm
-    let Qe: number
-    if (this.engineOn) {
-      const th = eng.idle + (1 - eng.idle) * thr
-      Qe = th * Math.max(0, Tmax) - (1 - th) * Tfric
-      if (rpm < eng.starterRpm) Qe += 35 * (eng.torquePeak / 128) * (1 - rpm / eng.starterRpm) // motor de arranque
+    let Qp: number
+    if (this.cmp && this.af.cspProp) {
+      // hélice de paso variable con regulador (Carter PAV): `compound.ts`
+      this.cmp.propeller(dt, this, thr, vx, rho, ctl.prerotator, _prop)
+      T = _prop.T
+      Qp = _prop.Q
     } else {
-      Qe = -1.8 * Tfric - 6 * (eng.torquePeak / 128) // compresión: la hélice se para
+      const eng = this.af.engine
+      const GEAR = eng.gear
+      const Dp = 2 * this.af.propRadius
+      const Ap = Math.PI * this.af.propRadius * this.af.propRadius
+      const Vax = Math.max(0, vx)
+      const nProp = Math.max(0.2, this.engineRpm / GEAR / 60) // rev/s
+      const J = Vax / (nProp * Dp)
+      const pc = propCoeffs(this.af)
+      const J0 = pc.j0 // avance de empuje nulo
+      const J1 = pc.j1 // avance de potencia absorbida nula
+      const D4 = Dp * Dp * Dp * Dp
+      // empuje
+      if (J < J0) T = pc.ct0 * (1 - Math.pow(J / J0, 2.4)) * rho * nProp * nProp * D4
+      else T = -0.5 * rho * Vax * Vax * Ap * 0.09 * Math.min(1, (J - J0) / (0.6 * J0)) // frenado en molinete
+      T *= this.tune.propEta
+      // par absorbido por la hélice (negativo = el aire la arrastra)
+      Qp = (pc.cp0 * (1 - Math.pow(J / J1, 3.8)) * rho * nProp * nProp * D4 * Dp) / (2 * Math.PI)
+      const QpMin = -0.5 * rho * Vax * Vax * Ap * this.af.propRadius * 0.02
+      if (Qp < QpMin) Qp = QpMin
+      // par del motor en el cigüeñal
+      const rpm = this.engineRpm
+      const dR = rpm - eng.rpmPeak
+      const na = rho / 1.225
+      const air = eng.turbo ? na + (Math.min(1, rho / eng.rhoCrit) - na) * thr : na
+      let Tmax = (eng.torquePeak - (dR < 0 ? eng.dropBelow : eng.dropAbove) * dR * dR) * air
+      if (rpm > eng.rpmLimit) Tmax *= Math.max(0, 1 - ((rpm - eng.rpmLimit) / 250) * (5900 / eng.rpmLimit)) // limitador
+      const Tfric = eng.friction[0] + eng.friction[1] * rpm
+      let Qe: number
+      if (this.engineOn) {
+        const th = eng.idle + (1 - eng.idle) * thr
+        Qe = th * Math.max(0, Tmax) - (1 - th) * Tfric
+        if (rpm < eng.starterRpm) Qe += 35 * (eng.torquePeak / 128) * (1 - rpm / eng.starterRpm) // motor de arranque
+      } else {
+        Qe = -1.8 * Tfric - 6 * (eng.torquePeak / 128) // compresión: la hélice se para
+      }
+      // dinámica del conjunto (inercia vista desde la hélice)
+      const propOmega0 = nProp * 2 * Math.PI
+      let propOmega = propOmega0 + ((Qe * GEAR * 0.97 - Qp) / eng.inertia) * dt
+      if (propOmega < 0) propOmega = 0
+      this.engineRpm = (propOmega * GEAR * 60) / (2 * Math.PI)
+      this.enginePower = Math.max(0, Qe) * ((rpm * 2 * Math.PI) / 60)
+      this.propThrust = T
+      this.propInduced = T > 0 ? -Vax / 2 + Math.sqrt((Vax * Vax) / 4 + T / (2 * rho * Ap)) : 0
     }
-    // dinámica del conjunto (inercia vista desde la hélice)
-    const propOmega0 = nProp * 2 * Math.PI
-    let propOmega = propOmega0 + ((Qe * GEAR * 0.97 - Qp) / eng.inertia) * dt
-    if (propOmega < 0) propOmega = 0
-    this.engineRpm = (propOmega * GEAR * 60) / (2 * Math.PI)
-    this.enginePower = Math.max(0, Qe) * ((rpm * 2 * Math.PI) / 60)
-    this.propThrust = T
-    this.propInduced = T > 0 ? -Vax / 2 + Math.sqrt((Vax * Vax) / 4 + T / (2 * rho * Ap)) : 0
-    _r.copy(this.af.prop).sub(this.af.cg)
+    _r.copy(this.af.prop).sub(this.cg)
     _v2.set(T, 0, 0)
     _f.add(_tmpV.copy(_v2).applyQuaternion(q))
     _m.add(_tmpV.crossVectors(_r, _v2))
@@ -470,15 +547,20 @@ export class Autogyro {
     // sustentación ligera de la góndola (morro arriba con ángulo de ataque)
     _m.z += 0.5 * rho * V * V * 0.12 * Math.sin(this.aoa) * 0.6
 
+    // ---------------- Ala (Carter PAV) ----------------
+    if (this.cmp && this.af.wing) this.cmp.wing(this, vRelBody, rho, ctl.roll, q, _f, _m)
+
     // ---------------- Estabilizador horizontal ----------------
     // Modelo de placa válido a cualquier ángulo (incluido flujo desde abajo en
     // descenso vertical y flujo invertido): es lo que hace que la cola "busque"
     // el viento relativo y baje el morro cuando falta velocidad.
     {
-      _r.copy(this.af.stab).sub(this.af.cg)
+      _r.copy(this.af.stab).sub(this.cg)
       const u = _tmpV.copy(this.omega).cross(_r).add(vRelBody) // velocidad del punto respecto al aire
       const ux = u.x + this.tune.stabSlip * vSlip
-      plate(ux, u.y, this.tune.stabIncidence * DEG, this.af.stabSlope, this.af.stabCd90, _pf)
+      // (con profundidad: incidencia según la palanca, estela del ala y del rotor)
+      const cx = this.cmp
+      plate(ux, cx ? u.y + cx.tailWash : u.y, cx ? this.tune.stabIncidence * DEG + cx.tailIncidence : this.tune.stabIncidence * DEG, this.af.stabSlope, this.af.stabCd90, _pf)
       const k = 0.5 * rho * this.tune.stabArea
       _v2.set(k * _pf.x, k * _pf.n, 0)
       _f.add(_v3.copy(_v2).applyQuaternion(q))
@@ -487,7 +569,7 @@ export class Autogyro {
 
     // ---------------- Deriva y timón ----------------
     {
-      _r.copy(this.af.fin).sub(this.af.cg)
+      _r.copy(this.af.fin).sub(this.cg)
       _r.y += this.tune.finDy
       const u = _tmpV.copy(this.omega).cross(_r).add(vRelBody)
       const ux = u.x + 0.65 * vSlip
@@ -612,8 +694,10 @@ export class Autogyro {
 
     this.warnings.length = 0
     // vueltas de rotor referidas a las de los autogiros actuales (el Cierva gira más despacio)
-    const rrpm = this.rotor.rpm / this.rpmScale
-    if (!this.onGround && rrpm < 260) {
+    // (con rotor frenado, referidas a las que pide la ley de vueltas a esta velocidad, y avisa
+    // también si el rotor va demasiado lento para la velocidad: μ alto)
+    const rrpm = this.rotor.rpm / this.rpmWarnScale
+    if (!this.onGround && (rrpm < 260 || (this.cmp !== null && this.cmp.muHigh(this)))) {
       this.warnings.push(t('warn.lowRotor'))
       this.lowRpmTimer += dt
     } else this.lowRpmTimer = 0
@@ -621,6 +705,8 @@ export class Autogyro {
     if (!this.onGround && this.gLoad < 0.35) this.warnings.push(t('warn.lowG'))
     if (this.onGround && this.groundSpeed > 6 && rrpm < 180 && this.rotor.mu > 0.28)
       this.warnings.push(t('warn.flapping'))
+    // prerrotador contra el freno del rotor: el freno se come el par y el rotor no arranca
+    if (ctl.prerotator && ctl.rotorBrake) this.warnings.push(t('warn.prerotBrake'))
 
     // Fallos estructurales / pérdidas de control irrecuperables
     if (this.teeterHits > 3.5) {
@@ -633,7 +719,7 @@ export class Autogyro {
       }
       return
     }
-    if (!this.onGround && rrpm < 120 && this.agl > 3) {
+    if (!this.onGround && (rrpm < 120 || (this.cmp !== null && this.cmp.rotorLost(this))) && this.agl > 3) {
       this.crash = {
         cause: 'rpm',
         title: t('crash.rpm.title'),
@@ -707,7 +793,7 @@ export class Autogyro {
             }
     }
     // hélice: punto inferior del disco de la hélice
-    const pr = _v4.copy(this.af.prop).sub(this.af.cg)
+    const pr = _v4.copy(this.af.prop).sub(this.cg)
     pr.y -= this.af.propRadius
     pr.applyQuaternion(this.quat).add(this.pos)
     const gp = env.ground.heightAt(pr.x, pr.z, _n)
@@ -722,6 +808,7 @@ export class Autogyro {
 }
 
 const _pf = { x: 0, n: 0 }
+const _prop = { T: 0, Q: 0 }
 
 // Adherencia de las ruedas (modelo de cerdas): mientras la fuerza no pasa de μ·N, el neumático
 // se queda pegado al suelo y solo se deforma unos milímetros (rigidez y amortiguación

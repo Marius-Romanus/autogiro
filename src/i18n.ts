@@ -323,10 +323,19 @@ const es: Dict = {
   'warn.lowG': 'BAJA CARGA (G)',
   'warn.flapping': '¡RIESGO DE FLAPPING!',
   'warn.attitude': 'ACTITUD ANORMAL',
+  'warn.prerotBrake': '¡FRENO DE ROTOR PUESTO! (B)',
 
   // accidentes
   'obj.tree': 'un árbol',
   'obj.building': 'un edificio',
+  'obj.bridge': 'un puente',
+  'obj.pylon': 'una torre de un tendido eléctrico',
+  'obj.vehicle': 'un vehículo',
+  'obj.wire': 'un cable eléctrico',
+  'crash.wire.rotor': 'El disco del rotor ha enganchado un cable del tendido a {kmh} km/h. Las palas lo cortan o se parten contra él y el rotor se desequilibra: casi nunca se ven a tiempo, por eso se vuela por encima de las torres y no de los cables.',
+  'crash.wire.prop.title': 'La hélice ha cortado un cable',
+  'crash.wire.prop': 'La hélice ha golpeado un cable del tendido a {kmh} km/h y se ha roto.',
+  'crash.wire.body': 'El aparato se ha enganchado en un cable del tendido a {kmh} km/h.',
   'crash.obstacle.title': 'Colisión con un obstáculo',
   'crash.obstacle.google': 'El aparato ha chocado contra un edificio, árbol o elevación del terreno a {kmh} km/h.',
   'crash.obstacle.hit': 'El aparato ha chocado contra {what} a {kmh} km/h.',
@@ -924,9 +933,18 @@ const en: Dict = {
   'warn.lowG': 'LOW G',
   'warn.flapping': 'BLADE FLAPPING RISK!',
   'warn.attitude': 'UNUSUAL ATTITUDE',
+  'warn.prerotBrake': 'ROTOR BRAKE ON! (B)',
 
   'obj.tree': 'a tree',
   'obj.building': 'a building',
+  'obj.bridge': 'a bridge',
+  'obj.pylon': 'a power pylon',
+  'obj.vehicle': 'a vehicle',
+  'obj.wire': 'a power line',
+  'crash.wire.rotor': 'The rotor disc caught a power line at {kmh} km/h. The blades cut it or break against it and the rotor goes out of balance: wires are almost never seen in time, which is why you fly over the pylons, not over the span.',
+  'crash.wire.prop.title': 'The propeller cut a wire',
+  'crash.wire.prop': 'The propeller hit a power line at {kmh} km/h and broke.',
+  'crash.wire.body': 'The aircraft got caught in a power line at {kmh} km/h.',
   'crash.obstacle.title': 'Collision with an obstacle',
   'crash.obstacle.google': 'The aircraft hit a building, a tree or rising ground at {kmh} km/h.',
   'crash.obstacle.hit': 'The aircraft hit {what} at {kmh} km/h.',
@@ -1568,6 +1586,11 @@ export function onLangChange(fn: (l: Lang) => void): () => void {
 }
 
 /** ¿Hay traducción para esta clave en el idioma actual (o en español)? */
+/** Añade textos desde otro módulo (las fichas de los aparatos nuevos viven en aircraft/catalog.ts). */
+export function addStrings(lang: Lang, dict: Record<string, string>): void {
+  Object.assign(DICTS[lang], dict)
+}
+
 export function has(key: string): boolean {
   return key in DICTS[current] || key in es
 }

@@ -13,6 +13,14 @@ const flat = { heightAt: (_x: number, _z: number, n: Vector3) => (n.set(0, 1, 0)
 const env: Environment = { rho: isaDensity(650), wind: new Vector3(), ground: flat }
 const pitchOf = (ac: Autogyro) => Math.asin(new Vector3(1, 0, 0).applyQuaternion(ac.quat).y) * 57.2958
 
+// Valores propios de algún aparato (si falta, los de los autogiros). El Carter PAV prerrota con todo el
+// gas (su prerrotador se lleva casi todo el motor: al 40 % no pasa de ~185 rpm) y corre desde 300 rpm con la
+// palanca a 0,3 (con toda atrás la profundidad lo sienta sobre la ruedecilla de cola); como en el Cierva,
+// solo interesa la carrera: sin nadie a los mandos, una vez en el aire acabaría cayendo de lado.
+const GROUND_AF: Record<string, { runRpm: number; runStick: number; preThrottle: number; stopAgl: number }> = {
+  carterpav: { runRpm: 300, runStick: 0.3, preThrottle: 1, stopAgl: 1 },
+}
+
 let fails = 0
 for (const af of Object.values(AIRFRAMES)) {
   // --- asiento estático ---
@@ -45,10 +53,10 @@ for (const af of Object.values(AIRFRAMES)) {
   b.placeOnGround(0, 0, 0, 90)
   const c2 = defaultControls()
   const k = af.rpmScale ?? 1
-  b.rotor.rpm = 215 * k
+  b.rotor.rpm = GROUND_AF[af.id]?.runRpm ?? 215 * k
   // palanca toda atrás y todo el gas desde el principio (despegue «de prestaciones» de la CAA; el
   // Cierva acaba igual tras tirar de la palanca: ver el escenario de despegue de fdm-scenarios)
-  c2.pitch = 1
+  c2.pitch = GROUND_AF[af.id]?.runStick ?? 1
   c2.throttle = 1
   let maxPitch = 0
   let noseUpV = -1
@@ -64,7 +72,7 @@ for (const af of Object.values(AIRFRAMES)) {
     if (cs.some((c) => c.kind === 'skid' && c.force > 0)) tailTouched = true
     // (el Cierva es algo inestable en alabeo: sin nadie a los mandos, una vez en el aire se
     // acabaría yendo de lado; aquí solo interesa la carrera)
-    if (b.agl > (tw ? 1.0 : 8)) break
+    if (b.agl > (GROUND_AF[af.id]?.stopAgl ?? (tw ? 1.0 : 8))) break
   }
   const okRun = !b.crash && liftV > 0
   if (!okStatic || !okRun) fails++
@@ -126,7 +134,7 @@ for (const af of Object.values(AIRFRAMES)) {
     const wv = new Vector3()
     const e: Environment = { ...env, wind: wv }
     const ctl = defaultControls()
-    Object.assign(ctl, { wheelBrake: 1, pitch: -1, throttle: 0.4, prerotator: true })
+    Object.assign(ctl, { wheelBrake: 1, pitch: -1, throttle: GROUND_AF[af.id]?.preThrottle ?? 0.4, prerotator: true })
     const h0 = headingOf(ac)
     const p0 = ac.pos.clone()
     let atRelease: { d: number; turn: number } | null = null

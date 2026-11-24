@@ -62,8 +62,11 @@ const YAW_ROD: Record<string, { x: number; top: number }> = {
   ela07: { x: 1.72, top: -0.08 },
 }
 
-/** Aparatos sin hilo de guiñada (el C.30A de 1934 no lo llevaba). */
-const NO_YAW_STRING = new Set(['cierva_c30a'])
+/**
+ * Aparatos sin hilo de guiñada: el C.30A de 1934 no lo llevaba, y el Carter PAV es más avión que
+ * autogiro (cabina de avión, con su bola en el panel).
+ */
+const NO_YAW_STRING = new Set(['cierva_c30a', 'carterpav'])
 
 /** Lo que el hilo necesita del aparato. */
 export interface CockpitAircraft {
@@ -111,6 +114,8 @@ export class Cockpit {
     if (NO_YAW_STRING.has(key)) return
     const rod = YAW_ROD[key] ? buildRod(model, glass, eye, YAW_ROD[key]) : null
     const anchor = rod ? { point: rod.top, normal: new Vector3(0, 1, 0) } : findStringAnchor(model, glass, eye)
+    // sin parabrisas delante del piloto (Sport Copter abierto) no hay dónde pegarlo: sin hilo
+    if (!anchor) return
     this.yaw = new YawString(anchor.point, anchor.normal, !!rod)
     if (rod) this.yaw.group.add(rod.mesh)
     this.root.add(this.yaw.group)
@@ -187,9 +192,9 @@ export class Cockpit {
 }
 
 // ---------------------------------------------------------------------------
-// Anclaje del hilo: el parabrisas justo delante del ojo del piloto
+// Anclaje del hilo: el parabrisas justo delante del ojo del piloto (null si no lo hay)
 // ---------------------------------------------------------------------------
-function findStringAnchor(model: Object3D, glass: Mesh[], eye: Vector3): { point: Vector3; normal: Vector3 } {
+function findStringAnchor(model: Object3D, glass: Mesh[], eye: Vector3): { point: Vector3; normal: Vector3 } | null {
   const rc = new Raycaster()
   rc.layers.enableAll()
   const inv = new Matrix4().copy(model.matrixWorld).invert()
@@ -211,8 +216,9 @@ function findStringAnchor(model: Object3D, glass: Mesh[], eye: Vector3): { point
     if (n.dot(_v.copy(p).sub(eye)) < 0) n.negate()
     return { point: p.addScaledVector(n, 0.0025), normal: n }
   }
-  // sin parabrisas: en el morro, delante del piloto
-  return { point: eye.clone().add(new Vector3(0.75, -0.02, 0)), normal: new Vector3(0.6, 0.8, 0).normalize() }
+  // Sin parabrisas delante del ojo: no hay hilo. (Antes se colgaba de un punto 75 cm por delante del
+  // piloto, y en un aparato de bastidor abierto quedaba flotando en el aire.)
+  return null
 }
 
 /** Varilla vertical sobre el morro: busca la piel del morro con un rayo hacia abajo. */
@@ -461,6 +467,8 @@ class LivePanel {
   private acc = 1
   private blink = 0
   private s: number
+  /** panel pequeño (el de un monoplaza ultraligero): solo los relojes, sin pantalla central ni rótulos */
+  private compact = false
   private disposables: { dispose(): void }[] = []
 
   constructor(spec: PanelSpec) {
@@ -480,10 +488,37 @@ class LivePanel {
     this.efis = { x: (w - efisW) / 2, y: m, w: efisW, h: efisH }
     this.ann = { x: (w - efisW) / 2, y: m + efisH + 0.005, w: efisW, h: annH }
     const rw = (w - efisW) / 2 - 1.5 * m
-    const regions: [number, GaugeKind[]][] = [
-      [m, ['asi', 'alt', 'vsi']],
-      [w - m - rw, ['rotor', 'engine', 'hdg']],
-    ]
+    // Un panel de 12 × 7 cm (Sport Copter Lightning) no da para la pantalla y tres relojes a cada lado
+    // (salían con diámetro negativo y el dibujo fallaba en cada pasada): los seis relojes van solos, en
+    // la rejilla que los deja más grandes.
+    this.compact = rw < 0.05 || h < 0.06
+    if (this.compact) {
+      const edge = 0.004
+      let cols = 6
+      let rows = 1
+      let d = 0
+      for (const [cc, rr] of [[6, 1], [3, 2], [2, 3]]) {
+        const dd = Math.min((w - 2 * edge) / cc, (h - 2 * edge) / rr) * 0.9
+        if (dd > d) {
+          d = dd
+          cols = cc
+          rows = rr
+        }
+      }
+      d = Math.max(d, 0.008)
+      const all: GaugeKind[] = ['asi', 'alt', 'vsi', 'rotor', 'engine', 'hdg']
+      all.forEach((k, i) =>
+        this.gauges.push({ kind: k, x: (w / cols) * ((i % cols) + 0.5), y: (h / rows) * (Math.floor(i / cols) + 0.5), d }),
+      )
+      this.efis = { x: 0, y: 0, w: 0, h: 0 }
+      this.ann = { x: 0, y: 0, w: 0, h: 0 }
+    }
+    const regions: [number, GaugeKind[]][] = this.compact
+      ? []
+      : [
+          [m, ['asi', 'alt', 'vsi']],
+          [w - m - rw, ['rotor', 'engine', 'hdg']],
+        ]
     for (const [rx, kinds] of regions) {
       const d1 = Math.min((rw - m * 0.6) / 2, (h - 2 * m) * 0.56)
       const d2 = Math.min(h - 2 * m - d1 - m * 0.4, d1)
@@ -560,12 +595,14 @@ class LivePanel {
     }
     // marco de la pantalla EFIS
     const e = this.efis
-    const bars: [number, number, number, number][] = [
-      [e.x + e.w / 2, e.y - 0.002, e.w + 0.008, 0.004],
-      [e.x + e.w / 2, e.y + e.h + 0.002, e.w + 0.008, 0.004],
-      [e.x - 0.002, e.y + e.h / 2, 0.004, e.h + 0.008],
-      [e.x + e.w + 0.002, e.y + e.h / 2, 0.004, e.h + 0.008],
-    ]
+    const bars: [number, number, number, number][] = this.compact
+      ? []
+      : [
+          [e.x + e.w / 2, e.y - 0.002, e.w + 0.008, 0.004],
+          [e.x + e.w / 2, e.y + e.h + 0.002, e.w + 0.008, 0.004],
+          [e.x - 0.002, e.y + e.h / 2, 0.004, e.h + 0.008],
+          [e.x + e.w + 0.002, e.y + e.h / 2, 0.004, e.h + 0.008],
+        ]
     for (const [x, y, bw, bh] of bars) {
       const g = new BoxGeometry(bw, bh, 0.005)
       this.disposables.push(g)
@@ -630,7 +667,7 @@ class LivePanel {
     g.fillStyle = 'rgba(235,235,235,0.55)'
     g.font = `600 ${Math.round(0.0052 * s)}px Inter, system-ui, sans-serif`
     g.textAlign = 'center'
-    g.fillText(t('ck.placard'), (w / 2) * s, (h - 0.004) * s)
+    if (!this.compact) g.fillText(t('ck.placard'), (w / 2) * s, (h - 0.004) * s)
     return c
   }
 
@@ -644,8 +681,10 @@ class LivePanel {
     c.setTransform(1, 0, 0, 1, 0, 0)
     c.drawImage(this.bg, 0, 0)
     for (const g of this.gauges) painter.drawGauge(c, g.kind, g.x * s, g.y * s, g.d * s, d)
-    this.drawEfis(c, ac, d)
-    this.drawAnnunciators(c, d)
+    if (!this.compact) {
+      this.drawEfis(c, ac, d)
+      this.drawAnnunciators(c, d)
+    }
     this.tex.needsUpdate = true
   }
 
@@ -804,7 +843,7 @@ class LivePanel {
     const w = this.ann.w * s
     const h = this.ann.h * s
     const on = this.blink % 0.6 < 0.35
-    const lowRotor = !d.onGround && d.rotorRpm < 280 * (d.rpmScale ?? 1)
+    const lowRotor = !d.onGround && d.rotorRpm < 280 * (d.rpmWarn ?? d.rpmScale ?? 1)
     const items: [string, string | null][] = [
       [t('ck.prerot'), d.prerot ? '#3ddc6a' : null],
       [t('ck.rotBrake'), d.rotorBrake ? '#ffb23a' : null],

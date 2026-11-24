@@ -38,6 +38,10 @@ export interface HudData {
   hint: string
   /** vueltas de rotor del aparato respecto a las de los autogiros actuales (escala del tacómetro) */
   rpmScale?: number
+  /** escala del aviso de pocas vueltas si no es la de `rpmScale` (rotor lento: sigue su programa de vueltas) */
+  rpmWarn?: number
+  /** arcos propios del cuentavueltas del rotor (rotor lento de un compuesto): verde y principio del rojo, en rpm */
+  rotorArcs?: { green: [number, number]; red: number }
   /** escala del cuentarrevoluciones del motor del aparato */
   tach?: TachSpec
 }
@@ -265,12 +269,20 @@ export class Hud {
     const k = d.rpmScale ?? 1
     const max = Math.ceil((600 * k) / 100) * 100
     const A = (v: number) => this.valueAngle(v, 0, max, a0, a1)
-    this.arc(c, x, y, r * 0.88, A(180 * k), A(300 * k), '#f1c40f', r * 0.07)
-    this.arc(c, x, y, r * 0.88, A(300 * k), A(450 * k), '#2ecc71', r * 0.07)
-    this.arc(c, x, y, r * 0.88, A(450 * k), A(520 * k), '#f1c40f', r * 0.07)
-    this.arc(c, x, y, r * 0.88, A(520 * k), A(max), '#e74c3c', r * 0.07)
+    if (d.rotorArcs) {
+      // rotor lento (Carter PAV): de ~100 rpm en crucero rápido a ~370 al prerrotar para el salto
+      const ra = d.rotorArcs
+      this.arc(c, x, y, r * 0.88, A(ra.green[0]), A(ra.green[1]), '#2ecc71', r * 0.07)
+      this.arc(c, x, y, r * 0.88, A(ra.green[1]), A(ra.red), '#f1c40f', r * 0.07)
+      this.arc(c, x, y, r * 0.88, A(ra.red), A(max), '#e74c3c', r * 0.07)
+    } else {
+      this.arc(c, x, y, r * 0.88, A(180 * k), A(300 * k), '#f1c40f', r * 0.07)
+      this.arc(c, x, y, r * 0.88, A(300 * k), A(450 * k), '#2ecc71', r * 0.07)
+      this.arc(c, x, y, r * 0.88, A(450 * k), A(520 * k), '#f1c40f', r * 0.07)
+      this.arc(c, x, y, r * 0.88, A(520 * k), A(max), '#e74c3c', r * 0.07)
+    }
     this.ticks(c, x, y, r, 0, max, a0, a1, 100, k < 0.8 ? 10 : 20, (v) => `${v / 100}`)
-    const low = d.rotorRpm < 280 * k && !d.onGround
+    const low = d.rotorRpm < 280 * (d.rpmWarn ?? k) && !d.onGround
     this.digital(c, x, y + r * 0.27, r, `${Math.round(d.rotorRpm)}`, low && this.blink % 0.5 < 0.25 ? '#ff5a4a' : undefined)
     this.needle(c, x, y, r, A(d.rotorRpm), 0.84, '#ffcf3a')
   }

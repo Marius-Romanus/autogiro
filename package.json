@@ -18,7 +18,7 @@
     "fdm-test:ela07": "node --experimental-strip-types tools/fdm-validate.ts af=ela07 && node --experimental-strip-types tools/fdm-scenarios.ts af=ela07",
     "fdm-test:ela10": "node --experimental-strip-types tools/fdm-validate.ts af=ela10 && node --experimental-strip-types tools/fdm-scenarios.ts af=ela10",
     "fdm-test:cierva": "node --experimental-strip-types tools/fdm-validate.ts af=cierva && node --experimental-strip-types tools/fdm-scenarios.ts af=cierva",
-    "fdm-test:all": "npm run fdm-test && npm run fdm-test:ela07 && npm run fdm-test:ela10 && npm run fdm-test:cierva",
+    "fdm-test:all": "node tools/fdm-all.mjs",
     "crash-test": "node --experimental-strip-types tools/crash-test.ts && node --experimental-strip-types tools/crash-test-3blade.ts",
     "mp-test": "node --experimental-strip-types tools/mp-test.ts",
     "mp-bot": "node --experimental-strip-types tools/mp-bot.ts"

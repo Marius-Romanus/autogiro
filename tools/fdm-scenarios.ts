@@ -193,8 +193,11 @@ function engineOut(name: string, stickTarget: number, engineOff: boolean, assist
 engineOut('Corte de gas, manos fuera', 0, false, true, 400, (o) => o.minIas > 80 && o.maxSink > -8)
 engineOut('Motor apagado, manos fuera', 0, true, true, 400, (o) => o.minIas > 80 && o.maxSink > -9.5)
 engineOut('Corte de gas, palanca media atrás', 0.5, false, true, 400, (o) => o.minIas > 30 && o.maxSink > -8)
-engineOut('Corte de gas, palanca todo atrás', 1, false, true, 700, (o) => o.minVx > -8 && o.maxSink > -13.5)
-engineOut('Motor apagado, palanca todo atrás', 1, true, true, 700, (o) => o.minVx > -8 && o.maxSink > -13.5)
+// Descenso vertical: ~1,8 veces la velocidad inducida de referencia v_h. El Carter PAV (1,7 t sobre un disco
+// de 148 m²: v_h ≈ 7 m/s frente a ~5,5 de los biplaza) baja en vertical a unos 12,8 m/s.
+const VERT_SINK = ({ carterpav: 15 } as Record<string, number>)[airframe.id] ?? 13.5
+engineOut('Corte de gas, palanca todo atrás', 1, false, true, 700, (o) => o.minVx > -8 && o.maxSink > -VERT_SINK)
+engineOut('Motor apagado, palanca todo atrás', 1, true, true, 700, (o) => o.minVx > -8 && o.maxSink > -VERT_SINK)
 engineOut('Corte de gas, palanca adelante', -0.3, false, true, 500, (o) => o.maxSink > -14)
 engineOut('Corte de gas SIN ayuda y sin tocar nada (espiral lenta esperada)', 0, false, false, 500, (o) => o.end.t > 45)
 
@@ -204,7 +207,11 @@ engineOut('Corte de gas SIN ayuda y sin tocar nada (espiral lenta esperada)', 0,
 // Prerrotación hasta 210 rpm en los actuales; el Cierva prerrota hasta ~185 rpm (R&M 1859), cerca del
 // tope de su embrague
 const PRE_AF = pickAirframe(afArg)
-const PRE_RPM = PRE_AF.prerotator ? PRE_AF.prerotator.maxRpm * 0.92 : 210
+// El Carter PAV prerrota con todo el gas (el prerrotador se lleva casi todo el motor); soltando a 300 rpm,
+// por debajo de las de salto (330), no salta y despega rodando como un autogiro, con la palanca a 0,4 (con
+// más, la profundidad lo encabrita en la carrera)
+const AF_TAKEOFF = ({ carterpav: { preRpm: 300, preThrottle: 1, runStick: 0.4 } } as Record<string, { preRpm: number; preThrottle: number; runStick: number }>)[afArg]
+const PRE_RPM = AF_TAKEOFF?.preRpm ?? (PRE_AF.prerotator ? PRE_AF.prerotator.maxRpm * 0.92 : 210)
 // Carrera. Los actuales (rotor bipala basculante): despegue «de prestaciones» de la guía de la CAA
 // para autogiros (HSL04): al soltar el prerrotador, palanca toda atrás y TODO el gas a la vez.
 // El Cierva (rotor tripala articulado), como en las notas del piloto de la RAE (R&M 1859, ap. I,
@@ -216,7 +223,7 @@ const argNum = (k: string, d: number) => Number(process.argv.find((a) => a.start
 /** velocidad (km/h) a la que se tira de la palanca; 0 = toda atrás desde el principio */
 const PULL_KMH = argNum('pull', PRE_AF.rotor.blades > 2 ? 60 : 0)
 /** palanca en la carrera una vez tirada (1 = toda atrás) */
-const RUN_STICK = argNum('runStick', 1)
+const RUN_STICK = argNum('runStick', AF_TAKEOFF?.runStick ?? 1)
 function takeoff(name: string, dual: boolean): void {
   if (!run(name)) return
   let phase = 0
@@ -235,7 +242,7 @@ function takeoff(name: string, dual: boolean): void {
         // prerrotación: frenos, palanca adelante, gas ~50 %, prerrotador
         k.brake = true
         k.pitch = tel.stick > -0.99 ? -1 : 0
-        k.throttleTarget = 0.4
+        k.throttleTarget = AF_TAKEOFF?.preThrottle ?? 0.4
         k.prerot = tel.t > 2
         if (tel.rpm >= PRE_RPM) {
           phase = 1
@@ -325,10 +332,12 @@ function landing(name: string, flareAgl: number, approachStick: number, engineOf
     rows.push(`recogida a ${h} m → ${o.crash ? `ACCIDENTE (${o.crash.split(' (')[0]}; impacto ${o.impact.toFixed(1)} m/s a ${o.end.ias.toFixed(0)} km/h, cabeceo ${o.end.pitch.toFixed(0)}°)` : `toma a ${td!.ias.toFixed(0)} km/h, ${td!.impact.toFixed(1)} m/s`}`)
   }
   if (rows.length) report('Aterrizaje sin motor (planeo a ~80 km/h, tirar de palanca al llegar a la altura indicada)', good >= 3, `\n        ${rows.join('\n        ')}`)
-  const o2 = landing('Aterrizaje con motor PARADO', 6, 0.25, true)
+  // (el Cavalon, más pesado y con menos recorrido de cabeza hacia atrás, recoge un metro antes)
+  const flareOff = ({ cavalon: 7, sclightning: 8, sclightning_f: 7 } as Record<string, number>)[airframe.id] ?? 6
+  const o2 = landing('Aterrizaje con motor PARADO', flareOff, 0.25, true)
   if (o2) {
     const td = o2.touchdown
-    report('Aterrizaje con motor PARADO, recogida a 6 m', !o2.crash && td !== null && td.impact < 2.8, o2.crash ? `ACCIDENTE: ${o2.crash}` : `toma a ${td!.ias.toFixed(0)} km/h, ${td!.impact.toFixed(1)} m/s`, o2)
+    report(`Aterrizaje con motor PARADO, recogida a ${flareOff} m`, !o2.crash && td !== null && td.impact < 2.8, o2.crash ? `ACCIDENTE: ${o2.crash}` : `toma a ${td!.ias.toFixed(0)} km/h, ${td!.impact.toFixed(1)} m/s`, o2)
   }
 }
 
@@ -364,7 +373,8 @@ if (run('Flapping')) {
     (ac) => ac.placeOnGround(0, 0, 0, 90),
     (tel, k) => {
       // sin prerrotar apenas, palanca adelante y pleno gas; al llegar a 70 km/h, tirar
-      k.prerot = tel.t < 5
+      // (el rotor ligero del Sport Copter se embala en 5 s: con 2 s queda igual de parado que los otros)
+      k.prerot = tel.t < (({ sclightning: 2, sclightning_f: 2 } as Record<string, number>)[airframe.id] ?? 5)
       k.throttleTarget = 1
       if (tel.ias < 70 && !pulled) k.pitch = tel.stick > -0.9 ? -1 : 0
       else {
@@ -379,13 +389,18 @@ if (run('Flapping')) {
   // batimiento) no golpea los topes: corriendo se embala y el aparato se va al aire, que es como
   // despegaban los primeros Cierva antes de tener prerrotador. Lo que se comprueba entonces es eso.
   const articulated = airframe.rotor.blades > 2
+  // El rotor del Carter PAV, con 34 kg en cada punta, tampoco llega a los topes: el aparato se va al
+  // aire con el ala (y, sin nadie al alabeo en esta prueba, acaba tocando con una punta).
+  const heavy = Boolean(airframe.slowedRotor)
   const flapped = /flapping|Batimiento/i.test(o.crash)
   report(
     articulated
       ? 'Rotor articulado: correr a 70 km/h con el rotor casi parado y tirar de palanca lo embala, sin batimiento'
-      : 'Flapping (correr a 70 km/h con el rotor casi parado y entonces tirar de palanca)',
-    articulated ? !flapped && o.maxRpm > 280 * (airframe.rpmScale ?? 1) : flapped,
-    o.crash ? `${articulated ? 'termina en' : 'como debe ser →'} ${o.crash}` : `sin accidente (rotor ${o.end.rpm.toFixed(0)} rpm, ${o.end.ias.toFixed(0)} km/h, agl ${o.end.agl.toFixed(1)})`,
+      : heavy
+        ? 'Rotor lento de gran inercia: correr a 70 km/h con el rotor casi parado y tirar de palanca no lo hace batir'
+        : 'Flapping (correr a 70 km/h con el rotor casi parado y entonces tirar de palanca)',
+    articulated ? !flapped && o.maxRpm > 280 * (airframe.rpmScale ?? 1) : heavy ? !flapped : flapped,
+    o.crash ? `${articulated || heavy ? 'termina en' : 'como debe ser →'} ${o.crash}` : `sin accidente (rotor ${o.end.rpm.toFixed(0)} rpm, ${o.end.ias.toFixed(0)} km/h, agl ${o.end.agl.toFixed(1)})`,
     o,
   )
 }

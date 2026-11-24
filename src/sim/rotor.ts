@@ -33,6 +33,13 @@ export interface RotorParams {
   teeterLimit: number // tope de balancín (rad)
   cd0: number // resistencia de perfil mínima
   cd2: number // crecimiento cuadrático con el ángulo de ataque (1/rad²)
+  /**
+   * Resistencia de perfil con la velocidad total de la sección, incluida la radial (flujo en
+   * guiñada), y su fuerza a lo largo de la pala. A μ < 0.4 apenas cuenta; a μ ≈ 1 (rotor
+   * frenado del Carter) la potencia de perfil crece con 1 + 4,65 μ² en vez de 1 + 3 μ². Solo
+   * la llevan las fichas que la piden (sin ella, los resultados de siempre).
+   */
+  yawedDrag?: boolean
 }
 
 export const DEFAULT_ROTOR: RotorParams = {
@@ -134,6 +141,12 @@ export class Rotor {
   teeterHit = 0
   /** 0..1 fracción de pala en pérdida (avisos/sonido) */
   stallFraction = 0
+  /**
+   * Paso colectivo (rad) que se suma al paso fijo de la pala. 0 en los autogiros de paso fijo;
+   * el Carter lo mueve solo (`compound.ts`): plano para prerrotar, de vuelo según μ y alto para
+   * el salto.
+   */
+  collective = 0
 
   constructor(params: RotorParams = DEFAULT_ROTOR) {
     this.p = params
@@ -154,7 +167,9 @@ export class Rotor {
   }
 
   step(dt: number, inp: RotorInputs): void {
-    const { radius: R, chord: c, blades: Nb, pitch: theta0, precone, inertia, rootCutout, liftSlope, cd0, cd2 } = this.p
+    const { radius: R, chord: c, blades: Nb, precone, inertia, rootCutout, liftSlope, cd0, cd2 } = this.p
+    const theta0 = this.p.pitch + this.collective
+    const yawed = this.p.yawedDrag === true
     const n = this.normal
     const rho = inp.rho
 
@@ -210,6 +225,7 @@ export class Rotor {
       let ftSum = 0
       let fnR = 0
       let ftR = 0
+      let frSum = 0
       for (let j = 0; j < N_R; j++) {
         const r = rootCutout + (j + 0.5) * dr
         const UT = omega * r + ut0
@@ -223,7 +239,14 @@ export class Rotor {
         const qd = 0.5 * rho * U2 * c * dr
         // pérdidas de punta (Prandtl simplificado): sin sustentación en el 3% exterior
         const L = r > tipLossR ? 0 : qd * _af.cl
-        const D = qd * _af.cd
+        let D = qd * _af.cd
+        if (yawed) {
+          // principio de independencia del flujo en guiñada: la resistencia de presión va con la
+          // velocidad en el plano de la sección; el rozamiento (cd0), con la total, también la radial
+          const k3 = Math.sqrt(1 + (ur * ur) / U2)
+          D += qd * cd0 * (k3 - 1)
+          frSum += (qd * cd0 * k3 * ur) / U
+        }
         // fuerzas en (t: dirección de avance de la pala, n: normal)
         const Ft = (L * UP - D * UT) / U
         const Fn = (L * UT + D * UP) / U
@@ -235,6 +258,11 @@ export class Rotor {
       T += fnSum
       Fx += ftSum * sp
       Fz += ftSum * cp
+      if (yawed) {
+        // fuerza radial (hacia fuera de la pala: −cosψ adelante, +sinψ a la derecha)
+        Fx -= frSum * cp
+        Fz += frSum * sp
+      }
       Q += ftR
       Mx += -sp * fnR
       Mz += -cp * fnR

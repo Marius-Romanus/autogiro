@@ -777,6 +777,8 @@ class App {
           cockpit: this.rig.mode === 'cockpit',
           hint: this.pilotHint(),
           rpmScale: ac.rpmScale,
+          rpmWarn: ac.rpmWarnScale,
+          rotorArcs: ac.af.slowedRotor ? { green: [100, 380], red: 400 } : undefined,
           tach: ac.af.engine.tach,
         }
       this.hud.draw(hd, dt)
@@ -794,7 +796,7 @@ class App {
     if (!this.settings.assist || this.state !== 'flying') return ''
     if (!ac.onGround && this.input.throttle < 0.5 && ac.vs < -2.5 && ac.agl < 9 && ac.agl > 1.5 && !this.assist.flaring)
       return t('hint.flare')
-    if (ac.onGround && ac.groundSpeed > 8 && ac.rotor.rpm < 170 * ac.rpmScale && this.input.throttle > 0.5)
+    if (ac.onGround && ac.groundSpeed > 8 && ac.rotor.rpm < 170 * ac.rpmWarnScale && this.input.throttle > 0.5)
       return t('hint.lowRotor')
     if (!ac.onGround && ac.agl > 3 && ac.agl < 60 && ac.ias * 3.6 < 60 && this.input.throttle > 0.7 && ac.vs < 1.5)
       return t('hint.backside')
@@ -813,7 +815,7 @@ class App {
         tas: ac.tas,
         rolling: ac.onGround ? ac.wheelRolling : 0,
         prerot: this.ctl.prerotator && ac.engineOn,
-        lowRotor: this.state === 'flying' && !ac.onGround && ac.rotor.rpm < 260 * ac.rpmScale,
+        lowRotor: this.state === 'flying' && !ac.onGround && ac.rotor.rpm < 260 * ac.rpmWarnScale,
         teeterHit: ac.rotor.teeterHit,
         cockpit: this.rig.mode === 'cockpit' && !this.menuOpen,
         distance: cam.position.distanceTo(ac.pos),

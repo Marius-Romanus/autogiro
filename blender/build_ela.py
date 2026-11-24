@@ -1,4 +1,11 @@
 """
+SHARED LIBRARY of the traced aircraft scripts (gyrokit.py and build_<id>.py import it as E: Fuselage,
+windscreen, bucket_seat, fin_loft, build_rudder_surface, build_registration, thicken_shell...).
+The two ELAs below were its first models, fitted by eye; they did not match the photos and were
+redone from scratch on photo overlays in build_ela07.py and build_ela10.py, which now write
+public/models/ela07.glb and ela10.glb. The old builders are kept only for reference and run with
+--legacy (they overwrite those GLBs).
+
 ELA Aviación (Córdoba) gyroplanes for the Autogiro web sim:
   ela07  ELA 07 Cougar  - open tandem, long drooping nose, two cockpits with their own windscreens,
                           body-coloured mast and keel, exposed Rotax, ELA box tail
@@ -608,7 +615,26 @@ def build_pylon_ela10():
         loop = airfoil_ring(18, min(thick / c, 0.9), te_min=0.004)
         rings.append([V(le - s * c, tz * c, z) for s, tz in loop])
     mb.loft(rings, 'Paint_White', closed=True, cap0=True, cap1=True)
-    mb.sphere(V(LE(0.52) + 0.004, 0, 0.52), 0.05, 'Paint_Dark', seg=24, rings=12, scale=(0.45, 1.05, 1.55))
+    # oval ram-air scoop on the leading edge just above the cowl (3/4 photos: dark duct, raised lip)
+    zi, ay, az = 0.575, 0.050, 0.140
+    xl = LE(zi)
+    def oval(x, sy_, sz_, dz=0.0):
+        return [V(x, sy_ * math.cos(TAU * k / 28), zi + dz + sz_ * math.sin(TAU * k / 28)) for k in range(28)]
+    mb.loft([oval(xl - 0.05, ay + 0.012, az + 0.016), oval(xl + 0.012, ay + 0.012, az + 0.016),
+             oval(xl + 0.016, ay + 0.004, az + 0.008), oval(xl + 0.010, ay, az)], 'Paint_White', closed=True)
+    mb.loft([oval(xl + 0.010, ay, az), oval(xl - 0.09, ay * 0.9, az * 0.9), [V(xl - 0.10, 0, zi)]], 'Engine_Dark',
+            closed=True)
+    # strobe ("strobe light in mast"): white bullet on the trailing edge near the top (3/4 photos)
+    K = _kit()
+    K.lamp(mb, V(TE(1.25) + 0.012, 0, 1.25), V(-1, 0, 0), kind='white', r=0.017, length=0.055)
+    E_BEACON.x = TE(1.25) + 0.012 - 0.035
+    # the two control push rods behind the pylon, up to the cross bar of the head's control arm
+    for sy in (1, -1):
+        lo = V(-0.52, sy * 0.12, 0.33)
+        hi = B.HEAD_PIVOT + V(-0.24, sy * 0.12, 0.022)
+        mb.cyl(lo, hi, 0.0075, 'Metal_Frame', n=10)
+        mb.cyl(hi, hi + V(0, 0, 0.03), 0.011, 'Alu_Black', n=8)
+        mb.cyl(lo + V(0, 0, -0.02), lo + V(0, 0, 0.05), 0.013, 'Alu_Black', n=10)
     d = (B.MAST_TOP - B.MAST_BOT).normalized()
     mb.tube([B.MAST_TOP - d * 0.10, B.MAST_TOP], 0.05, 'Metal_Frame', n=28, square=(0.08, 0.10, 10))
     hp = B.HEAD_PIVOT
@@ -620,18 +646,36 @@ def build_pylon_ela10():
     # prop gearbox flange between the blunt cowling face and the spinner, exhaust stub
     xr = ECLIPSE.xrear
     mb.cyl(V(xr - 0.012, 0, B.PROP_C.z), V(E_PROP_X + 0.075, 0, B.PROP_C.z), 0.15, 'Engine_Dark', n=32)
-    mb.tube(catmull([V(xr + 0.40, -0.13, -0.52), V(xr + 0.26, -0.14, -0.46), V(xr + 0.16, -0.14, -0.36)], 4),
-            0.025, 'Metal_Frame', n=12, cap=True)
+    # exhaust: short stub leaving the right cowl side under the louvres, pointing aft and down (side photos)
+    mb.tube(catmull([V(-0.62, -0.30, -0.14), V(-0.70, -0.40, -0.17), V(-0.77, -0.445, -0.21),
+                     V(-0.82, -0.455, -0.245)], 5), 0.022, 'Steel_Exhaust', n=14, cap=False)
+    mb.lathe([(0.022, 0.0), (0.027, 0.004), (0.025, 0.012), (0.019, 0.010), (0.016, -0.03)],
+             V(-0.82, -0.455, -0.245), V(-0.6, -0.12, -0.55), 'Steel_Exhaust', n=14)
     return mb.finish(sharp_angle=50)
 
 
+def _kit():
+    """gyrokit imports this module, so it is imported lazily (ELA 10 details only)."""
+    import gyrokit as K
+    K.ensure_materials()
+    if 'Lens_Teal' not in MATS:
+        B.make_mat('Lens_Teal', B.srgb('#1F6E6A'), rough=0.08, emit=B.srgb('#3FA89C'), emit_strength=0.15)
+    return K
+
+
+E_LENS = []            # nose light lenses: (base centre, tip) per side, filled by build_sponsons_ela10
+
+
 def build_sponsons_ela10():
-    """Rounded side sponsons along the lower cabin."""
+    """Rounded side sponsons along the lower cabin; each ends forward in the teardrop lens of the LED
+    landing / side light (nose close-ups: teal lens, white LED strip at its root)."""
+    _kit()
     mb = MB('sponsons')
+    E_LENS.clear()
     for sy in (1, -1):
-        xs = [x + E_DX for x in (1.47, 1.40, 1.30, 1.10, 0.80, 0.40, 0.00, -0.15, -0.26)]
+        xs = [x + E_DX for x in (1.40, 1.36, 1.30, 1.10, 0.80, 0.40, 0.00, -0.15, -0.26)]
         pts = [V(x, sy * (ECLIPSE.params(x)['wc'] + 0.030), -0.45 + 0.02 * max(0.0, x - E_DX - 1.2)) for x in xs]
-        rad = [0.030, 0.055, 0.078, 0.086, 0.088, 0.088, 0.085, 0.070, 0.035]
+        rad = [0.046, 0.062, 0.078, 0.086, 0.088, 0.088, 0.085, 0.070, 0.035]
         pts = catmull(pts, 5)
         n = len(pts)
         rr = []
@@ -640,26 +684,123 @@ def build_sponsons_ela10():
             k = min(int(t), len(rad) - 2)
             rr.append(lerp(rad[k], rad[k + 1], t - k))
         mb.tube(pts, rr, 'Paint_White', n=18)
+        # lens: pointed teardrop continuing the sponson towards the nose
+        base = pts[0] + V(-0.004, 0, 0)
+        tip = base + V(0.215, -sy * 0.055, -0.012)
+        d = (tip - base)
+        L = d.length
+        mb.lathe([(0.0, -0.004), (0.049, -0.004), (0.049, 0.004), (0.046, 0.035), (0.036, 0.085), (0.021, 0.145),
+                  (0.008, 0.195), (0.0, L)], base, d, 'Lens_Teal', n=20)
+        mb.lathe([(0.0, 0.0), (0.013, 0.0), (0.011, 0.045), (0.0, 0.05)], base + V(0, sy * 0.004, 0.012), d,
+                 'Lens_White', n=10)
+        E_LENS.append((base, tip))
     return mb.finish(sharp_angle=60)
+
+
+def _ray_on(target, q, n, h=0.0):
+    """Point on target's surface hit by a ray coming from outside along -n (q + n*0.4 -> q)."""
+    n = Vector(n).normalized()
+    inv = target.matrix_world.inverted()
+    ok, loc, nn, _i = target.ray_cast(inv @ (Vector(q) + n * 0.4), (inv.to_3x3() @ (-n)).normalized(), distance=1.2)
+    if not ok:
+        return None, None
+    nw = (target.matrix_world.to_3x3() @ nn).normalized()
+    if nw.dot(n) < 0:
+        nw = -nw
+    return target.matrix_world @ loc + nw * h, nw
+
+
+def surface_line(mb, target, pts, n, r=0.0028, mat='Paint_Dark', lift=0.0012, closed=False):
+    """Panel line / seam: polyline pts (world) projected on target along -n, drawn as a thin tube."""
+    out = []
+    for p in pts:
+        q, _nw = _ray_on(target, p, n, lift)
+        if q is not None:
+            out.append(q)
+    if closed and out:
+        out.append(out[0])
+    if len(out) > 1:
+        mb.tube(out, r, mat, n=6, cap=not closed)
+
+
+def rounded_rect(cx, cz, w, h, rad, k=5):
+    """Side-view rounded rectangle (x, z) loop."""
+    pts = []
+    for (ox, oz, a0) in ((w / 2 - rad, h / 2 - rad, 0), (-w / 2 + rad, h / 2 - rad, 90), (-w / 2 + rad, -h / 2 + rad, 180),
+                         (w / 2 - rad, -h / 2 + rad, 270)):
+        for j in range(k + 1):
+            a = math.radians(a0 + 90 * j / k)
+            pts.append((cx + ox + rad * math.cos(a), cz + oz + rad * math.sin(a)))
+    return pts
+
+
+def seam_lines(mb, shell, cuts, r=0.0028, mat='Paint_Dark', lift=0.0012):
+    """Seams where planes cut a (closed, outer) shell: cuts = [((x0, z0), (x1, z1), keep(co))]."""
+    bm = bmesh.new()
+    bm.from_mesh(shell.data)
+    bm.transform(shell.matrix_world)
+    for a, b, keep in cuts:
+        co, no = plane_pts(a, b)
+        ret = bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], dist=1e-6, plane_co=co,
+                                     plane_no=no)
+        bm.normal_update()
+        edges = [e for e in ret['geom_cut'] if isinstance(e, bmesh.types.BMEdge)
+                 and keep((e.verts[0].co + e.verts[1].co) * 0.5)]
+        adj = {}
+        for e in edges:
+            v0, v1 = e.verts
+            adj.setdefault(v0, []).append(v1)
+            adj.setdefault(v1, []).append(v0)
+        seen = set()
+        for start in [v for v in adj if len(adj[v]) == 1] + list(adj):
+            if start in seen:
+                continue
+            chain = [start]
+            seen.add(start)
+            cur = start
+            while True:
+                nxt = [w for w in adj[cur] if w not in seen]
+                if not nxt:
+                    break
+                cur = nxt[0]
+                seen.add(cur)
+                chain.append(cur)
+            if len(chain) > 2:
+                pts = [v.co + v.normal * lift for v in chain]
+                if len(adj[chain[-1]]) == 2 and chain[0] in adj[chain[-1]]:
+                    pts.append(pts[0])
+                mb.tube(pts, r, mat, n=6, cap=True)
+    bm.free()
+
+
+# Boom centre line, traced on a near-pure right-side photo (Commons N561HL, 3200 px, 360 px/m): it leaves
+# the belly behind the main gear, runs back almost level just under the prop disc and sweeps up in a
+# tight curve that IS the concave leading edge of the ventral fin, up to the stabiliser.
+E_BOOM = [(-0.40, -0.600), (-0.66, -0.625), (-0.95, -0.670), (-1.21, -0.700), (-1.45, -0.700), (-1.62, -0.680),
+          (-1.79, -0.635), (-1.92, -0.560), (-2.01, -0.460), (-2.07, -0.330), (-2.11, -0.180), (-2.135, -0.020),
+          (-2.150, 0.120), (-2.155, 0.240)]
+_E_BOOM_PTS = catmull([V(x, 0, z) for x, z in E_BOOM], samples=6)
 
 
 def build_boom_ela10():
-    """Straight and low under the prop, then a tight curve up into the ventral fin."""
     mb = MB('boom')
-    ctrl = [(-0.40, -0.64), (-0.70, -0.75), (-1.10, -0.81), (-1.50, -0.82), (-1.76, -0.78), (-1.95, -0.67),
-            (-2.07, -0.52), (-2.16, -0.38), (-2.24, -0.22), (-2.29, -0.04), (-2.31, 0.14), (-2.32, 0.24)]
-    pts = catmull([V(x, 0, z) for x, z in ctrl], samples=6)
+    pts = _E_BOOM_PTS
     n = len(pts)
-    mb.tube(pts, [lerp(0.056, 0.040, i / (n - 1)) for i in range(n)], 'Paint_White', n=22)
+    mb.tube(pts, [lerp(0.054, 0.040, i / (n - 1)) for i in range(n)], 'Paint_White', n=22)
     return mb.finish(sharp_angle=60)
 
 
-# tail box measured at x -2.15 .. -3.09 (stabiliser top ~+0.25, ventral fin bottom ~-0.6)
+# tail box: rudder TE x -3.06 .. -3.00, stabiliser on top (z 0.24), ventral fin bottom -0.58; the rudder
+# hinge is the vertical crease with the lower hinge bracket and control horn half-way along the box
+# (tail close-ups, N561HL side photo: x -2.53)
 E_STAB_Z = 0.24
-E_HINGE = -2.78
+E_HINGE = -2.53
+E_STAB_HALF = 0.80          # stabiliser half span (to the winglet planes)
+E_WL_Y = 0.81               # winglet plane
 
 
 def e_fin_le(z):
+    """Leading edge of the earlier straight fin box: only gives the rudder its section thickness."""
     return lerp(-2.27, -2.18, (z + 0.58) / 0.82)
 
 
@@ -667,30 +808,98 @@ def e_fin_te(z):
     return lerp(-3.06, -3.00, (z + 0.58) / 0.82)
 
 
+def e_fin_le2(z):
+    """Ventral fin leading edge = centre of the rising part of the boom."""
+    pts = [p for p in _E_BOOM_PTS if p.x < -1.80]
+    if z <= pts[0].z:
+        return pts[0].x
+    for a, b in zip(pts, pts[1:]):
+        if a.z <= z <= b.z:
+            return lerp(a.x, b.x, (z - a.z) / max(b.z - a.z, 1e-6))
+    return pts[-1].x
+
+
+def e_stab_le(u):
+    return lerp(-2.15, -2.45, u)
+
+
+def e_stab_chord(u):
+    return lerp(0.57, 0.39, u)
+
+
+# winglet (end plate) planform, side view (x, z): a forward-pointing chevron. Swept upper part leaning
+# out ~18 deg (front photos), longer lower part reaching ~0.16 m above the bottom of the ventral fin
+E_WL_TOP, E_WL_BOT, E_WL_KNEE = 0.47, -0.42, 0.12
+E_WL_CANT = math.radians(18.0)
+
+
+def e_wl_le(z):
+    if z >= E_WL_KNEE:
+        return lerp(-2.37, -2.74, (z - E_WL_KNEE) / (E_WL_TOP - E_WL_KNEE))
+    return lerp(-2.37, -2.66, (E_WL_KNEE - z) / (E_WL_KNEE - E_WL_BOT))
+
+
+def e_wl_te(z):
+    if z >= E_STAB_Z:
+        return lerp(-2.84, -2.95, (z - E_STAB_Z) / (E_WL_TOP - E_STAB_Z))
+    return lerp(-2.84, -2.88, (E_STAB_Z - z) / (E_STAB_Z - E_WL_BOT))
+
+
+def e_wl_y(z):
+    return E_WL_Y + max(0.0, z - (E_STAB_Z + 0.03)) * math.tan(E_WL_CANT)
+
+
+E_WL_ZS = (E_WL_BOT, E_WL_BOT + 0.03, -0.30, -0.16, -0.02, 0.06, E_WL_KNEE, 0.18, E_STAB_Z, 0.27, 0.32, 0.38,
+           0.43, E_WL_TOP - 0.02, E_WL_TOP)
+E_LAMP_X, E_LAMP_Z = -2.76, 0.315          # nav + strobe lens on the outer face of each winglet
+
+
 def build_tail_ela10():
+    K = _kit()
     mb = MB('tail')
     loop = airfoil_ring(14, 0.10, te_min=0.002)
     rings = []
     for y in (-0.80, -0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6, 0.80):
-        u = abs(y) / 0.80
-        le = lerp(-2.18, -2.30, u)
-        ch = lerp(0.52, 0.42, u)
+        u = abs(y) / E_STAB_HALF
+        le, ch = e_stab_le(u), e_stab_chord(u)
         rings.append([V(le - s * ch, y, E_STAB_Z + tz * ch) for s, tz in loop])
     mb.loft(rings, 'Paint_White', closed=True, cap0=True, cap1=True)
     for sy in (1, -1):
-        y = sy * 0.805
-        up_le = lambda z: lerp(-2.30, -2.66, max(0.0, (z - E_STAB_Z) / 0.30) ** 0.9)
-        up_te = lambda z: lerp(-2.74, -2.76, (z - E_STAB_Z) / 0.30)
-        fin_loft(mb, [E_STAB_Z - 0.02, E_STAB_Z + 0.06, E_STAB_Z + 0.14, E_STAB_Z + 0.22, E_STAB_Z + 0.28,
-                      E_STAB_Z + 0.30], lambda z: max(up_le(z), up_te(z) + 0.06), up_te, y_fn=lambda z: y, t=0.08)
-        lo_le = lambda z: lerp(-2.30, -2.42, (E_STAB_Z - z) / 0.42)
-        lo_te = lambda z: lerp(-2.74, -2.92, (E_STAB_Z - z) / 0.42)
-        fin_loft(mb, [E_STAB_Z - 0.42, E_STAB_Z - 0.39, E_STAB_Z - 0.26, E_STAB_Z - 0.10, E_STAB_Z + 0.02],
-                 lo_le, lo_te, y_fn=lambda z: y, t=0.08)
-    zs = (-0.58, -0.54, -0.40, -0.22, -0.02, 0.12, E_STAB_Z)
-    fin_loft(mb, zs, e_fin_le, e_fin_te, t=0.11,
-             s_end_fn=lambda z: (e_fin_le(z) - E_HINGE) / (e_fin_le(z) - e_fin_te(z)))
-    mb.box((-2.65, 0, -0.595), (0.20, 0.035, 0.03), 'Paint_Dark', bevel=0.012, segs=2)
+        fin_loft(mb, E_WL_ZS, e_wl_le, e_wl_te, y_fn=lambda z, sy=sy: sy * e_wl_y(z), t=0.07)
+        # PowerBurst nav (red left / green right) + white strobe lens, flush oval with a chrome bezel
+        z = E_LAMP_Z
+        yf = sy * (e_wl_y(z) + 0.0085)
+        rot = Euler((-sy * E_WL_CANT, 0, 0))
+        mb.sphere(V(E_LAMP_X, yf, z), 1.0, 'Chrome', seg=20, rings=8, scale=(0.075, 0.009, 0.026), rot=rot)
+        mb.sphere(V(E_LAMP_X + 0.018, yf + sy * 0.002, z), 1.0, 'Lens_Red' if sy > 0 else 'Lens_Green', seg=20,
+                  rings=8, scale=(0.045, 0.010, 0.020), rot=rot)
+        mb.sphere(V(E_LAMP_X - 0.040, yf + sy * 0.002, z), 1.0, 'Lens_White', seg=16, rings=8,
+                  scale=(0.026, 0.010, 0.016), rot=rot)
+    # ventral fin: LE on the boom curve, ends at the rudder hinge with the rudder's own thickness there
+    rings = []
+    for z in (-0.58, -0.56, -0.52, -0.46, -0.38, -0.28, -0.16, -0.04, 0.08, 0.17, E_STAB_Z):
+        lx, tx = e_fin_le2(z), e_fin_te(z)
+        c = lx - tx
+        lo = e_fin_le(z)
+        co = lo - tx
+        sh_o, sh_n = (lo - E_HINGE) / co, (lx - E_HINGE) / c
+        t = 0.11 * naca4(sh_o, 1.0)[1] * co / max(naca4(sh_n, 1.0)[1] * c, 1e-6)
+        t = min(t, 0.10 / c)
+        lp = airfoil_ring(16, t, te_min=0.002, s_end=sh_n)
+        rings.append([V(lx - s * c, tz * c, z) for s, tz in lp])
+    mb.loft(rings, 'Paint_White', closed=True, cap0=True, cap1=True)
+    # lower rudder hinge bracket + control horn (close-up), small tail caster under the fin (side photos)
+    mb.box((E_HINGE + 0.03, 0, -0.585), (0.09, 0.03, 0.025), 'Metal_Frame', bevel=0.005, segs=1)
+    for sy in (1, -1):
+        mb.cyl(V(E_HINGE - 0.05, sy * 0.045, -0.55), V(E_HINGE - 0.05, sy * 0.075, -0.55), 0.007, 'Chrome', n=8)
+    tw = V(-2.23, 0, -0.655)
+    mb.lathe(B.tire_profile(0.050, 0.026, 0.034), tw, V(0, 1, 0), 'Rubber', n=24, closed_profile=True)
+    mb.lathe([(0.0, -0.014), (0.027, -0.014), (0.027, 0.014), (0.0, 0.014)], tw, V(0, 1, 0), 'Engine', n=16)
+    for sy in (1, -1):
+        mb.box(tw + V(0.012, sy * 0.025, 0.04), (0.05, 0.006, 0.10), 'Metal_Frame', bevel=0.002, segs=1,
+               rot=Euler((0, math.radians(-15), 0)))
+    mb.cyl(tw + V(0, -0.03, 0), tw + V(0, 0.03, 0), 0.006, 'Metal_Frame', n=8)
+    mb.box(tw + V(0.025, 0, 0.085), (0.07, 0.06, 0.02), 'Metal_Frame', bevel=0.004, segs=1)
     return mb.finish(sharp_angle=45)
 
 
@@ -707,20 +916,199 @@ def build_cockpit_ela10():
     return mb.finish(sharp_angle=40, wn=True)
 
 
+def build_gear_ela10():
+    """Main legs = wide faired blades from under the sponsons to large teardrop spats; nose wheel on a
+    single curved leg on its right side, no spat or mudguard; tow hook under the nose tip."""
+    mb = MB('main_gear')
+    xg = B.MAIN_WHEEL.x
+    r0 = (0.33, -0.52)
+    for sy in (1, -1):
+        pts = catmull([V(xg, sy * r0[0], r0[1]), V(xg, sy * lerp(r0[0], 0.86, 0.35), lerp(r0[1], -0.862, 0.25)),
+                       V(xg, sy * lerp(r0[0], 0.86, 0.65), lerp(r0[1], -0.862, 0.62)),
+                       V(xg, sy * 0.86, -0.862)], 6)
+        mb.tube(pts, 0.0, 'Paint_White', n=20, square=(0.21, 0.040, 4), cap=True)
+        mb.cyl(V(xg, sy * 0.84, -0.86), V(xg, sy * 1.035, -0.86), 0.014, 'Metal_Frame', n=12)
+        mb.cyl(V(xg, sy * 0.875, -0.86), V(xg, sy * 0.885, -0.86), 0.085, 'Metal_Frame', n=24)
+        mb.box((xg + 0.07, sy * 0.88, -0.83), (0.05, 0.03, 0.05), 'Engine_Dark', bevel=0.008, segs=1)
+    c = V(E_NOSE_X, 0, B.NOSE_WHEEL.z)
+    mb.box((c.x, 0, -0.62), (0.09, 0.08, 0.03), 'Paint_Dark', bevel=0.012, segs=2)
+    hook = [V(2.045, 0, -0.60), V(2.045, 0, -0.672), V(2.06, 0, -0.692), V(2.10, 0, -0.696), V(2.135, 0, -0.692)]
+    mb.tube(catmull(hook, 3), 0.0075, 'Metal_Frame', n=8, cap=True)
+    gear = mb.finish(sharp_angle=40, wn=True)
+    # slim teardrop spats over the top-front of the wheel, tail rising aft (3/4 photos), kit shape
+    K = _kit()
+    spats_l = [K.spat('spat_' + s, V(xg, sy * B.MAIN_Y, B.MAIN_WHEEL.z), R=0.19, front=0.30, back=0.38, hw=0.10,
+                      top=0.10, lift=0.05, tail_up=0.08, belly=0.55) for s, sy in (('L', 1), ('R', -1))]
+    B.build_wheel('wheel_L', V(xg, B.MAIN_Y, B.MAIN_WHEEL.z), 0.19, 0.14, 0.11)
+    B.build_wheel('wheel_R', V(xg, -B.MAIN_Y, B.MAIN_WHEEL.z), 0.19, 0.14, 0.11)
+    nb = MB('nose_wheel')
+    R, w = 0.16, 0.095
+    nb.lathe(B.tire_profile(R, 0.092, w), c, V(0, 1, 0), 'Rubber', n=36, closed_profile=True)
+    nb.lathe([(0.0, -0.034), (0.03, -0.034), (0.045, -0.025), (0.088, -0.032), (0.096, -0.034), (0.096, 0.034),
+              (0.088, 0.032), (0.045, 0.025), (0.03, 0.034), (0.0, 0.034)], c, V(0, 1, 0), 'Engine', n=28)
+    nb.cyl(c + V(0, -0.075, 0), c + V(0, 0.050, 0), 0.011, 'Metal_Frame', n=10)
+    nb.cyl(c + V(0, -0.072, 0), c + V(0, -0.058, 0), 0.026, 'Engine_Dark', n=14)
+    leg = [c + V(0.0, -0.070, 0.0), c + V(-0.032, -0.074, 0.10), c + V(-0.030, -0.068, 0.185),
+           c + V(-0.006, -0.040, 0.235), c + V(0.0, -0.004, 0.248)]
+    nb.tube(catmull(leg, 5), 0.0, 'Metal_Frame', n=14, square=(0.034, 0.024, 4), cap=True)
+    nb.cyl(c + V(0, 0, 0.24), c + V(0, 0, 0.36), 0.021, 'Metal_Frame', n=14)
+    nb.finish(origin=c, sharp_angle=40)
+    return gear, spats_l
+
+
+E_SEAM = 0.065       # canopy frame band outside the glass (one-piece canopy, hinged on the sill)
+E_BEACON = V(-0.53, 0, 1.25)
+
+
+def build_details_ela10(pod, canopy, spons):
+    """Cooling louvres, canopy frame seam, latch handles, eyeball vents, fuel cap, sponson hatches, badge."""
+    K = _kit()
+    mb = MB('details')
+    # --- cowl louvres (Rotax 914 Eclipse: three slanted triangular gills with mesh behind the canopy on
+    # each side, the forward one lowest and largest) - side photos + factory sheet close-up
+    slots = [((-1.04, 0.21), (-1.15, 0.245), (-1.10, 0.04)),
+             ((-0.93, 0.15), (-1.04, 0.185), (-0.99, -0.035)),
+             ((-0.82, 0.09), (-0.93, 0.125), (-0.88, -0.10))]
+    mbl = MB('louvres')         # open recesses: winding set here, normals not recalculated
+    for sy in (1, -1):
+        n0 = V(0, sy, 0)
+        for tri in slots:
+            cs = [V(x, sy * 0.6, z) for x, z in tri]
+            cen = (cs[0] + cs[1] + cs[2]) / 3
+            outline = []
+            for i in range(3):
+                a, b = cs[i], cs[(i + 1) % 3]
+                for k in range(7):
+                    outline.append(a.lerp(b, k / 7))
+            hits = []
+            for p in outline:
+                q, nw = _ray_on(pod, p, n0)
+                if q is None:
+                    break
+                hits.append((q, nw))
+            if len(hits) != len(outline):
+                continue
+            qc, nc = _ray_on(pod, cen, n0)
+            # drawn proud of the skin (the hull is not cut): body-coloured rim, dark grille panel
+            skirt = [q + (q - qc) * 0.09 - nw * 0.001 for q, nw in hits]
+            lip = [q + (q - qc) * 0.025 + nw * 0.0055 for q, nw in hits]
+            mouth = [q + (qc - q) * 0.035 + nw * 0.0050 for q, nw in hits]
+            inner = [q + (qc - q) * 0.06 + nw * 0.0022 for q, nw in hits]
+            flip = (skirt[1] - skirt[0]).cross(inner[0] - skirt[0]).dot(nc) < 0
+            mbl.loft([skirt, lip, mouth, inner], 'Paint_White', closed=True, flip=flip)
+            mbl.loft([inner, [qc + nc * 0.0022]], 'Radiator', closed=True, flip=flip)
+            # mesh grille: two crossing sets of thin wires a few mm inside the mouth
+            tri2 = [(p.x, p.z) for p in (cs[0].lerp(cen, 0.10), cs[1].lerp(cen, 0.10), cs[2].lerp(cen, 0.10))]
+            for d in ((0.7071, 0.7071), (0.7071, -0.7071)):
+                nrm = (-d[1], d[0])
+                offs = [nrm[0] * x + nrm[1] * z for x, z in tri2]
+                o = min(offs) + 0.006
+                while o < max(offs):
+                    seg = _clip_tri((nrm[0] * o, nrm[1] * o), d, tri2)
+                    if seg:
+                        ends = []
+                        for (x, z) in seg:
+                            q, nw = _ray_on(pod, V(x, sy * 0.6, z), n0)
+                            if q is None:
+                                break
+                            ends.append(q + nw * 0.0034)
+                        if len(ends) == 2:
+                            mb.cyl(ends[0], ends[1], 0.0011, 'Metal_Frame', n=4, cap=True)
+                    o += 0.011
+    louv = mbl.finish(sharp_angle=50, recalc=False)
+    # --- canopy frame seam around the glazing (side sill, front over the nose, rear behind the mast foot)
+    shell = ECLIPSE.shell('seam_tmp', step=0.035, n_half=36, rear=((0.008, 0.94), (0.016, 0.80), (0.020, 0.55)))
+    sill = [(x, z - E_SEAM) for x, z in E_SILL]
+    fr = [(x + E_SEAM, z) for x, z in E_FRONT]
+    rr = [(x - E_SEAM, z) for x, z in E_REAR]
+
+    def lx(line, z):
+        (x0, z0), (x1, z1) = line
+        return x0 + (x1 - x0) * (z - z0) / (z1 - z0)
+    seam_lines(mb, shell, [
+        (sill[0], sill[1], lambda c: lx(rr, c.z) < c.x < lx(fr, c.z) and c.z > -0.45),
+        (fr[0], fr[1], lambda c: c.z > sill_z(c.x, sill)),
+        (rr[0], rr[1], lambda c: c.z > sill_z(c.x, sill) and c.z < 0.75)])
+    bpy.data.objects.remove(shell)
+    for sy in (1, -1):
+        n0 = V(0, sy, 0)
+        # latch handle on the sill (brass lever)
+        q, nw = _ray_on(pod, V(0.80, sy * 0.6, sill_z(0.80, sill) + 0.03), n0)
+        if q is not None:
+            mb.box(q + nw * 0.009, (0.075, 0.012, 0.016), 'Alu_Gold', bevel=0.005, segs=1)
+            mb.cyl(q, q + nw * 0.012, 0.007, 'Alu_Gold', n=8)
+        # eyeball vents in the canopy side, rear seat high and front seat low
+        for (x, z) in ((0.48, 0.10), (1.00, -0.08)):
+            q, nw = _ray_on(canopy, V(x, sy * 0.6, z), n0)
+            if q is not None:
+                mb.lathe([(0.021, -0.003), (0.033, -0.003), (0.035, 0.004), (0.027, 0.009), (0.020, 0.006)], q, nw,
+                         'Chrome', n=20)
+                mb.lathe([(0.0, 0.002), (0.021, 0.002), (0.016, 0.012), (0.0, 0.013)], q, nw, 'Panel', n=16)
+        # storage hatch on the sponson: panel line, lock, hinge
+        rect = rounded_rect(1.02, -0.44, 0.60, 0.10, 0.03)
+        surface_line(mb, spons, [V(x, sy * 0.6, z) for x, z in rect], n0, r=0.0024, closed=True)
+        q, nw = _ray_on(spons, V(1.17, sy * 0.6, -0.415), n0)
+        if q is not None:
+            mb.lathe([(0.0, 0.0), (0.011, 0.0), (0.011, 0.003), (0.0, 0.004)], q, nw, 'Chrome', n=12)
+        q, nw = _ray_on(spons, V(1.02, sy * 0.6, -0.49), n0)
+        if q is not None:
+            mb.box(q + nw * 0.002, (0.04, 0.006, 0.012), 'Metal_Frame', bevel=0.002, segs=1)
+    # fuel filler cap behind the canopy, right side (side photos)
+    q, nw = _ray_on(pod, V(-0.22, -0.6, 0.08), V(0, -1, 0))
+    if q is not None:
+        mb.lathe([(0.0, 0.0), (0.040, 0.0), (0.042, 0.004), (0.036, 0.007), (0.0, 0.008)], q, nw, 'Chrome', n=24)
+        mb.box(q + nw * 0.009, (0.05, 0.008, 0.008), 'Chrome', bevel=0.003, segs=1)
+    # ELA shield on the nose, just ahead of the canopy's front frame (front photo)
+    pilot.surface_patch(mb, pod, V(1.78, 0, -0.20), V(0.5, 0, 1), V(0, 1, 0), V(-1, 0, 0.5), 0.046, 0.056, 0.0015,
+                        'Decal_White')
+    pilot.surface_patch(mb, pod, V(1.785, 0, -0.20), V(0.5, 0, 1), V(0, 1, 0), V(-1, 0, 0.5), 0.036, 0.026, 0.0028,
+                        'Flag_Red')
+    return [mb.finish(sharp_angle=50), louv]
+
+
+def _clip_tri(p, d, tri):
+    """Clip the 2D line p + t d against triangle tri -> [(x, z), (x, z)] or None."""
+    t0, t1 = -10.0, 10.0
+    area = (tri[1][0] - tri[0][0]) * (tri[2][1] - tri[0][1]) - (tri[1][1] - tri[0][1]) * (tri[2][0] - tri[0][0])
+    s = 1.0 if area > 0 else -1.0
+    for i in range(3):
+        a, b = tri[i], tri[(i + 1) % 3]
+        nx, nz = -(b[1] - a[1]) * s, (b[0] - a[0]) * s          # inward normal
+        num = (p[0] - a[0]) * nx + (p[1] - a[1]) * nz
+        den = d[0] * nx + d[1] * nz
+        if abs(den) < 1e-9:
+            if num < 0:
+                return None
+            continue
+        t = -num / den
+        if den > 0:
+            t0 = max(t0, t)
+        else:
+            t1 = min(t1, t)
+    if t1 - t0 < 0.004:
+        return None
+    return [(p[0] + d[0] * t0, p[1] + d[1] * t0), (p[0] + d[0] * t1, p[1] + d[1] * t1)]
+
+
 def build_ela10():
     o = V(E_DX, 0, 0)
+    K = _kit()
     pod, cframe, seal, canopy = build_pod_ela10()
     pylon = build_pylon_ela10()
-    B.build_rotor_head()
-    B.build_rotor()
-    shift(B.build_prop(), (E_PROP_X - B.PROP_C.x, 0, 0))
+    # gimbal head and teetering rotor of the kit at the same pivot / hub (ELA: black anodised plates,
+    # control arm aft with the push rods behind the pylon), 8.50 m rotor, 22 cm chord
+    K.build_head(B.HEAD_PIVOT, B.HUB, plate_mat='Alu_Black')
+    K.build_rotor(B.HUB, R=4.25, chord=0.22, root=0.52, tip_mat='Paint_Accent')
+    # Helix H50 three-blade carbon prop with black spinner
+    K.build_prop(V(E_PROP_X, 0, B.PROP_C.z), R=0.86, blades=3, hub='spinner', mat='Carbon', tip_mat='Carbon',
+                 spinner_mat='Paint_Dark')
     boom = build_boom_ela10()
     spons = build_sponsons_ela10()
     tail = build_tail_ela10()
     build_rudder_surface('rudder', (-0.56, -0.46, -0.30, -0.12, 0.04, 0.14, 0.20), e_fin_le, e_fin_te, E_HINGE,
                          V(E_HINGE, 0, -0.17), t=0.11)
-    gear, spats = build_gear(leg_mat='Paint_White', antenna=False, steps=False, root=(0.33, -0.52),
-                             nose_bracket_z=-0.62, nose_x=E_NOSE_X)
+    gear, spats = build_gear_ela10()
+    details = build_details_ela10(pod, canopy, spons)
     cockpit = build_cockpit_ela10()
     # grip top 0.31 m above the H-point (it used to hide the bottom of the panel from the pilot's eye)
     ctrl = MB('controls_static')
@@ -741,14 +1129,18 @@ def build_ela10():
                       hands={'R': ('rest', E_REAR_HIP + V(0.17, -0.19, 0.27), None),
                              'L': ('rest', E_REAR_HIP + V(0.17, 0.19, 0.27), None)},
                       feet={'L': V(0.47, 0.17, -0.58) + o, 'R': V(0.47, -0.17, -0.58) + o}, knee_out=0.07)
-    vents = MB('vents')
-    for sy in (1, -1):
-        pilot.surface_patch(vents, pod, V(-0.80, sy * 0.38, 0.12), V(0, sy, 0), V(1, 0, 0), V(0, 0, 1),
-                            0.16, 0.05, 0.004, 'Paint_Dark')
-    vents = vents.finish(sharp_angle=60)
     regs = build_registration(pod, LIVERY['ela10']['reg'], cx=-0.62, cz=0.05, size=0.10, mat='Paint_Accent')
     make_eye(V(0.50, 0.0, 0.05) + o)
-    finalize([pod, cframe, seal, pylon, boom, spons, tail, gear, vents] + spats + [cockpit, ctrl] + regs, [canopy])
+    # light emitters for the sim (L = +Y = red)
+    for sy, side in ((1, 'L'), (-1, 'R')):
+        yl = sy * (e_wl_y(E_LAMP_Z) + 0.02)
+        K.lamp_node('nav' + side, V(E_LAMP_X + 0.018, yl, E_LAMP_Z))
+        K.lamp_node('strobe' + side, V(E_LAMP_X - 0.040, yl, E_LAMP_Z))
+    K.lamp_node('tail', V(E_LAMP_X - 0.07, e_wl_y(E_LAMP_Z) + 0.02, E_LAMP_Z))
+    K.lamp_node('beacon', E_BEACON)
+    K.lamp_node('landing', E_LENS[0][1] + V(0.01, 0, 0))
+    finalize([pod, cframe, seal, pylon, boom, spons, tail, gear] + details + spats + [cockpit, ctrl] + regs,
+             [canopy])
     B.REQUIRED = dict(B.REQUIRED)
     B.REQUIRED['stick'] = (0.95 + E_DX, -0.70, 0.0)
     B.REQUIRED['eye_front'] = (0.50 + E_DX, 0.05, 0.0)
@@ -1014,6 +1406,12 @@ def build_ela07():
 
 # ---------------------------------------------------------------------------
 def main():
+    if '--legacy' not in ARGV:
+        # public/models/ela07.glb and ela10.glb now come from the traced scripts; this builder would
+        # overwrite them with the old eyeballed shapes
+        raise SystemExit('build_ela.py is now only the shared library of the gyrokit scripts.\n'
+                         'Build the ELAs with blender/build_ela07.py and blender/build_ela10.py '
+                         '(add --legacy to run the old builders, which OVERWRITE their GLBs).')
     if VARIANT not in LIVERY:
         raise SystemExit('unknown --variant %s (use %s)' % (VARIANT, ', '.join(LIVERY)))
     scn = B.reset_scene()
@@ -1039,6 +1437,16 @@ def main():
     pr = bpy.data.objects.get('pilot_rear')
     if pr and '--show-rear' not in ARGV:
         pr.hide_render = True
+    ov = arg('--overlay', None)
+    if ov and VARIANT == 'ela10':
+        # ortho render matching a reference photo: --overlay yaw,cx,cz,ppm,w,h[,side] [--overlay-out path]
+        import gyrokit as K
+        f = [float(x) for x in ov.split(',')]
+        out = arg('--overlay-out', os.path.join(HERE, 'previews', VARIANT, 'overlay.png'))
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        K.render_overlay(scn, out, f[0], (f[1], f[2]), f[3], (int(f[4]), int(f[5])),
+                         side=int(f[6]) if len(f) > 6 else -1)
+        return
     if B.DO_PREVIEWS:
         # the generic side camera (y=30) sits behind the curved backdrop; keep it on the flat floor
         B.PREVIEW_VIEWS['side'] = dict(loc=(0.0, 18.0, 0.30), target=(-0.75, 0.0, 0.30), ortho=9.4, rotor=0, prop=0)
@@ -1056,6 +1464,19 @@ def main():
                                            prop=10, extra=True)
         B.PREVIEW_VIEWS['tail_detail'] = dict(loc=(-1.0, -3.2, 1.3), target=(-3.2, 0.0, -0.1), lens=40, rotor=75,
                                               prop=10, extra=True)
+        if VARIANT == 'ela10':
+            # detail views matching the reference close-ups (tail_closeup_blue_evo, summer-windscreen nose,
+            # cowl louvres, rear-left show photo D-MEVD, front sunset photo)
+            B.PREVIEW_VIEWS['tail_closeup'] = dict(loc=(-5.9, -1.15, 0.85), target=(-2.45, 0.0, -0.05), lens=55,
+                                                   rotor=75, prop=20, extra=True)
+            B.PREVIEW_VIEWS['nose_closeup'] = dict(loc=(3.3, -1.75, -0.15), target=(1.55, 0.0, -0.38), lens=45,
+                                                   rotor=75, prop=15, extra=True)
+            B.PREVIEW_VIEWS['cowl_closeup'] = dict(loc=(0.2, -2.3, 0.35), target=(-1.0, 0.0, 0.10), lens=50,
+                                                   rotor=75, prop=25, extra=True)
+            B.PREVIEW_VIEWS['tail_rear_left'] = dict(loc=(-5.4, 3.9, 0.15), target=(-1.6, 0.0, -0.05), lens=30,
+                                                     rotor=60, prop=20, extra=True)
+            B.PREVIEW_VIEWS['head_detail'] = dict(loc=(1.3, -1.6, 2.1), target=(-0.3, 0.0, 1.35), lens=50,
+                                                  rotor=75, prop=0, extra=True)
         B.PREVIEW_DIR = os.path.join(HERE, 'previews', VARIANT)
         B.render_previews(scn)
 

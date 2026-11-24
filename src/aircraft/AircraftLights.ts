@@ -2,9 +2,10 @@
 // derecha, blanca en la cola), destellos anticolisión blancos (puntas del
 // estabilizador y lo alto de la deriva) y foco de aterrizaje en el morro.
 //
-// Las posiciones se sacan de la geometría del modelo cargado (puntas del
-// estabilizador, cola, parte alta de la deriva y morro), así sirven para
-// cualquier aparato del catálogo sin fichas a mano.
+// Cada modelo declara sus luces reales con vacíos `lamp_<tipo>[_<etiqueta>]` (blender/gyrokit.py,
+// `K.lamp_node`): puede llevar varias del mismo tipo (dos focos, uno a cada lado del morro) y las
+// que el aparato real no lleva, no salen. Solo en un modelo sin ninguna declarada las posiciones
+// se deducen de su geometría (puntas del estabilizador, cola, parte alta de la deriva y morro).
 //
 // Render: cada luz es un punto con tamaño mínimo en píxeles que escribe su
 // radiancia (HDR, el bloom hace el halo) y alfa = 0 ("ya iluminado", ver la
@@ -179,13 +180,16 @@ export class AircraftLights {
     this.geo.setAttribute('lampSize', new BufferAttribute(size, 2))
     this.geo.setDrawRange(0, n)
     parent.add(this.points)
-    const landing = this.lamps.find((l) => l.kind === 'landing')
-    this.hasLanding = Boolean(landing)
-    if (landing) {
-      this.landingPos.copy(landing.pos)
+    // un solo haz para todos los focos: sale de su punto medio, a la altura del más adelantado
+    const landing = this.lamps.filter((l) => l.kind === 'landing')
+    this.hasLanding = landing.length > 0
+    if (landing.length > 0) {
+      this.landingPos.set(0, 0, 0)
+      for (const l of landing) this.landingPos.addScaledVector(l.pos, 1 / landing.length)
+      this.landingPos.x = Math.max(...landing.map((l) => l.pos.x))
       this.landingDir.set(Math.cos(BEAM.down), -Math.sin(BEAM.down), 0)
-      this.spot.position.copy(landing.pos)
-      this.spot.target.position.copy(landing.pos).add(this.landingDir)
+      this.spot.position.copy(this.landingPos)
+      this.spot.target.position.copy(this.landingPos).add(this.landingDir)
       if (this.useSpot) parent.add(this.spot, this.spot.target)
     }
   }
@@ -322,11 +326,45 @@ const RED = new Color(1, 0, 0)
 const GREEN = new Color(0, 1, 0.3)
 const WHITE = new Color(1, 0.96, 0.9)
 const STROBE = new Color(0.92, 0.95, 1)
+const AMBER = new Color(1, 0.5, 0.04)
 
-/** Busca en la geometría del modelo dónde van las luces (coordenadas de `scene`). */
+/** Vacío de lámpara del modelo: `lamp_<tipo>` o `lamp_<tipo>_<etiqueta>` (L, R, 2, red, amber…). */
+const LAMP_NODE = /^lamp_(navL|navR|tail|strobeL|strobeR|beacon|landing)(?:_([A-Za-z0-9]+))?$/
+
+/** Lámpara de un tipo en `pos`. Una baliza con etiqueta `red` o `amber` destella en ese color. */
+function lampOf(kind: Kind, pos: Vector3, tag = ''): Lamp {
+  switch (kind) {
+    case 'navL':
+      return { kind, pos, color: RED, power: 0.9, size: 0.05, minPx: 3 }
+    case 'navR':
+      return { kind, pos, color: GREEN, power: 0.65, size: 0.05, minPx: 3 }
+    case 'tail':
+      return { kind, pos, color: WHITE, power: 1.2, size: 0.045, minPx: 3 }
+    case 'beacon':
+      if (/red/i.test(tag)) return { kind, pos, color: RED, power: 12, size: 0.06, minPx: 3.5 }
+      if (/amber/i.test(tag)) return { kind, pos, color: AMBER, power: 14, size: 0.06, minPx: 3.5 }
+      return { kind, pos, color: STROBE, power: 25, size: 0.06, minPx: 3.5 }
+    case 'landing':
+      return { kind, pos, color: WHITE, power: 30, size: 0.09, minPx: 3 }
+    default:
+      return { kind, pos, color: STROBE, power: 40, size: 0.07, minPx: 4 }
+  }
+}
+
+/**
+ * Luces del modelo (coordenadas de `scene`): las que declara con vacíos `lamp_*` o, si no declara
+ * ninguna (genérico, Cierva), las deducidas de su geometría.
+ */
 function findLamps(scene: Object3D): Lamp[] {
   scene.updateMatrixWorld(true)
   _inv.copy(scene.matrixWorld).invert()
+  const declared: Lamp[] = []
+  scene.traverse((o) => {
+    const m = LAMP_NODE.exec(o.name)
+    if (m) declared.push(lampOf(m[1] as Kind, o.getWorldPosition(new Vector3()).applyMatrix4(_inv), m[2]))
+  })
+  if (declared.length > 0) return declared
+
   const pts: number[] = []
   const visit = (o: Object3D) => {
     if (o !== scene && SKIP.test(o.name)) return
@@ -377,17 +415,16 @@ function findLamps(scene: Object3D): Lamp[] {
   }
 
   const lamps: Lamp[] = []
-  const add = (kind: Kind, pos: Vector3, color: Color, power: number, size: number, minPx: number) =>
-    lamps.push({ kind, pos, color, power, size, minPx })
+  const add = (kind: Kind, pos: Vector3) => lamps.push(lampOf(kind, pos))
   const out = 0.035 // lentes un poco por fuera de la superficie (que no las tape la profundidad)
   if (isFinite(left.z) && isFinite(right.z) && right.z - left.z > 0.3) {
-    add('navL', left.clone().add(_v.set(0, 0, -out)), RED, 0.9, 0.05, 3)
-    add('navR', right.clone().add(_v.set(0, 0, out)), GREEN, 0.65, 0.05, 3)
-    add('strobeL', left.clone().add(_v.set(-0.06, 0, -out)), STROBE, 40, 0.07, 4)
-    add('strobeR', right.clone().add(_v.set(-0.06, 0, out)), STROBE, 40, 0.07, 4)
+    add('navL', left.clone().add(_v.set(0, 0, -out)))
+    add('navR', right.clone().add(_v.set(0, 0, out)))
+    add('strobeL', left.clone().add(_v.set(-0.06, 0, -out)))
+    add('strobeR', right.clone().add(_v.set(-0.06, 0, out)))
   }
-  if (isFinite(tail.x)) add('tail', tail.clone().add(_v.set(-out, 0, 0)), WHITE, 1.2, 0.045, 3)
-  if (isFinite(top.y)) add('beacon', top.clone().add(_v.set(0, out, 0)), STROBE, 25, 0.06, 3.5)
-  if (isFinite(nose.x) && nose.x > xMin + 1) add('landing', nose.clone().add(_v.set(out, 0, 0)), WHITE, 30, 0.09, 3)
+  if (isFinite(tail.x)) add('tail', tail.clone().add(_v.set(-out, 0, 0)))
+  if (isFinite(top.y)) add('beacon', top.clone().add(_v.set(0, out, 0)))
+  if (isFinite(nose.x) && nose.x > xMin + 1) add('landing', nose.clone().add(_v.set(out, 0, 0)))
   return lamps
 }

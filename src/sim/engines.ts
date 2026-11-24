@@ -126,3 +126,60 @@ export const GENET_MAJOR: EngineSpec = {
   cylinders: 7,
   tach: { max: 3000, step: 500, minor: 100, green: [1000, 2200], yellow: [2200, 2400], red: 2400 },
 }
+
+/**
+ * Lycoming IO-540 (Carter PAV): seis cilindros opuestos, 8,9 l, inyección, atmosférico y de toma
+ * directa. 300 CV (224 kW) continuos a 2700 rpm (792 N·m); par máximo ~810 N·m hacia 2500 rpm y
+ * curva plana, como todos los Lycoming de cilindrada grande. Ralentí a unas 700 rpm. Mueve una
+ * pentapala propulsora de paso variable con regulador (`cspProp` en la ficha) y, en tierra, el
+ * prerrotador del rotor.
+ */
+export const LYCOMING_IO540: EngineSpec = {
+  id: 'io-540',
+  name: 'Lycoming IO-540',
+  maxPower: 224000,
+  torquePeak: 810,
+  rpmPeak: 2500,
+  dropBelow: 1.1e-4,
+  dropAbove: 4.5e-4,
+  idle: 0.075,
+  turbo: false,
+  rhoCrit: 1.225,
+  gear: 1,
+  rpmLimit: 2750,
+  starterRpm: 350,
+  idleRpm: 700,
+  cruiseRpm: 2500,
+  friction: [30, 0.03],
+  inertia: 9,
+  cylinders: 6,
+  tach: { max: 3000, step: 500, minor: 100, green: [700, 2700], yellow: [2700, 2700], red: 2700 },
+}
+
+/**
+ * Rotax 503 UL DCDI (Sport Copter Lightning): bicilíndrico de dos tiempos refrigerado por aire,
+ * 50 CV (37 kW) a 6500 rpm y 55 N·m a 6000 rpm, con reductora B de 2,58:1. Al ralentí gira a unas
+ * 2000 rpm. (Dos cilindros de dos tiempos dan las mismas explosiones por vuelta que cuatro de
+ * cuatro tiempos: de ahí `cylinders`.)
+ */
+export const ROTAX_503: EngineSpec = {
+  id: '503ul',
+  name: 'Rotax 503 UL',
+  maxPower: 37000,
+  torquePeak: 56,
+  rpmPeak: 6000,
+  dropBelow: 1.6e-6,
+  dropAbove: 6.4e-6,
+  idle: 0.25,
+  turbo: false,
+  rhoCrit: 1.225,
+  gear: 2.58,
+  rpmLimit: 6800,
+  starterRpm: 1300,
+  idleRpm: 2000,
+  cruiseRpm: 5600,
+  friction: [2, 0.0008],
+  inertia: 0.27,
+  cylinders: 4,
+  tach: { max: 8000, step: 1000, minor: 500, green: [2000, 6500], yellow: [6500, 6800], red: 6800 },
+}

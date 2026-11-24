@@ -50,6 +50,8 @@ export interface AircraftPose {
   readonly noseSteer: number
   readonly engineRpm: number
   readonly onGround: boolean
+  /** desplazamiento del CG respecto al común (asientos lado a lado con un solo ocupante) */
+  readonly cgOff?: Vector3
 }
 /** Mandos que mueve la vista (`Controls` del propio aparato; los remotos mandan solo parte). */
 export interface ViewControls {
@@ -81,6 +83,7 @@ const HANGING_ROLL = 0.8
 const Y = new Vector3(0, 1, 0)
 const X = new Vector3(1, 0, 0)
 const Z = new Vector3(0, 0, 1)
+const ZERO = new Vector3()
 const _q = new Quaternion()
 const _q2 = new Quaternion()
 const _v = new Vector3()
@@ -139,6 +142,7 @@ export class AircraftView {
   /** luces de navegación, destellos y foco de aterrizaje */
   readonly lights = new AircraftLights()
   private modelKey = ''
+  private readonly cgOff = new Vector3()
   private glassMeshes: Mesh[] = []
 
   /** Medidas del aparato que la animación necesita (rotor, hélice, ruedas, palanca). */
@@ -343,6 +347,10 @@ export class AircraftView {
   update(ac: AircraftPose, dt: number, ctl: ViewControls): void {
     this.root.position.copy(ac.pos)
     this.root.quaternion.copy(ac.quat)
+    // el origen de `root` es el CG real: si la carga lo ha movido de lado, el modelo se corre al revés
+    this.model.position.copy(CG).negate()
+    if (ac.cgOff) this.model.position.sub(ac.cgOff)
+    this.cgOff.copy(ac.cgOff ?? ZERO)
     const p = this.parts
 
     // cabeza del rotor
@@ -360,7 +368,7 @@ export class AircraftView {
     if (p.rotor) {
       p.rotor.quaternion.copy(_q)
       if (this.rotorSpin) this.rotorSpin.quaternion.copy(_q2)
-      p.rotor.position.copy(ac.hubBody).add(CG)
+      p.rotor.position.copy(ac.hubBody).add(CG).add(this.cgOff)
       // desenfoque según el paso de palas (con tres palas se emborrona a menos vueltas)
       const blur = smooth(110, 230, (ac.rotor.rpm * this.vis.rotorBlades) / 2)
       for (const m of discMaterials(this.rotorBlur)) m.opacity = blur
@@ -438,7 +446,7 @@ export class AircraftView {
 
   /** Posición del ojo del piloto en el mundo. */
   eyeWorld(out: Vector3): Vector3 {
-    return out.copy(this.eyeLocal).applyQuaternion(this.root.quaternion).add(this.root.position)
+    return out.copy(this.eyeLocal).sub(this.cgOff).applyQuaternion(this.root.quaternion).add(this.root.position)
   }
 
   setEnvMap(tex: Texture | null): void {
