@@ -502,8 +502,8 @@ class App {
         }
       }
     }
-    // edificios de OpenStreetMap (modo sin clave): huella extruida
-    if (!ac.crash && (w.buildings || w.trees) && ac.vel.length() > 2) {
+    // edificios y puentes de OpenStreetMap (modo sin clave)
+    if (!ac.crash && (w.buildings || w.trees || w.bridges || w.power) && ac.vel.length() > 2) {
       // morro, cola y puntas del rotor (aprox.)
       const probes = [new Vector3(1.6, 0.2, 0), new Vector3(-2.6, 0.6, 0), new Vector3(0, 1.9, 3.8), new Vector3(0, 1.9, -3.8)]
       let hit = w.hitsObstacle(ac.pos)
@@ -512,13 +512,13 @@ class App {
         ac.crash = {
           cause: 'obstacle',
           title: t('crash.obstacle.title'),
-          detail: t('crash.obstacle.hit', { what: t(hit === 'tree' ? 'obj.tree' : 'obj.building'), kmh: Math.round(ac.tas * 3.6) }),
+          detail: t('crash.obstacle.hit', { what: t(`obj.${hit}`), kmh: Math.round(ac.tas * 3.6) }),
         }
       }
     }
     // disco del rotor y extremos del aparato contra edificios, árboles y teselas 3D
     if (!ac.crash) {
-      const hit = this.crashSys.probe(ac, this.crashWorld())
+      const hit = this.crashSys.probe(ac, this.crashWorld(), this.snap)
       if (hit) ac.crash = hit
     }
     if (ac.crash) this.showCrash()
@@ -582,6 +582,7 @@ class App {
     const google = w.mode === 'google'
     const s: GroundSample = { y: 0, normal: new Vector3() }
     const n = new Vector3()
+    const self = this
     const cw: CrashWorld = {
       mode: google ? 'google' : 'terrain',
       // con Google el suelo son las teselas; la altura solo hace de red de seguridad (plano local)
@@ -598,7 +599,12 @@ class App {
           })
           yield* list
         }
+        if (w.bridges) yield* w.bridges.meshes()
+        // apoyos y cables de los tendidos de alrededor (cajas y cintas para los restos)
+        const pm = w.power?.collisionMesh(self.ac.pos, 60)
+        if (pm) yield pm
       },
+      wiresNear: w.power ? (p, r, out) => w.power!.wiresNear(p, r, out) : undefined,
       obstacleAt: (p) => w.hitsObstacle(p),
       inFoliage: w.trees ? (p) => w.trees!.collides(p) : undefined,
       raycast: google ? (o, d, f) => w.raycast(o, d, f) : undefined,

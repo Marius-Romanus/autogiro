@@ -25,6 +25,8 @@ export abstract class TileLayer<T extends LayerTile> {
   readonly group = new Group()
   radius = 3000
   enabled = true
+  /** nivel de las teselas (z14 salvo que la capa diga otro) */
+  protected zoom = Z
   protected readonly tiles = new Map<string, T>()
   protected readonly worldFrame: GeoFrame
   protected disposed = false
@@ -62,7 +64,7 @@ export abstract class TileLayer<T extends LayerTile> {
     this.timer = 0.4
     if (!this.enabled) return
     const g = this.worldFrame.worldToGeo(cameraWorld)
-    const n = 2 ** Z
+    const n = 2 ** this.zoom
     const cx = lonToX(g.lon, n)
     const cy = latToY(g.lat, n)
     // tamaño de una tesela en metros a esta latitud
@@ -105,7 +107,7 @@ export abstract class TileLayer<T extends LayerTile> {
   /** Tesela lista que contiene el punto (mundo) y el punto en su marco local. */
   protected tileAt(p: Vector3, out: Vector3): T | null {
     const g = this.worldFrame.worldToGeo(p)
-    const n = 2 ** Z
+    const n = 2 ** this.zoom
     const t = this.tiles.get(`${Math.floor(lonToX(g.lon, n))}/${Math.floor(latToY(g.lat, n))}`)
     if (!t || t.state !== 'ready') return null
     t.frame.geoToWorld(g.lat, g.lon, g.h, out)
@@ -126,7 +128,7 @@ export abstract class TileLayer<T extends LayerTile> {
   }
 
   private startTile(x: number, y: number): void {
-    const n = 2 ** Z
+    const n = 2 ** this.zoom
     const frame = new GeoFrame()
     frame.setOrigin(yToLat(y + 0.5, n), xToLon(x + 0.5, n), 0)
     const t = this.createTile({ key: `${x}/${y}`, x, y, state: 'loading', abort: new AbortController(), frame, dist: 0 })

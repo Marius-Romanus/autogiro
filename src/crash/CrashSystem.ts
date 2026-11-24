@@ -16,6 +16,7 @@ import { WreckModel } from '../aircraft/WreckModel.ts'
 import type { AircraftView } from '../aircraft/AircraftView.ts'
 import { CrashFx } from '../fx/CrashFx.ts'
 import { CrashAudio, type ImpactKind } from '../audio/CrashAudio.ts'
+import { wireStrike, type Pose } from './wireStrike.ts'
 
 /** Lo que el sistema necesita saber del escenario. */
 export interface CrashWorld {
@@ -159,8 +160,21 @@ export class CrashSystem {
   // ---------------------------------------------------------------------------
   private probeFlip = 0
   /** Comprueba si el disco del rotor o los extremos del aparato tocan un obstáculo. */
-  probe(ac: Autogyro, world: CrashWorld): CrashInfo | null {
+  probe(ac: Autogyro, world: CrashWorld, from: Pose | null = null): CrashInfo | null {
     if (ac.onGround && ac.groundSpeed < 2) return null
+    // cables de los tendidos: el movimiento del fotograma contra el disco, la hélice y la célula
+    if (world.wiresNear) {
+      const segs: number[] = []
+      world.wiresNear(ac.pos, ac.rotor.p.radius + 6 + ac.vel.length() * 0.05, segs)
+      const hit = segs.length ? wireStrike(ac, segs, from) : null
+      if (hit) {
+        const what = t('obj.wire')
+        const kmh = Math.round(ac.tas * 3.6)
+        if (hit === 'rotor') return { cause: 'obstacle', title: t('crash.bladesHit', { what }), detail: t('crash.wire.rotor', { kmh }) }
+        if (hit === 'prop') return { cause: 'obstacle', title: t('crash.wire.prop.title'), detail: t('crash.wire.prop', { kmh }) }
+        return { cause: 'obstacle', title: t('crash.collisionWith', { what }), detail: t('crash.wire.body', { kmh }) }
+      }
+    }
     const pts: Vector3[] = []
     const hub = _v.copy(ac.hubBody).applyQuaternion(ac.quat).add(ac.pos)
     const n = ac.rotor.normal
@@ -178,7 +192,7 @@ export class CrashSystem {
         const kind = world.obstacleAt(p)
         if (kind) {
           const rotor = p.distanceTo(hub) > 3.5
-          const what = t(kind === 'tree' ? 'obj.tree' : 'obj.building')
+          const what = t(`obj.${kind}`)
           return {
             cause: 'obstacle',
             title: t(rotor ? 'crash.bladesHit' : 'crash.collisionWith', { what }),
