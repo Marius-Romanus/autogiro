@@ -66,6 +66,7 @@ import { DataTextureLoader, DEFAULT_STBN_URL, Geodetic, parseUint8Array, STBNLoa
 import type { CloudPreset, Quality } from '../config.ts'
 import { GroundDetailEffect } from './GroundDetailEffect.ts'
 import { LandingLightEffect } from './LandingLightEffect.ts'
+import { StreetLightEffect } from './StreetLightEffect.ts'
 import { patchAerialWater, WaterSurface } from './Water.ts'
 import {
   csUniforms,
@@ -177,6 +178,8 @@ export class Graphics {
   readonly water = new WaterSurface()
   /** foco de aterrizaje sobre el terreno (tras la iluminación del efecto de atmósfera) */
   readonly landingLight: LandingLightEffect
+  /** luz de las farolas sobre el terreno (la rellena src/traffic/Traffic.ts) */
+  readonly streetLight: StreetLightEffect
   readonly tone: ToneMappingEffect
   readonly grade: BrightnessContrastEffect
   readonly saturation: HueSaturationEffect
@@ -353,7 +356,8 @@ export class Graphics {
     )
     this.detail = new GroundDetailEffect(camera)
     this.landingLight = new LandingLightEffect(camera)
-    this.cloudsPass = new EffectPass(camera, this.detail, this.clouds, this.aerial, this.landingLight, this.nanGuard)
+    this.streetLight = new StreetLightEffect(camera)
+    this.cloudsPass = new EffectPass(camera, this.detail, this.clouds, this.aerial, this.landingLight, this.streetLight, this.nanGuard)
     composer.addPass(this.cloudsPass)
 
     this.bloom = new BloomEffect({ intensity: 0.3, luminanceThreshold: 0.9, luminanceSmoothing: 0.25, mipmapBlur: true })
@@ -459,8 +463,8 @@ export class Graphics {
       this.cloudsPass = new EffectPass(
         this.camera,
         ...(enabled
-          ? [this.detail, c, this.aerial, this.landingLight, this.nanGuard]
-          : [this.detail, this.aerial, this.landingLight, this.nanGuard]),
+          ? [this.detail, c, this.aerial, this.landingLight, this.streetLight, this.nanGuard]
+          : [this.detail, this.aerial, this.landingLight, this.streetLight, this.nanGuard]),
       )
       this.composer.addPass(this.cloudsPass, idx)
     }

@@ -40,6 +40,7 @@ import { Trees } from './Trees.ts'
 import { Landmarks } from './Landmarks.ts'
 import { Bridges } from './Bridges.ts'
 import { PowerLines } from './PowerLines.ts'
+import { Traffic } from '../traffic/Traffic.ts'
 import { Runways } from './Runways.ts'
 import { GridRunways } from './gridRunways.ts'
 import { TerrainNormals } from './terrainNormals.ts'
@@ -145,6 +146,8 @@ export class World {
   private bridgeHeights: HeightSource | null = null
   /** tendidos eléctricos en 3D (modo sin clave, con los edificios) */
   power: PowerLines | null = null
+  /** tráfico simulado (modo sin clave) */
+  traffic: Traffic | null = null
   /** relieve grueso para el gálibo de los vanos */
   private powerCoarse: HeightSource | null = null
   /** dónde hay agua (mar, lagos, ríos), para iluminarla como agua (render/Water.ts) */
@@ -290,6 +293,10 @@ export class World {
         this.power.enabled = this.settings.power
         this.power.syncFrame()
       }
+      // tráfico simulado por las calles de OpenStreetMap (src/traffic): se crea siempre en el modo
+      // sin clave; el ajuste «Tráfico» solo lo enciende o lo apaga (Traffic.enabled)
+      this.traffic = new Traffic(this.frame, { heights: ign ? 'ign' : 'terrarium', ignUrl: IGN_QM, terrariumUrl: TERRARIUM })
+      this.scene.add(this.traffic.group)
     }
     // (con los tiles de Google no está probado: su malla ya trae el agua con relieve y brillos)
     if (this.mode === 'terrain') this.water = new WaterMask(this.frame)
@@ -350,6 +357,13 @@ export class World {
     if (this.buildings) this.buildings.radius = { low: 2200, medium: 3500, high: 5000, ultra: 7000 }[q]
     if (this.bridges) this.bridges.radius = { low: 2600, medium: 4000, high: 6000, ultra: 8000 }[q]
     if (this.power) this.power.radius = { low: 3500, medium: 5000, high: 7000, ultra: 9000 }[q]
+    if (this.traffic) {
+      // vehículos como mucho, región (teselas a cada lado de la de la cámara) y radio de dibujo
+      this.traffic.cap = { low: 500, medium: 1200, high: 2200, ultra: 3500 }[q]
+      this.traffic.tiles = q === 'low' ? 1 : 2
+      this.traffic.drawRadius = { low: 2500, medium: 3500, high: 4500, ultra: 6000 }[q]
+      this.traffic.groundLights = q !== 'low'
+    }
     if (this.trees) {
       this.trees.radius = { low: 900, medium: 1400, high: 2000, ultra: 2800 }[q]
       this.trees.maxPerTile = { low: 8000, medium: 16000, high: 30000, ultra: 45000 }[q]
@@ -503,6 +517,7 @@ export class World {
 
   /** ¿Choca el punto (mundo) con un edificio, un puente o la copa de un árbol? */
   hitsObstacle(p: Vector3): 'building' | 'bridge' | 'pylon' | 'tree' | 'vehicle' | null {
+    if (this.traffic?.enabled && this.traffic.collides(p)) return 'vehicle'
     if (this.buildings?.collides(p) || this.landmarks?.collides(p)) return 'building'
     if (this.bridges?.collides(p)) return 'bridge'
     if (this.power?.collides(p)) return 'pylon'
@@ -522,6 +537,7 @@ export class World {
     this.landmarks?.setEnvMap(tex)
     this.bridges?.setEnvMap(tex)
     this.power?.setEnvMap(tex)
+    this.traffic?.setEnvMap(tex)
   }
 
   /** Raycast contra la geometría cargada (tiles de Google). */
@@ -584,6 +600,7 @@ export class World {
       this.power.dispose()
     }
     this.powerCoarse?.dispose()
+    this.traffic?.dispose()
     this.bridgeHeights?.dispose()
     this.water?.dispose()
     this.runways?.dispose()

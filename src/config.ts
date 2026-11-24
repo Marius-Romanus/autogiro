@@ -631,6 +631,8 @@ export interface Settings {
   catastro: boolean
   /** árboles 3D detectados en la ortofoto (modo sin clave) */
   trees: boolean
+  /** tráfico simulado por las calles (modo sin clave) */
+  traffic: boolean
   /** tendidos eléctricos en 3D (modo sin clave) */
   power: boolean
   locationId: string
@@ -679,6 +681,7 @@ export const DEFAULT_SETTINGS: Settings = {
   buildings: true,
   catastro: true,
   trees: true,
+  traffic: true,
   power: true,
   locationId: 'lemt26',
   customLat: 40.2348,

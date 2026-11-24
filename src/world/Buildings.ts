@@ -35,6 +35,7 @@ import type { GeoFrame } from './GeoFrame.ts'
 import type { HeightSource } from './HeightSource.ts'
 import { classifyRings, fetchVectorTile, loadOrthoMosaic, xToLon, yToLat, Z, type Ring } from './mapTiles.ts'
 import { facadeColour, parseOsmColour, roofColour } from './osmColour.ts'
+import { lampGridUniforms, nightUniforms, streetLampGLSL } from '../render/nightLights.ts'
 import { ROOF_CONE, ROOF_DOME, ROOF_FLAT, ROOF_GABLED, ROOF_HIPPED, ROOF_ONION, ROOF_PYRAMIDAL, ROOF_ROUND, ROOF_SKILLION } from './osmRoofFormat.ts'
 import { osmRoofsTile, type OsmRoof } from './osmRoofs.ts'
 import { landmarkNear, replacedByLandmark } from './Landmarks.ts'
@@ -1078,14 +1079,23 @@ function growTo<T extends Float32Array | Int8Array | Uint8Array | Uint32Array>(a
 function createBuildingMaterial(): MeshStandardMaterial {
   const m = new MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 })
   m.onBeforeCompile = (shader) => {
+    // ventanas encendidas de noche (render/nightLights.ts)
+    Object.assign(shader.uniforms, nightUniforms, lampGridUniforms)
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec3 fac;\nvarying vec3 vFac;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFac = fac;')
+      .replace('#include <common>', '#include <common>\nattribute vec3 fac;\nvarying vec3 vFac;\nvarying vec3 vWinSeed;\nvarying vec3 vSlWorld;\nvarying vec3 vSlNormal;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFac = fac;\nvWinSeed = position;\nvSlWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvSlNormal = mat3(modelMatrix) * objectNormal;')
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
         /* glsl */ `#include <common>
         varying vec3 vFac;
+        varying vec3 vWinSeed;
+        varying vec3 vSlWorld;
+        varying vec3 vSlNormal;
+        ${streetLampGLSL}
+        uniform float nlOn;
+        uniform float nlLit;
+        uniform float nlGain;
         float bHash(vec2 p) {
           vec3 p3 = fract(vec3(p.xyx) * 0.1031);
           p3 += dot(p3, p3.yzx + 33.33);
@@ -1096,6 +1106,7 @@ function createBuildingMaterial(): MeshStandardMaterial {
         '#include <color_fragment>',
         /* glsl */ `#include <color_fragment>
         float winMask = 0.0;
+        vec3 winEmit = vec3(0.0);
         if (vFac.z > 0.5) {
           // ventanas: una cada 3,4 m en horizontal y una por planta
           vec2 g = vec2(vFac.x / 3.4, vFac.y / vFac.z);
@@ -1105,6 +1116,7 @@ function createBuildingMaterial(): MeshStandardMaterial {
           float wx = smoothstep(0.28 - fw.x, 0.28 + fw.x, cell.x) - smoothstep(0.72 - fw.x, 0.72 + fw.x, cell.x);
           float wy = smoothstep(0.30 - fw.y, 0.30 + fw.y, cell.y) - smoothstep(0.80 - fw.y, 0.80 + fw.y, cell.y);
           float w = wx * wy * step(0.0, id.y);
+          float w0 = w;
           // lejos (patrón menor que un píxel): tono medio
           float far = smoothstep(0.18, 0.5, max(fw.x, fw.y));
           w = mix(w, 0.22, far);
@@ -1115,6 +1127,34 @@ function createBuildingMaterial(): MeshStandardMaterial {
           vec3 winCol = mix(glass, blind, step(0.62, r) * (1.0 - far));
           diffuseColor.rgb = mix(diffuseColor.rgb, winCol, w * 0.9);
           winMask = w * (1.0 - step(0.62, r));
+          if (nlOn > 0.0) {
+            // de noche: una parte de las ventanas encendidas (la semilla, por ventana y por zona
+            // de 60 m del edificio, para que no se repita el mismo dibujo en todas las fachadas)
+            vec2 zone = floor(vWinSeed.xz / 60.0);
+            float seed = bHash(id + zone * 17.31 + 0.37);
+            // cuántas encendidas cambia de unos bloques a otros (oficinas a oscuras, casas con
+            // gente): ruido suave de unos 80 m, sin saltos en las fachadas largas
+            vec2 nq = vWinSeed.xz / 80.0;
+            vec2 ni = floor(nq);
+            vec2 nf = fract(nq);
+            nf = nf * nf * (3.0 - 2.0 * nf);
+            float zv = mix(mix(bHash(ni + 7.1), bHash(ni + vec2(8.1, 7.1)), nf.x), mix(bHash(ni + vec2(7.1, 8.1)), bHash(ni + 8.1), nf.x), nf.y);
+            float litP = clamp(nlLit * (0.15 + 1.9 * zv * zv), 0.0, 0.85);
+            float lit = step(seed, litP);
+            // cálida casi siempre, alguna blanca y alguna azulada (la tele)
+            float tone = bHash(id * 1.7 + zone * 5.13 + 3.1);
+            vec3 lc = tone < 0.72 ? vec3(1.0, 0.7, 0.4) : tone < 0.92 ? vec3(0.95, 0.88, 0.76) : vec3(0.5, 0.62, 1.0);
+            // tras la persiana, luz tamizada
+            float through = step(0.62, r) > 0.5 ? 0.4 : 1.0;
+            float k = 0.5 + 0.5 * bHash(id + zone + 9.3);
+            vec3 nearE = w0 * lit * through * k * lc;
+            // lejos, cuando la ventana ya no ocupa ni un par de píxeles: la media del patrón
+            // (superficie de ventana por fracción encendida), algo rebajada, que de lejos el ojo
+            // ve puntos sueltos y no una pared que brilla
+            float farL = smoothstep(0.45, 1.0, max(fw.x, fw.y));
+            vec3 farE = vec3(0.22 * litP * 0.75 * 0.77 * 0.55) * vec3(1.0, 0.72, 0.45);
+            winEmit = mix(nearE, farE, farL) * 0.85 * nlGain * nlOn;
+          }
         }
         if (vFac.z > -0.5) {
           // oscurecimiento al pie de la pared (oclusión con el suelo)
@@ -1125,9 +1165,10 @@ function createBuildingMaterial(): MeshStandardMaterial {
         '#include <roughnessmap_fragment>',
         '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.18, winMask);',
       )
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += winEmit;\n// la luz de las farolas en las fachadas (la misma rejilla que alumbra el suelo)\nif (slOn > 0.0) totalEmissiveRadiance += diffuseColor.rgb * streetLampLight(vSlWorld, normalize(vSlNormal)) * 0.3183099;')
       .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a = 0.0;')
   }
-  m.customProgramCacheKey = () => 'osm-buildings-v1'
+  m.customProgramCacheKey = () => 'osm-buildings-v3'
   return m
 }
 

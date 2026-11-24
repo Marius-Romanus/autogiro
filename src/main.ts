@@ -418,6 +418,17 @@ class App {
       // tendidos: su interruptor, en vivo
       if (w.power) w.power.enabled = this.settings.power
       w.update()
+      // tráfico (src/traffic): hora local del lugar, aparato posado para que lo esquiven
+      if (w.traffic) {
+        const tr = w.traffic
+        tr.enabled = this.settings.traffic
+        // la luz de las farolas sobre el terreno la dibuja un efecto de Graphics
+        tr.attachStreetLight(this.gfx.streetLight)
+        const d = this.simDate
+        const tz = localUtcOffset(this.location.lat, this.location.lon, this.settings.dayOfYear)
+        tr.hour = (((d.getUTCHours() + d.getUTCMinutes() / 60 + tz) % 24) + 24) % 24
+        tr.update(dt, this.gfx.camera, w, this.state === 'flying' ? { pos: ac.pos, agl: ac.agl, onGround: ac.onGround } : null, this.gfx.sunDirWorld.y)
+      }
       if (Math.floor(t / 1000) !== Math.floor((t - dt * 1000) / 1000)) w.updateAttribution()
     }
     this.mp.update(dt)
@@ -936,6 +947,7 @@ class App {
     $('passenger').addEventListener('change', () => this.previewAircraft())
     bindCheck('buildings')
     bindCheck('trees')
+    bindCheck('traffic')
     bindCheck('power')
     bindCheck('catastro')
     setupCatastroMenu()
@@ -1040,6 +1052,7 @@ class App {
     set('elevation', s.elevation)
     set('buildings', s.buildings)
     set('trees', s.trees)
+    set('traffic', s.traffic)
     set('power', s.power)
     set('catastro', s.catastro)
     syncCurrentDeparture($('location') as HTMLSelectElement, s)
