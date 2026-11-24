@@ -1,12 +1,13 @@
-// App de escritorio de Autogiro (Tauri 2, Windows).
+// App de escritorio de Autogiro (Tauri 2, Windows y Linux).
 //
 // Arranca dentro un servidor local que hace lo mismo que `npm run server` (el juego
 // compilado de dist/ + las salas multijugador en /mp, ver server.rs y rooms.rs) y abre
-// http://localhost:<puerto>/ en una ventana WebView2 (el motor de Edge). Así el juego
-// funciona igual que en el navegador y el que lo instala ya tiene servidor de partidas
-// para sus amigos (misma wifi o túnel), sin instalar Node.
+// http://localhost:<puerto>/ en una ventana WebView2 (el motor de Edge) en Windows o
+// WebKitGTK en Linux. Así el juego funciona igual que en el navegador y el que lo instala
+// ya tiene servidor de partidas para sus amigos (misma wifi o túnel), sin instalar Node.
 //
-//   npm run app:build   → src-tauri/target/release/bundle/nsis/Autogiro_<versión>_x64-setup.exe
+//   npm run app:build   → en Windows src-tauri/target/release/bundle/nsis/Autogiro_<versión>_x64-setup.exe;
+//                         en Linux bundle/appimage, bundle/deb y bundle/rpm (tauri.linux.conf.json)
 //   npm run release     → nueva versión publicada en GitHub (tools/release.mjs + .github/workflows/release.yml)
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -65,6 +66,8 @@ const PAGE_JS: &str = r#"
 "#;
 
 fn main() {
+    #[cfg(target_os = "linux")]
+    linux::before_start();
     tauri::Builder::default()
         // una sola copia abierta: la segunda trae al frente la primera
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -115,6 +118,7 @@ fn game_window(app: &App, port: u16) -> Result<(), Box<dyn std::error::Error>> {
         "version": app.package_info().version.to_string(),
         "port": port,
         "lan": server::lan_ip(),
+        "os": std::env::consts::OS,
     });
     let init = format!("window.__AUTOGIRO_APP__ = Object.freeze({info});\n{PAGE_JS}");
 
@@ -129,7 +133,7 @@ fn game_window(app: &App, port: u16) -> Result<(), Box<dyn std::error::Error>> {
             || matches!(u.scheme(), "about" | "data" | "blob")
     };
 
-    WebviewWindowBuilder::new(app, "main", WebviewUrl::External(format!("http://localhost:{port}/").parse()?))
+    let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(format!("http://localhost:{port}/").parse()?))
         .title("Autogiro")
         .inner_size(1600.0, 900.0)
         .min_inner_size(960.0, 600.0)
@@ -146,7 +150,44 @@ fn game_window(app: &App, port: u16) -> Result<(), Box<dyn std::error::Error>> {
             NewWindowResponse::Deny
         })
         .build()?;
+    #[cfg(target_os = "linux")]
+    linux::tune_webview(&window);
+    #[cfg(not(target_os = "linux"))]
+    let _ = window;
     Ok(())
+}
+
+/// Linux (WebKitGTK): lo que en Windows hacen los argumentos de Chromium de `BROWSER_ARGS`.
+#[cfg(target_os = "linux")]
+mod linux {
+    use webkit2gtk::{HardwareAccelerationPolicy, SettingsExt, WebViewExt};
+
+    /// Antes de crear ninguna ventana. Con el driver propietario de NVIDIA el renderizado
+    /// por DMA-BUF de WebKitGTK deja a menudo la ventana en blanco o en negro; se desactiva
+    /// salvo que el usuario ya haya puesto la variable él mismo.
+    pub fn before_start() {
+        if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
+            && std::path::Path::new("/proc/driver/nvidia/version").exists()
+        {
+            // todavía no hay más hilos: nadie más lee el entorno a la vez
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
+    }
+
+    /// Siempre con la gráfica (sin el modo «solo cuando haga falta», que en un juego 3D
+    /// solo añade cambios de modo) y con sonido aunque aún no se haya pulsado nada.
+    /// `AUTOGIRO_CONSOLE=1` saca la consola del juego por la terminal, para depurar.
+    pub fn tune_webview(window: &tauri::WebviewWindow) {
+        let console = std::env::var_os("AUTOGIRO_CONSOLE").is_some();
+        let _ = window.with_webview(move |w| {
+            let Some(settings) = w.inner().settings() else { return };
+            settings.set_hardware_acceleration_policy(HardwareAccelerationPolicy::Always);
+            settings.set_media_playback_requires_user_gesture(false);
+            if console {
+                settings.set_enable_write_console_messages_to_stdout(true);
+            }
+        });
+    }
 }
 
 /// Abre http(s)/mailto en el navegador o programa del sistema. Siempre devuelve false

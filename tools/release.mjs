@@ -13,7 +13,8 @@
 // Cada texto es una línea de las novedades (salen en la página de la release y en el aviso de
 // actualización de la app). Comprueba que el proyecto compila, sube la versión en package.json y
 // en src-tauri, hace el commit con todo lo pendiente, crea la etiqueta vX.Y.Z y la sube a GitHub.
-// Desde ahí .github/workflows/release.yml compila el instalador y publica la release (~5 min).
+// Desde ahí .github/workflows/release.yml compila el instalador de Windows y los paquetes de Linux
+// y publica la release (~10-15 min).
 
 import { execFileSync, execSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -195,7 +196,7 @@ try {
 
 const actions = `https://github.com/${repo}/actions`
 console.log(`
-✔ ¡Versión ${next} enviada! GitHub está preparando el instalador (unos 5 minutos).
+✔ ¡Versión ${next} enviada! GitHub está preparando los instaladores de Windows y Linux (unos 15 minutos).
     Cómo va:            ${actions}
     Cuando esté lista:  https://github.com/${repo}/releases/tag/${tag}
   Los que ya lo tengan instalado verán el aviso de actualización la próxima vez que abran el juego.

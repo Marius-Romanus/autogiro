@@ -69,14 +69,22 @@ async fn check(app: &AppHandle) -> Result<(), Error> {
     }
 
     // en Windows esto ejecuta el instalador (modo pasivo: solo barra de progreso) y cierra la app;
-    // el instalador la vuelve a abrir al terminar
-    if let Err(e) = update.download_and_install(|_, _| {}, || {}).await {
-        let msg = if es {
-            format!("No se pudo actualizar: {e}\n\nPuedes descargar la versión nueva desde GitHub.")
-        } else {
-            format!("The update failed: {e}\n\nYou can download the new version from GitHub.")
-        };
-        app.dialog().message(msg).title("Autogiro").kind(MessageDialogKind::Error).show(|_| {});
+    // el instalador la vuelve a abrir al terminar. En Linux reemplaza el AppImage (o instala el
+    // .deb/.rpm pidiendo la contraseña) y vuelve aquí, así que el juego se reinicia él mismo
+    match update.download_and_install(|_, _| {}, || {}).await {
+        Ok(()) => {
+            if !cfg!(windows) {
+                app.restart();
+            }
+        }
+        Err(e) => {
+            let msg = if es {
+                format!("No se pudo actualizar: {e}\n\nPuedes descargar la versión nueva desde GitHub.")
+            } else {
+                format!("The update failed: {e}\n\nYou can download the new version from GitHub.")
+            };
+            app.dialog().message(msg).title("Autogiro").kind(MessageDialogKind::Error).show(|_| {});
+        }
     }
     Ok(())
 }

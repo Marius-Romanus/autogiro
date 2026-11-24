@@ -7,7 +7,7 @@ license = "PolyForm-Noncommercial-1.0.0"
 edition = "2021"
 
 # App de escritorio (Tauri): sirve el juego compilado (dist/) y las salas multijugador
-# en un puerto local y lo abre en una ventana WebView2. Ver src/main.rs.
+# en un puerto local y lo abre en una ventana WebView2 (Windows) o WebKitGTK (Linux). Ver src/main.rs.
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -27,6 +27,10 @@ open = "5"
 tauri-plugin-updater = "2"
 tauri-plugin-dialog = "2"
 sys-locale = "0.3"
+
+# ajustes de WebKitGTK en Linux (src/main.rs, mod linux); la misma versión que usa wry
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "2.0", features = ["v2_40"] }
 
 [profile.release]
 codegen-units = 1

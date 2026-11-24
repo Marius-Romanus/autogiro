@@ -1,0 +1,12 @@
+[Desktop Entry]
+Categories={{categories}}
+Comment=Gyrocopter simulator over the real world
+Comment[es]=Simulador de autogiro sobre el mundo real
+Keywords=autogyro;gyrocopter;gyroplane;flight;simulator;autogiro;simulador;vuelo;
+Exec={{exec}}
+StartupWMClass={{exec}}
+Icon={{icon}}
+Name={{name}}
+Terminal=false
+Type=Application
+PrefersNonDefaultGPU=true

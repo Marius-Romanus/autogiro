@@ -13,6 +13,30 @@ export interface DesktopApp {
   port: number
   /** IP de este ordenador en la red local, si se sabe */
   lan: string | null
+  /** sistema de la app: "windows" o "linux" (las versiones anteriores a Linux no lo mandan) */
+  os?: string
+}
+
+/** Instalar cloudflared y abrir el túnel, en PowerShell (Windows) o en la terminal (Linux). */
+function tunnelSteps(app: DesktopApp, en: boolean): { install: string; run: string; shell: string; window: string } {
+  const url = `http://localhost:${app.port}`
+  if (app.os === 'linux') {
+    const bin = 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64'
+    return {
+      install: `${en ? 'In a terminal' : 'En una terminal'}:${cmd(`curl -L -o cloudflared ${bin} && chmod +x cloudflared`)}
+          <small>${en ? 'It downloads the program into the folder you are in.' : 'Descarga el programa en la carpeta en la que estés.'}</small>`,
+      run: cmd(`./cloudflared tunnel --url ${url}`),
+      shell: en ? 'the terminal' : 'la terminal',
+      window: en ? 'the terminal window' : 'la ventana de la terminal',
+    }
+  }
+  return {
+    install: `${en ? 'In PowerShell' : 'En PowerShell'}:${cmd('winget install --id Cloudflare.cloudflared')}
+          <small>${en ? 'Close and reopen PowerShell after installing it.' : 'Cierra y vuelve a abrir PowerShell después de instalarlo.'}</small>`,
+    run: cmd(`cloudflared tunnel --url ${url}`),
+    shell: 'PowerShell',
+    window: en ? 'the PowerShell window' : 'la ventana de PowerShell',
+  }
 }
 
 export function desktopApp(): DesktopApp | null {
@@ -38,7 +62,10 @@ export function appWhereText(app: DesktopApp): { cls: string; html: string } {
 export function appCardHtml(app: DesktopApp): string {
   const port = app.port
   const lanUrl = app.lan ? `http://${app.lan}:${port}` : ''
-  if (getLang() === 'en')
+  const en = getLang() === 'en'
+  const linux = app.os === 'linux'
+  const tunnel = tunnelSteps(app, en)
+  if (en)
     return `
     <div class="card mp-online">
       <button type="button" class="close" aria-label="${t('common.close')}">×</button>
@@ -51,15 +78,17 @@ export function appCardHtml(app: DesktopApp): string {
         <li><b>From Chrome or Edge</b>, installing nothing: ${lanUrl ? `they open ${cmd(lanUrl)}` : `they open <code>http://&lt;your-IP&gt;:${port}</code>`}</li>
         <li><b>From their own app</b>: in <i>Room server</i> they type ${lanUrl ? cmd(`${app.lan}:${port}`) : `<code>&lt;your-IP&gt;:${port}</code>`}</li>
       </ul>
-      <p><small>If Windows asked about the firewall the first time you opened Autogiro, it has to be allowed on
-      private networks.</small></p>
+      <p><small>${
+        linux
+          ? `If you have a firewall turned on (ufw, firewalld…), it has to let port ${port} in.`
+          : 'If Windows asked about the firewall the first time you opened Autogiro, it has to be allowed on private networks.'
+      }</small></p>
       <h3>Friends at their homes</h3>
       <p>Your computer has to be reachable from the Internet. The easiest way is a <b>Cloudflare tunnel</b>:
       free, no account and no router changes. Only you do this.</p>
       <ol class="mp-steps">
-        <li><b>Install cloudflared</b> (first time only). In PowerShell:${cmd('winget install --id Cloudflare.cloudflared')}
-          <small>Close and reopen PowerShell after installing it.</small></li>
-        <li><b>Open the tunnel</b> and leave that window open:${cmd(`cloudflared tunnel --url http://localhost:${port}`)}
+        <li><b>Install cloudflared</b> (first time only). ${tunnel.install}</li>
+        <li><b>Open the tunnel</b> and leave that window open:${tunnel.run}
           <small>After a few seconds it shows, inside a box, an address like
           <code>https://…trycloudflare.com</code>.</small></li>
         <li><b>Create a room</b> here and send your friends that address with the code at the end:
@@ -68,10 +97,10 @@ export function appCardHtml(app: DesktopApp): string {
       </ol>
       <h3>Good to know</h3>
       <ul class="mp-notes">
-        <li>The tunnel address <b>changes every time</b> you open it. Keep the app and the PowerShell window open;
-          to finish, press <kbd>Ctrl</kbd>+<kbd>C</kbd> in PowerShell.</li>
+        <li>The tunnel address <b>changes every time</b> you open it. Keep the app and ${tunnel.window} open;
+          to finish, press <kbd>Ctrl</kbd>+<kbd>C</kbd> in ${tunnel.shell}.</li>
         <li>Friends playing in the browser need a computer with decent graphics. On a laptop with two GPUs the
-          browser often starts on the integrated one and stutters (the app always uses the dedicated one).
+          browser often starts on the integrated one and stutters${linux ? '' : ' (the app always uses the dedicated one)'}.
           <details><summary>${t('gpu.howto')}</summary>${gpuHelpHtml()}</details></li>
         <li><b>Google key:</b> everyone enters their own in the menu. Or fly with “Orthophoto + terrain”, which needs no key.</li>
         <li>It uses little bandwidth: about 4 KB/s per pilot in flight. Everyone downloads the scenery directly from IGN or Google.</li>
@@ -90,15 +119,17 @@ export function appCardHtml(app: DesktopApp): string {
         <li><b>Desde Chrome o Edge</b>, sin instalar nada: abren ${lanUrl ? cmd(lanUrl) : `<code>http://&lt;tu-IP&gt;:${port}</code>`}</li>
         <li><b>Desde su propia app</b>: en <i>Servidor de salas</i> escriben ${lanUrl ? cmd(`${app.lan}:${port}`) : `<code>&lt;tu-IP&gt;:${port}</code>`}</li>
       </ul>
-      <p><small>Si al abrir Autogiro la primera vez Windows preguntó por el firewall, tiene que estar permitido
-      en redes privadas.</small></p>
+      <p><small>${
+        linux
+          ? `Si tienes el cortafuegos activado (ufw, firewalld…), tiene que dejar entrar el puerto ${port}.`
+          : 'Si al abrir Autogiro la primera vez Windows preguntó por el firewall, tiene que estar permitido en redes privadas.'
+      }</small></p>
       <h3>Amigos en su casa</h3>
       <p>Tu ordenador tiene que verse desde Internet. Lo más fácil es un <b>túnel de Cloudflare</b>: gratis,
       sin cuenta y sin tocar el router. Solo lo haces tú.</p>
       <ol class="mp-steps">
-        <li><b>Instala cloudflared</b> (solo la primera vez). En PowerShell:${cmd('winget install --id Cloudflare.cloudflared')}
-          <small>Cierra y vuelve a abrir PowerShell después de instalarlo.</small></li>
-        <li><b>Abre el túnel</b> y deja esa ventana abierta:${cmd(`cloudflared tunnel --url http://localhost:${port}`)}
+        <li><b>Instala cloudflared</b> (solo la primera vez). ${tunnel.install}</li>
+        <li><b>Abre el túnel</b> y deja esa ventana abierta:${tunnel.run}
           <small>A los pocos segundos muestra, dentro de un recuadro, una dirección
           <code>https://…trycloudflare.com</code>.</small></li>
         <li><b>Crea una sala</b> aquí y pásales a tus amigos esa dirección con el código al final:
@@ -107,10 +138,10 @@ export function appCardHtml(app: DesktopApp): string {
       </ol>
       <h3>Conviene saber</h3>
       <ul class="mp-notes">
-        <li>La dirección del túnel <b>cambia cada vez</b> que lo abres. Deja abiertas la app y la ventana de
-          PowerShell; para terminar, <kbd>Ctrl</kbd>+<kbd>C</kbd> en PowerShell.</li>
+        <li>La dirección del túnel <b>cambia cada vez</b> que lo abres. Deja abiertas la app y
+          ${tunnel.window}; para terminar, <kbd>Ctrl</kbd>+<kbd>C</kbd> en ${tunnel.shell}.</li>
         <li>Los que jueguen en el navegador necesitan un ordenador con una gráfica decente. En un portátil con dos
-          gráficas el navegador suele arrancar con la integrada y va a tirones (la app usa siempre la dedicada).
+          gráficas el navegador suele arrancar con la integrada y va a tirones${linux ? '' : ' (la app usa siempre la dedicada)'}.
           <details><summary>${t('gpu.howto')}</summary>${gpuHelpHtml()}</details></li>
         <li><b>Clave de Google:</b> cada uno pone la suya en el menú. O volad en «Ortofoto + relieve», que no necesita clave.</li>
         <li>Gasta poco: unos 4 KB/s por piloto en vuelo. El paisaje lo descarga cada uno directamente del IGN o de Google.</li>
