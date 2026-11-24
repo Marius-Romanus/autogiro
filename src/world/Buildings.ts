@@ -38,6 +38,7 @@ import { facadeColour, parseOsmColour, roofColour } from './osmColour.ts'
 import { lampGridUniforms, nightUniforms, streetLampGLSL } from '../render/nightLights.ts'
 import { ROOF_CONE, ROOF_DOME, ROOF_FLAT, ROOF_GABLED, ROOF_HIPPED, ROOF_ONION, ROOF_PYRAMIDAL, ROOF_ROUND, ROOF_SKILLION } from './osmRoofFormat.ts'
 import { osmRoofsTile, type OsmRoof } from './osmRoofs.ts'
+import { worldRoofsTile } from './worldRoofs.ts'
 import { landmarkNear, replacedByLandmark } from './Landmarks.ts'
 import type { RoofJob } from './roof.worker.ts'
 import { buildRoofs } from './roofClient.ts'
@@ -326,12 +327,14 @@ export class Buildings extends TileLayer<BuildingTile> {
     const south = yToLat(t.y + 1, n)
     const west = xToLon(t.x, n)
     const east = xToLon(t.x + 1, n)
-    const [vt, ortho, , cat, osmRoofs] = await Promise.all([
+    const [vt, ortho, , cat, osmRoofs, worldRoofs] = await Promise.all([
       fetchVectorTile(t.x, t.y, signal),
       this.imageryUrl ? loadOrthoMosaic(this.imageryUrl, t.x, t.y, signal) : Promise.resolve(null),
       this.heights.ensure(south - 0.001, west - 0.001, north + 0.001, east + 0.001),
       this.useCatastro ? catastro.tile(t.x, t.y) : Promise.resolve(null),
       osmRoofsTile(t.x, t.y),
+      // fuera de España, los del fichero mundial (por zonas: worldRoofs.ts)
+      worldRoofsTile(t.x, t.y),
     ])
     if (signal.aborted) return null
     t.catPending = cat?.pending ?? false
@@ -409,6 +412,20 @@ export class Buildings extends TileLayer<BuildingTile> {
           const [cx, cy, a] = ringCentroidArea(draw[0].pts)
           osmRoof = osmRoofs.match(cx, cy, a * mPerPx * mPerPx, mPerPx, E)
         }
+        if (!osmRoof && worldRoofs && !draw[0].cut.some(Boolean)) {
+          // (el fichero mundial guarda el rectángulo envolvente, no el área)
+          let x0 = Infinity
+          let y0 = Infinity
+          let x1 = -Infinity
+          let y1 = -Infinity
+          for (const [px, py] of draw[0].pts) {
+            if (px < x0) x0 = px
+            if (px > x1) x1 = px
+            if (py < y0) y0 = py
+            if (py > y1) y1 = py
+          }
+          osmRoof = worldRoofs.match((x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) * mPerPx, (y1 - y0) * mPerPx, mPerPx, E)
+        }
         if (add(draw, height, minHeight, colour, hangar, osmRoof)) buildings++
       }
       // trocear el trabajo: ~6 ms por fotograma
@@ -453,6 +470,7 @@ export class Buildings extends TileLayer<BuildingTile> {
     const mesh = new Mesh(builder.build(), this.material)
     mesh.userData.catastro = fromCatastro
     mesh.userData.osmRoofs = osmRoofs ? `${osmRoofs.matched}/${osmRoofs.size}` : null
+    mesh.userData.worldRoofs = worldRoofs ? `${worldRoofs.matched}/${worldRoofs.size}` : null
     return { mesh, prisms, count: buildings }
   }
 

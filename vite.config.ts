@@ -2,19 +2,23 @@ import { defineConfig, type Plugin } from 'vite'
 import type { Server } from 'node:http'
 import { attachMultiplayer } from './server/rooms.ts'
 import { catastroProxy } from './server/catastro.ts'
+import { tejadosProxy } from './server/tejados.ts'
 
-/** Edificios del Catastro (/catastro/…, ver server/catastro.ts) en el servidor de Vite. */
+/**
+ * Edificios del Catastro (/catastro/…, ver server/catastro.ts) y tejados del mundo (/tejados/…,
+ * server/tejados.ts) en el servidor de Vite.
+ */
 function catastro(): Plugin {
   return {
     name: 'autogiro-catastro',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        if (!catastroProxy(req, res)) next()
+        if (!catastroProxy(req, res) && !tejadosProxy(req, res)) next()
       })
     },
     configurePreviewServer(server) {
       server.middlewares.use((req, res, next) => {
-        if (!catastroProxy(req, res)) next()
+        if (!catastroProxy(req, res) && !tejadosProxy(req, res)) next()
       })
     },
   }

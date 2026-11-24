@@ -278,8 +278,12 @@ el tiempo para todos, y cada uno su aparato.
 
 - **Tejados inclinados**: las casas y los bloques bajos llevan tejado a dos o cuatro aguas, los hangares
   de los aeródromos en bóveda y los cascos antiguos con faldones desde cada fachada. Los bloques altos y
-  las naves industriales quedan con azotea plana. Ni OpenStreetMap ni el Catastro dicen cómo es cada
-  tejado, así que la forma se deduce de la planta: se parece a la realidad, pero no es una copia exacta.
+  las naves industriales quedan con azotea plana. Donde nadie ha dicho cómo es el tejado, la forma se
+  deduce de la planta: se parece a la realidad, pero no es una copia exacta.
+- **Tejados de OpenStreetMap**: donde los voluntarios de OpenStreetMap han mapeado la forma del tejado
+  sale tal cual: cúpulas, chapiteles, bulbos, minaretes, dos y cuatro aguas con su orientación… Los de
+  España van con el juego; los del resto del mundo (casi 10 millones) se descargan solos por zonas de
+  unos 150 km según por dónde vuelas, unos pocos MB cada una.
 - **Edificios del Catastro** (España): muchas casas no están en OpenStreetMap, sobre todo en
   urbanizaciones y pueblos. El juego las completa con los edificios del Catastro, con su número real
   de plantas. Se descargan solos por municipios, los de alrededor y los que tienes por delante en el
@@ -355,6 +359,7 @@ si te gusta, [invítame a un café en Ko-fi](https://ko-fi.com/mario_creativecod
 - Edificios, formas de tejado, agua (mar, lagos y ríos), puentes y las calles, vías y puertos del tráfico
   © colaboradores de OpenStreetMap (ODbL), teselas de [OpenFreeMap](https://openfreemap.org) / OpenMapTiles,
   y © [Dirección General del Catastro](https://www.catastro.hacienda.gob.es) (datos INSPIRE de edificios).
+  Las formas de tejado de fuera de España llegan a través de [Overture Maps](https://overturemaps.org).
 - Tipo de estructura de los puentes (colgante, atirantado, arco, celosía): [Wikidata](https://www.wikidata.org) (CC0).
 - Mapa del mundo: aeródromos de [OurAirports](https://ourairports.com/data/) (dominio público), pistas y
   búsqueda de lugares © colaboradores de OpenStreetMap (OpenFreeMap y [Nominatim](https://nominatim.openstreetmap.org)).
@@ -662,8 +667,12 @@ for everyone, and each pilot picks their own aircraft.
 
 - **Pitched roofs**: houses and low-rise blocks get gable or hip roofs, airfield hangars get barrel
   roofs and old town centres get a roof slope from every façade. Tall blocks and industrial sheds keep a
-  flat roof. Neither OpenStreetMap nor the Catastro describe the roof itself, so its shape is worked out
-  from the footprint: it looks like the real thing, but it is not an exact copy.
+  flat roof. Where nobody has described the roof, its shape is worked out from the footprint: it looks
+  like the real thing, but it is not an exact copy.
+- **OpenStreetMap roofs**: wherever OpenStreetMap volunteers have mapped the roof shape, that is what you
+  get: domes, spires, onion domes, minarets, gable and hip roofs with their orientation… Spain's come
+  with the game; the rest of the world's (almost 10 million) download by themselves in ~150 km zones
+  wherever you fly, a few MB each.
 - **Catastro buildings** (Spain): many houses are missing from OpenStreetMap, especially in housing
   estates and villages. The game fills them in with the Land Registry buildings, with their real number
   of floors. They are downloaded automatically by municipality, around you and ahead along your current
@@ -741,6 +750,7 @@ if you like it, [buy me a coffee on Ko-fi](https://ko-fi.com/mario_creativecode)
 - Buildings, roof shapes, water (seas, lakes and rivers), bridges and the streets, tracks and harbours
   of the traffic © OpenStreetMap contributors (ODbL), tiles by [OpenFreeMap](https://openfreemap.org) / OpenMapTiles,
   and © [Dirección General del Catastro](https://www.catastro.hacienda.gob.es) (INSPIRE building data).
+  Roof shapes outside Spain come via [Overture Maps](https://overturemaps.org).
 - Bridge structure types (suspension, cable-stayed, arch, truss): [Wikidata](https://www.wikidata.org) (CC0).
 - World map: airfields from [OurAirports](https://ourairports.com/data/) (public domain), runways and
   place search © OpenStreetMap contributors (OpenFreeMap and [Nominatim](https://nominatim.openstreetmap.org)).

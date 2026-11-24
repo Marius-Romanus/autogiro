@@ -165,25 +165,28 @@ export class TileRoofs {
   }
 
   private read(i: number): OsmRoof {
-    const dv = this.dv
-    const o = HEADER + (this.first + i) * RECORD
-    const height = dv.getUint16(o + 12, true) / 10
-    const roofH = dv.getUint16(o + 16, true) / 10
-    const dir = dv.getUint16(o + 18, true)
-    const flags = dv.getUint8(o + 21)
-    const angle = dv.getUint8(o + 22)
-    const coloured = (flags & (FLAG_COLOUR | FLAG_MATERIAL)) !== 0
-    return {
-      shape: dv.getUint8(o + 20),
-      height: height > 0 ? height : null,
-      roofH: roofH > 0 ? roofH : null,
-      dir: dir === 0xffff ? null : dir,
-      angle: angle > 0 ? angle : null,
-      across: (flags & FLAG_ACROSS) !== 0,
-      rgb: coloured ? [dv.getUint8(o + 23), dv.getUint8(o + 24), dv.getUint8(o + 25)] : null,
-      fromMaterial: (flags & FLAG_MATERIAL) !== 0,
-      part: (flags & FLAG_PART) !== 0,
-    }
+    return readRoofRecord(this.dv, HEADER + (this.first + i) * RECORD)
+  }
+}
+
+/** Lee el registro que empieza en `o` (mismo formato en España y en el fichero mundial). */
+export function readRoofRecord(dv: DataView, o: number): OsmRoof {
+  const height = dv.getUint16(o + 12, true) / 10
+  const roofH = dv.getUint16(o + 16, true) / 10
+  const dir = dv.getUint16(o + 18, true)
+  const flags = dv.getUint8(o + 21)
+  const angle = dv.getUint8(o + 22)
+  const coloured = (flags & (FLAG_COLOUR | FLAG_MATERIAL)) !== 0
+  return {
+    shape: dv.getUint8(o + 20),
+    height: height > 0 ? height : null,
+    roofH: roofH > 0 ? roofH : null,
+    dir: dir === 0xffff ? null : dir,
+    angle: angle > 0 ? angle : null,
+    across: (flags & FLAG_ACROSS) !== 0,
+    rgb: coloured ? [dv.getUint8(o + 23), dv.getUint8(o + 24), dv.getUint8(o + 25)] : null,
+    fromMaterial: (flags & FLAG_MATERIAL) !== 0,
+    part: (flags & FLAG_PART) !== 0,
   }
 }
 

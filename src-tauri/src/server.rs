@@ -1,5 +1,5 @@
 //! Servidor HTTP local de la app: hace lo mismo que `server/index.ts` (sirve el juego
-//! compilado, las salas multijugador en /mp y el intermediario del Catastro en /catastro/…,
+//! compilado, las salas multijugador en /mp y los intermediarios del Catastro (/catastro/…) y de los tejados del mundo (/tejados/…),
 //! todo en el mismo puerto), sin Node.
 
 use std::io;
@@ -50,6 +50,8 @@ pub async fn serve(listener: TcpListener, root: PathBuf, rooms: Rooms) {
         .route("/mp", get(mp))
         // edificios del Catastro (sus zips no se pueden pedir desde la página): ver catastro.rs
         .route("/catastro/{*path}", get(crate::catastro::proxy))
+        // tejados de OSM del mundo (adjunto de GitHub sin CORS, por rangos): ver tejados.rs
+        .route("/tejados/{file}", get(crate::tejados::proxy))
         .fallback(static_file)
         .with_state(state);
     if let Err(e) = axum::serve(listener, app).await {

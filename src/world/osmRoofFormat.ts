@@ -21,6 +21,22 @@ export const MAGIC = 'ROF1'
 export const HEADER = 12
 export const RECORD = 28
 
+// Tejados de todo el mundo (worldRoofs.ts, generado con tools/world-roofs.py + tools/world-roofs.ts):
+// un solo fichero, alojado aparte, del que se piden por rangos las zonas por donde se vuela.
+//   Cabecera (WORLD_HEADER bytes): «ROW1», uint32 fecha de los datos (AAAAMMDD), uint32 número de
+//   zonas, uint8 nivel de las zonas (WORLD_Z), 3 bytes libres.
+//   Índice: por zona (ordenadas por clave = y · 2^Z + x) uint32 clave, uint32 desplazamiento,
+//   uint32 longitud (bytes comprimidos), uint32 número de registros.
+//   Zonas: registros de RECORD bytes comprimidos con zlib, ordenados por tesela z14, con el mismo
+//   formato que los de España salvo los bytes 8–11: uint16 ancho y uint16 alto del rectángulo
+//   envolvente de la huella (dm, este-oeste y norte-sur), y lat/lon = centro de ese rectángulo
+//   (los datos de Overture traen el rectángulo, no la huella).
+export const WORLD_MAGIC = 'ROW1'
+export const WORLD_HEADER = 16
+export const WORLD_INDEX = 16
+/** nivel de las zonas (z8: ~150 km; una zona densa de Alemania pesa unos 2–3 MB) */
+export const WORLD_Z = 8
+
 export const ROOF_FLAT = 0
 export const ROOF_GABLED = 1
 export const ROOF_HIPPED = 2
@@ -54,6 +70,7 @@ export const SHAPES: Record<string, number> = {
   hipped: ROOF_HIPPED,
   side_hipped: ROOF_HIPPED,
   'half-hipped': ROOF_HIPPED,
+  half_hipped: ROOF_HIPPED,
   side_half_hipped: ROOF_HIPPED,
   'side_half-hipped': ROOF_HIPPED,
   mansard: ROOF_HIPPED,

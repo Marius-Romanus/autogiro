@@ -14,6 +14,7 @@
 
 mod catastro;
 mod rooms;
+mod tejados;
 mod server;
 mod updates;
 
