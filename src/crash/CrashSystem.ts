@@ -27,7 +27,9 @@ export interface CrashWorld {
   /** mallas con las que se puede chocar (teselas, edificios…) */
   meshes(): Iterable<Mesh>
   /** ¿hay un edificio o la copa de un árbol en este punto? (si el escenario lo sabe sin rayos) */
-  obstacleAt?(p: Vector3): 'building' | 'tree' | null
+  obstacleAt?(p: Vector3): 'building' | 'bridge' | 'pylon' | 'tree' | 'vehicle' | null
+  /** tramos de cable de los tendidos (mundo: x0, y0, z0, x1, y1, z1…) a menos de r del punto */
+  wiresNear?(p: Vector3, r: number, out: number[]): void
   /** ¿está el punto dentro de la copa de un árbol? */
   inFoliage?: (p: Vector3) => boolean
   /** rayo contra el escenario (para obstáculos al vuelo) */

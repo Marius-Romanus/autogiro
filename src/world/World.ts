@@ -9,8 +9,10 @@ import {
   Mesh,
   MeshBasicMaterial,
   Raycaster,
+  Vector2,
   Vector3,
   type Camera,
+  type PerspectiveCamera,
   type Material,
   type Object3D,
   type Scene,
@@ -36,7 +38,14 @@ import { GeoFrame } from './GeoFrame.ts'
 import { Buildings } from './Buildings.ts'
 import { Trees } from './Trees.ts'
 import { Landmarks } from './Landmarks.ts'
+import { Bridges } from './Bridges.ts'
+import { PowerLines } from './PowerLines.ts'
 import { Runways } from './Runways.ts'
+import { GridRunways } from './gridRunways.ts'
+import { TerrainNormals } from './terrainNormals.ts'
+import { WaterMask } from './WaterMask.ts'
+import { flattenSea } from './seaLevel.ts'
+import { skipEsriPlaceholders } from './esriImagery.ts'
 import { fixIgnAvailability, hasIgnTerrain, QMHeightSource, TerrariumHeightSource, type HeightSource } from './HeightSource.ts'
 import type { Quality, Settings } from '../config.ts'
 import { getLang } from '../i18n.ts'
@@ -52,6 +61,7 @@ const _o = new Vector3()
 const _d = new Vector3()
 const _p = new Vector3()
 const _hits: any[] = []
+const _deck = { y: 0, normal: new Vector3() }
 
 /** MDT de 5 m del IGN (CNIG) como terreno quantized-mesh, con CORS abierto */
 const IGN_QM = 'https://qm-mdt.idee.es/1.0.0/terrain/'
@@ -106,6 +116,8 @@ class IgnAvailabilityPlugin {
   }
 }
 
+const _size = new Vector2()
+
 export class World {
   readonly frame = new GeoFrame()
   tiles!: TilesRenderer
@@ -123,6 +135,20 @@ export class World {
   landmarks: Landmarks | null = null
   /** pistas de OpenStreetMap alisadas sobre el MDT del IGN (dibujo y física) */
   runways: Runways | null = null
+  /** las mismas pistas alisadas en la rejilla del relieve global (Terrarium) */
+  gridRunways: GridRunways | null = null
+  /** material de normales del relieve global, para iluminar sus laderas (terrainNormals.ts) */
+  private terrainNormals: TerrainNormals | null = null
+  /** puentes de OpenStreetMap en 3D (modo sin clave, con los edificios) */
+  bridges: Bridges | null = null
+  /** alturas con que se perfilan los puentes (la malla fina del IGN, la de la física, o Terrarium) */
+  private bridgeHeights: HeightSource | null = null
+  /** tendidos eléctricos en 3D (modo sin clave, con los edificios) */
+  power: PowerLines | null = null
+  /** relieve grueso para el gálibo de los vanos */
+  private powerCoarse: HeightSource | null = null
+  /** dónde hay agua (mar, lagos, ríos), para iluminarla como agua (render/Water.ts) */
+  private water: WaterMask | null = null
   /** alturas para asentar edificios y árboles (compartidas) */
   private buildingHeights: HeightSource | null = null
   readonly attributionEl: HTMLElement
@@ -148,9 +174,19 @@ export class World {
     this.createTiles(lat, lon)
   }
 
-  /** Geometría real (Google o malla del IGN): admite el pase de normales para iluminar el relieve. */
+  /**
+   * El relieve admite el pase de normales para iluminar sus laderas: Google y la malla del IGN
+   * con su geometría, el global (desplazado en la GPU) con el material de terrainNormals.ts.
+   */
   get realGeometry(): boolean {
-    return this.mode === 'google' || this.terrainKind === 'ign'
+    return this.mode === 'google' || this.terrainKind !== null
+  }
+
+  /** Antes (true) y después (false) del pase de normales (Graphics.normalPassHook). */
+  normalPass(on: boolean): void {
+    if (!this.terrainNormals) return
+    if (on) this.terrainNormals.begin(this.meshes)
+    else this.terrainNormals.end()
   }
 
   private createTiles(lat: number, lon: number): void {
@@ -168,7 +204,8 @@ export class World {
       const spain = hasIgnTerrain(lat, lon)
       const src = this.settings.imagery === 'auto' ? (spain ? 'pnoa' : 'esri') : this.settings.imagery
       const imageryUrl = src === 'pnoa' ? PNOA : ESRI
-      const makeOverlay = () => new XYZTilesOverlay({ url: imageryUrl, levels: src === 'pnoa' ? 20 : 19 })
+      // (donde Esri no tiene imagen a un nivel, la del nivel anterior en vez de su cartel gris)
+      const makeOverlay = () => skipEsriPlaceholders(new XYZTilesOverlay({ url: imageryUrl, levels: src === 'pnoa' ? 20 : 19 }))
       const ign = usesIgnTerrain(this.settings, lat, lon)
       this.terrainKind = ign ? 'ign' : 'terrarium'
       const en = getLang() === 'en'
@@ -177,14 +214,21 @@ export class World {
         (src === 'pnoa'
           ? `${en ? 'PNOA orthophoto' : 'Ortofoto PNOA'} © Instituto Geográfico Nacional (scne.es) · ${relief}`
           : `${en ? 'Imagery' : 'Imágenes'} © Esri, Maxar, Earthstar Geographics · ${relief}`) +
-        (this.settings.buildings ? (en ? ' · Buildings © OpenStreetMap contributors (OpenFreeMap)' : ' · Edificios © colaboradores de OpenStreetMap (OpenFreeMap)') : '') +
+        // (el agua —dónde hay mar, lagos y ríos— también sale de OpenStreetMap, haya edificios o no)
+        (this.settings.buildings
+          ? en
+            ? ' · Buildings and water © OpenStreetMap contributors (OpenFreeMap)'
+            : ' · Edificios y agua © colaboradores de OpenStreetMap (OpenFreeMap)'
+          : en
+            ? ' · Water © OpenStreetMap contributors (OpenFreeMap)'
+            : ' · Agua © colaboradores de OpenStreetMap (OpenFreeMap)') +
         (this.settings.buildings && this.settings.catastro && spain ? (en ? ' and Dirección General del Catastro' : ' y Dirección General del Catastro') : '')
       if (ign) {
         tiles = new TilesRenderer(IGN_QM)
         tiles.registerPlugin(new IgnAvailabilityPlugin())
         tiles.registerPlugin(new QuantizedMeshPlugin({ useRecommendedSettings: true }))
         tiles.registerPlugin(new UnlitTerrainPlugin())
-        tiles.registerPlugin(new ImageOverlayPlugin({ overlays: [makeOverlay()], renderer: this.renderer, resolution: 256 } as any))
+        tiles.registerPlugin(new ImageOverlayPlugin({ overlays: [guardRegionCounts(makeOverlay())], renderer: this.renderer, resolution: 256 } as any))
         tiles.registerPlugin(new TilesFadePlugin({ fadeDuration: 300 }))
         // la malla más fina (nivel 16, ≈ 230 × 300 m por tesela) para el suelo del aparato
         const qm = new QMHeightSource(IGN_QM, 16)
@@ -193,7 +237,8 @@ export class World {
         this.runways = new Runways(qm, tiles as any)
         tiles.registerPlugin(this.runways.plugin())
         // y un nivel menos para asentar los edificios (cuatro veces menos peticiones)
-        if (this.settings.buildings || this.settings.trees) this.buildingHeights = new QMHeightSource(IGN_QM, 15)
+        // (siempre: los tendidos también lo usan y se pueden encender en vuelo; sin pedirle nada no descarga)
+        this.buildingHeights = new QMHeightSource(IGN_QM, 15)
       } else {
         tiles = new TilesRenderer()
         this.terrain = new TerrariumMeshPlugin({
@@ -203,9 +248,15 @@ export class World {
           applyOverlayTexture: true,
           unlit: true,
         })
+        // el relieve mundial trae el fondo marino: el mar, a cota 0
+        flattenSea(this.terrain)
+        // pistas alisadas en la propia rejilla de alturas (dibujo y física), perfiladas con
+        // el mismo nivel de Terrarium que usa el relieve (14)
+        this.gridRunways = new GridRunways(this.terrain, tiles as any, new TerrariumHeightSource(TERRARIUM, 14, 60))
+        this.terrainNormals = new TerrainNormals()
         tiles.registerPlugin(this.terrain as object)
         tiles.registerPlugin(new TilesFadePlugin({ fadeDuration: 300 }))
-        if (this.settings.buildings || this.settings.trees) this.buildingHeights = new TerrariumHeightSource(TERRARIUM, 15)
+        this.buildingHeights = new TerrariumHeightSource(TERRARIUM, 15)
       }
       if (this.buildingHeights && this.settings.buildings) {
         this.buildings = new Buildings(this.frame, this.buildingHeights, imageryUrl, this.settings.catastro && spain)
@@ -222,7 +273,26 @@ export class World {
         this.scene.add(this.trees.group)
         this.trees.syncFrame()
       }
+      if (this.settings.buildings) {
+        this.bridgeHeights = ign ? new QMHeightSource(IGN_QM, 16, 900) : new TerrariumHeightSource(TERRARIUM, 15)
+        this.bridges = new Bridges(this.frame, this.bridgeHeights, { imageryUrl, carve: ign })
+        // donde el MDT trae el puente incrustado, el terreno se rebaja con el mecanismo de las pistas
+        this.bridges.onCarve = (patches) => this.runways?.setExtra(patches)
+        this.scene.add(this.bridges.group, this.bridges.decals)
+        this.bridges.syncFrame()
+      }
+      if (this.buildingHeights) {
+        // tendidos: el pie de los apoyos con el relieve de los edificios; el gálibo de los vanos, con uno grueso.
+        // Se crean siempre y se encienden o apagan en vivo con su interruptor (main.ts → power.enabled)
+        this.powerCoarse = ign ? new QMHeightSource(IGN_QM, 13, 200) : new TerrariumHeightSource(TERRARIUM, 12, 120)
+        this.power = new PowerLines(this.frame, this.buildingHeights, this.powerCoarse)
+        this.scene.add(this.power.group)
+        this.power.enabled = this.settings.power
+        this.power.syncFrame()
+      }
     }
+    // (con los tiles de Google no está probado: su malla ya trae el agua con relieve y brillos)
+    if (this.mode === 'terrain') this.water = new WaterMask(this.frame)
     this.tiles = tiles
     this.applyQuality(this.settings.quality === 'auto' ? 'medium' : this.settings.quality)
     tiles.setCamera(this.camera)
@@ -250,6 +320,7 @@ export class World {
         const m = o as Mesh
         if (m.isMesh) {
           this.meshes.delete(m)
+          this.terrainNormals?.release(m)
           ;(m.geometry as any).boundsTree && (m.geometry as any).disposeBoundsTree()
         }
       })
@@ -277,6 +348,8 @@ export class World {
       t.errorTarget = { low: 2.2, medium: 1.5, high: 1.0, ultra: 0.75 }[q]
     }
     if (this.buildings) this.buildings.radius = { low: 2200, medium: 3500, high: 5000, ultra: 7000 }[q]
+    if (this.bridges) this.bridges.radius = { low: 2600, medium: 4000, high: 6000, ultra: 8000 }[q]
+    if (this.power) this.power.radius = { low: 3500, medium: 5000, high: 7000, ultra: 9000 }[q]
     if (this.trees) {
       this.trees.radius = { low: 900, medium: 1400, high: 2000, ultra: 2800 }[q]
       this.trees.maxPerTile = { low: 8000, medium: 16000, high: 30000, ultra: 45000 }[q]
@@ -286,9 +359,11 @@ export class World {
   get loadProgress(): number {
     const p = (this.tiles as any).loadProgress ?? 1
     // sin el perfil de las pistas cercanas el aparato se posaría en el MDT sin alisar
-    if (this.runways?.pending) return Math.min(p, 0.95)
+    if (this.runways?.pending || this.gridRunways?.pending) return Math.min(p, 0.95)
     // edificios del Catastro de alrededor del punto de salida (espera como mucho 25 s)
-    return this.buildings?.catastroBusy ? Math.min(p, 0.97) : p
+    if (this.buildings?.catastroBusy) return Math.min(p, 0.97)
+    // puentes de alrededor del punto de salida (por si se sale de uno; espera como mucho 12 s)
+    return this.bridges?.busy ? Math.min(p, 0.98) : p
   }
 
   update(): void {
@@ -300,18 +375,28 @@ export class World {
     this.buildings?.update(dt, this.camera.position)
     this.trees?.update(dt, this.camera.position)
     this.landmarks?.update(dt, this.camera.position)
+    this.bridges?.update(dt, this.camera.position)
+    if (this.power) {
+      this.power.setView(this.camera as PerspectiveCamera, this.renderer.getDrawingBufferSize(_size).y)
+      this.power.update(dt, this.camera.position)
+    }
+    this.water?.update(dt, this.camera.position)
     // malla fina del MDT alrededor de la cámara (≈ ±400 m), para que el suelo del aparato no espere
     this.prefetchTimer -= dt
-    if (this.heights && this.prefetchTimer <= 0) {
+    if ((this.heights || this.gridRunways) && this.prefetchTimer <= 0) {
       this.prefetchTimer = 0.5
       const g = this.frame.worldToGeo(this.camera.position)
-      const dLat = 0.0036
-      const dLon = dLat / Math.cos(g.lat * DEG)
-      void this.heights.ensure(g.lat - dLat, g.lon - dLon, g.lat + dLat, g.lon + dLon)
+      if (this.heights) {
+        const dLat = 0.0036
+        const dLon = dLat / Math.cos(g.lat * DEG)
+        void this.heights.ensure(g.lat - dLat, g.lon - dLon, g.lat + dLat, g.lon + dLon)
+      }
       this.runways?.update(g.lat, g.lon)
+      this.gridRunways?.update(g.lat, g.lon)
     }
     // pistas nuevas (o que se van): volver a alisar las teselas ya cargadas
     if (this.runways?.consumeChanged()) this.runways.reapply(this.meshes)
+    this.gridRunways?.sync(this.meshes)
   }
   private prefetchTimer = 0
 
@@ -322,7 +407,13 @@ export class World {
       const parts: string[] = []
       for (const a of attrs) if (a.type === 'string') parts.push(a.value)
       text = `Google · ${parts.join(' · ')}`
-    } else text = this.imageryName
+    } else {
+      text = this.imageryName
+      if (this.power?.enabled && this.power.towerCount > 0) {
+        const en = getLang() === 'en'
+        text += (en ? ' · Power lines © OpenStreetMap contributors' : ' · Tendidos © colaboradores de OpenStreetMap') + (this.power.usingOpenInfraMap ? ' (OpenInfraMap)' : '')
+      }
+    }
     if (this.attributionEl.textContent !== text) this.attributionEl.textContent = text
   }
 
@@ -339,6 +430,8 @@ export class World {
       this.buildings?.syncFrame()
       this.trees?.syncFrame()
       this.landmarks?.syncFrame()
+      this.bridges?.syncFrame()
+      this.power?.syncFrame()
     } catch (e) {
       console.error('Error recolocando el escenario al re-centrar el origen:', e)
     }
@@ -357,10 +450,24 @@ export class World {
   }
 
   /**
-   * Altura del terreno (Y del mundo) bajo (x, z) y normal. `null` si aún no hay datos.
+   * Altura del suelo (Y del mundo) bajo (x, z) y normal; false si aún no hay datos.
    * yHint: altura desde la que lanzar el rayo (por encima del aparato).
+   * deckMaxY: si se da, cuenta también la calzada de un puente que quede por debajo de esa
+   * altura (la del aparato: se puede rodar y posarse en el tablero; uno más alto es un techo).
+   * (deckDirX, deckDirZ): rumbo de un vehículo del tráfico; solo cuentan los tableros que lo llevan.
    */
-  sampleGround(x: number, z: number, yHint: number, out: GroundSample): boolean {
+  sampleGround(x: number, z: number, yHint: number, out: GroundSample, deckMaxY?: number, deckDirX = 0, deckDirZ = 0): boolean {
+    const ok = this.sampleTerrain(x, z, yHint, out)
+    if (deckMaxY !== undefined && this.bridges?.deckBelow(x, z, deckMaxY, _deck, deckDirX, deckDirZ) && (!ok || _deck.y > out.y)) {
+      out.y = _deck.y
+      out.normal.copy(_deck.normal)
+      return true
+    }
+    return ok
+  }
+
+  /** Altura del terreno (sin puentes) bajo (x, z) y normal. */
+  private sampleTerrain(x: number, z: number, yHint: number, out: GroundSample): boolean {
     if (this.heights || this.terrain) {
       const g = this.frame.worldToGeo(_p.set(x, yHint, z))
       const h = this.elevation(g.lat, g.lon)
@@ -394,11 +501,18 @@ export class World {
     return (this.buildings?.collides(p) ?? false) || (this.landmarks?.collides(p) ?? false)
   }
 
-  /** ¿Choca el punto (mundo) con un edificio o con la copa de un árbol? */
-  hitsObstacle(p: Vector3): 'building' | 'tree' | null {
+  /** ¿Choca el punto (mundo) con un edificio, un puente o la copa de un árbol? */
+  hitsObstacle(p: Vector3): 'building' | 'bridge' | 'pylon' | 'tree' | 'vehicle' | null {
     if (this.buildings?.collides(p) || this.landmarks?.collides(p)) return 'building'
+    if (this.bridges?.collides(p)) return 'bridge'
+    if (this.power?.collides(p)) return 'pylon'
     if (this.trees?.collides(p)) return 'tree'
     return null
+  }
+
+  /** ¿El punto (mundo) está dentro de un edificio? (los barcos amarrados bajo un edificio no se dibujan) */
+  insideBuilding(p: Vector3): boolean {
+    return !!(this.buildings?.collides(p) || this.landmarks?.collides(p))
   }
 
   /** Luz ambiente del cielo para edificios y árboles (el mismo mapa que el aparato). */
@@ -406,6 +520,8 @@ export class World {
     this.buildings?.setEnvMap(tex)
     this.trees?.setEnvMap(tex)
     this.landmarks?.setEnvMap(tex)
+    this.bridges?.setEnvMap(tex)
+    this.power?.setEnvMap(tex)
   }
 
   /** Raycast contra la geometría cargada (tiles de Google). */
@@ -459,10 +575,44 @@ export class World {
       this.scene.remove(this.landmarks.group)
       this.landmarks.dispose()
     }
+    if (this.bridges) {
+      this.scene.remove(this.bridges.group, this.bridges.decals)
+      this.bridges.dispose()
+    }
+    if (this.power) {
+      this.scene.remove(this.power.group)
+      this.power.dispose()
+    }
+    this.powerCoarse?.dispose()
+    this.bridgeHeights?.dispose()
+    this.water?.dispose()
     this.runways?.dispose()
+    this.gridRunways?.dispose()
     this.heights?.dispose()
     this.buildingHeights?.dispose()
   }
+}
+
+/**
+ * 3d-tiles-renderer 0.5.4: el overlay de la ortofoto cuenta las regiones visibles y lanza un
+ * error si la cuenta baja de cero. Pasa al recargar una tesela que se está viendo (Runways.reapply
+ * la saca de la caché para mallarla en rejilla cuando aparece una pista o el rebaje de un puente):
+ * al descargarla ya se descuenta su región, y si la nueva descarga empieza antes de que el
+ * renderizador la dé por no visible, ese aviso la descuenta otra vez. Aquí el descuento de más
+ * se ignora (la cuenta ya está a cero, que es lo cierto).
+ */
+function guardRegionCounts<T extends object>(overlay: T): T {
+  const o = overlay as any
+  const base = o.setRegionVisible
+  if (typeof base !== 'function') return overlay
+  o.setRegionVisible = function (this: any, range: number[], visible: boolean, ...rest: unknown[]) {
+    if (!visible) {
+      const entry = this._visibleRegionCounts?.get(range.join('_'))
+      if (!entry || entry.count <= 0) return
+    }
+    return base.call(this, range, visible, ...rest)
+  }
+  return overlay
 }
 
 /**

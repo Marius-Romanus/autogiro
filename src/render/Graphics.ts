@@ -66,6 +66,7 @@ import { DataTextureLoader, DEFAULT_STBN_URL, Geodetic, parseUint8Array, STBNLoa
 import type { CloudPreset, Quality } from '../config.ts'
 import { GroundDetailEffect } from './GroundDetailEffect.ts'
 import { LandingLightEffect } from './LandingLightEffect.ts'
+import { patchAerialWater, WaterSurface } from './Water.ts'
 import {
   csUniforms,
   EMPTY_CLOUD_SHADOW,
@@ -172,6 +173,8 @@ export class Graphics {
   private sunMu = 1
   private readonly camUp = new Vector3(0, 1, 0)
   readonly detail: GroundDetailEffect
+  /** mar, lagos y ríos: reflejo del cielo, brillo del sol y oleaje sobre el color de la foto */
+  readonly water = new WaterSurface()
   /** foco de aterrizaje sobre el terreno (tras la iluminación del efecto de atmósfera) */
   readonly landingLight: LandingLightEffect
   readonly tone: ToneMappingEffect
@@ -186,6 +189,8 @@ export class Graphics {
   /** normal "hacia arriba" en espacio de vista (1×1): iluminación del terreno sin pase de normales */
   private readonly flatNormal = new DataTexture(new Float32Array([0.5, 1, 0.5, 1]), 1, 1, RGBAFormat, FloatType)
   private geometryNormals = false
+  /** se llama antes (true) y después (false) de dibujar el pase de normales */
+  normalPassHook: ((on: boolean) => void) | null = null
   private bloomOn = true
   gpuName = ''
   gpuIntegrated = false
@@ -277,9 +282,12 @@ export class Graphics {
     const renderNormals = this.normalPass.render.bind(this.normalPass)
     this.normalPass.render = (...args) => {
       camera.layers.disable(OVERLAY_LAYER)
+      // (el relieve global cambia aquí a su material de normales: World.normalPass)
+      this.normalPassHook?.(true)
       try {
         renderNormals(...args)
       } finally {
+        this.normalPassHook?.(false)
         camera.layers.enable(OVERLAY_LAYER)
       }
     }
@@ -457,6 +465,8 @@ export class Graphics {
       this.composer.addPass(this.cloudsPass, idx)
     }
     this.cloudsEnabled = enabled
+    // nubes que tapan cielo en el reflejo del agua
+    this.water.cloudCover = { clear: 0, fair: 0.22, scattered: 0.4, overcast: 0.95 }[preset] ?? 0
     this.wireClouds()
     if (!this.cloudsEnabled) {
       this.cloudBottom = Infinity
@@ -519,9 +529,9 @@ export class Graphics {
   }
 
   /**
-   * Normales para iluminar el terreno en posproceso: de la geometría (tiles 3D
-   * de Google o malla del MDT del IGN, con un pase extra) o planas hacia arriba (ortofoto + relieve,
-   * cuyo relieve se desplaza en la GPU y no aparece en el pase de normales).
+   * Normales para iluminar el terreno en posproceso: del relieve (tiles 3D de Google, malla del
+   * MDT del IGN o relieve global con su material de normales, con un pase extra) o planas hacia
+   * arriba (calidades baja y media).
    */
   useGeometryNormals(flag: boolean): void {
     this.geometryNormals = flag
@@ -529,7 +539,7 @@ export class Graphics {
     this.aerial.normalBuffer = flag ? this.normalPass.texture : this.flatNormal
   }
 
-  /** realGeometry: el terreno es geometría real (Google o malla del IGN) y admite el pase de normales */
+  /** realGeometry: el relieve admite el pase de normales (World.realGeometry) */
   setQuality(q: Quality, realGeometry = false): void {
     const dpr = window.devicePixelRatio
     const ratio = { low: Math.min(dpr, 0.8), medium: Math.min(dpr, 1), high: Math.min(dpr, 1.5), ultra: Math.min(dpr, 2) }[q]

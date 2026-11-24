@@ -223,6 +223,7 @@ class App {
       this.world?.dispose()
       this.world = new World(s, this.gfx.scene, this.gfx.camera, this.gfx.renderer, loc.lat, loc.lon)
       this.world.applyQuality(this.quality)
+      this.gfx.normalPassHook = (on) => this.world?.normalPass(on)
       this.gfx.setQuality(this.quality, this.world.realGeometry)
       this.worldKey = key
     } else {
@@ -414,6 +415,8 @@ class App {
       this.gfx.update(w.frame.worldToECEF, ac.pos, gY, this.ground.n, ac.agl)
       this.updateEnvMap(dt, w.frame.worldToECEF)
       this.gfx.camera.updateMatrixWorld()
+      // tendidos: su interruptor, en vivo
+      if (w.power) w.power.enabled = this.settings.power
       w.update()
       if (Math.floor(t / 1000) !== Math.floor((t - dt * 1000) / 1000)) w.updateAttribution()
     }
@@ -930,8 +933,10 @@ class App {
       })
     }
     bindCheck('passenger')
+    $('passenger').addEventListener('change', () => this.previewAircraft())
     bindCheck('buildings')
     bindCheck('trees')
+    bindCheck('power')
     bindCheck('catastro')
     setupCatastroMenu()
     bindCheck('assist')
@@ -1035,6 +1040,7 @@ class App {
     set('elevation', s.elevation)
     set('buildings', s.buildings)
     set('trees', s.trees)
+    set('power', s.power)
     set('catastro', s.catastro)
     syncCurrentDeparture($('location') as HTMLSelectElement, s)
     set('location', s.locationId)
