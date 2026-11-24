@@ -40,8 +40,9 @@ autogiro no se pilota como un avión ni como un helicóptero.
   puede pasar por debajo y tendidos eléctricos contra los que te puedes estrellar. Con una clave de
   Google puedes usar también el 3D fotorrealista de Google en cualquier parte del planeta.
 - **Ciudades con vida.** Coches, furgonetas, camiones y autobuses circulan por las calles de todo el
-  mundo respetando carriles, cedas el paso, rotondas y semáforos; hay trenes por las vías y barcos en
-  los puertos. Al anochecer se encienden las farolas y las ventanas de los edificios.
+  mundo respetando carriles, cedas el paso, rotondas y semáforos; hay trenes y tranvías, y ferris,
+  barcos de recreo, pesqueros y mercantes en puertos, lagos y ríos. Al anochecer se encienden las
+  farolas y las ventanas de los edificios.
 - **Cielo de verdad.** Atmósfera física, nubes volumétricas con su sombra, la hora y la fecha que
   quieras, viento y turbulencia, y vuelo nocturno con luces de navegación y de aterrizaje.
 - **Sal desde cualquier punto del planeta.** En el menú, «Elegir en el mapa del mundo» abre un globo
@@ -311,13 +312,13 @@ pase el río. Van con los *Edificios 3D* del menú.
 
 Por las carreteras y calles de OpenStreetMap de cualquier parte del mundo circulan coches, furgonetas,
 camiones, tráileres y autobuses, por el lado que toca en cada país: van por su carril, ceden el paso,
-entran en las rotondas, paran en los semáforos y no se atraviesan unos a otros. Hay trenes por las
-vías, con sus pasos a nivel, y barcos en los puertos. Es
+entran en las rotondas, paran en los semáforos y no se atraviesan unos a otros. Hay trenes y tranvías,
+con sus pasos a nivel, y ferris, barcos de recreo, pesqueros y mercantes en puertos, lagos y ríos. Es
 tráfico simulado, no el real del momento, y cambia con la hora: en hora punta hay más. Se puede chocar
 con ellos, así que ojo al tomar en un camino.
 
-Al anochecer los vehículos encienden los faros, las farolas alumbran las calles urbanas (unas de
-sodio, naranjas, y otras LED, blancas) y se encienden las ventanas de los edificios: muchas hacia las
+Al anochecer los vehículos encienden los faros, las farolas alumbran las calles urbanas y sus fachadas
+(unas de sodio, naranjas, y otras LED, blancas) y se encienden las ventanas de los edificios: muchas hacia las
 nueve de la noche y pocas de madrugada. *Menú → Escenario → Tráfico* quita los vehículos; las farolas
 y las ventanas siguen.
 
@@ -412,8 +413,9 @@ like an aeroplane nor like a helicopter.
   rivers with waves and reflections, 3D bridges you can fly under and power lines you can crash into.
   With a Google key you can also use Google's photorealistic 3D anywhere on Earth.
 - **Living cities.** Cars, vans, lorries and buses drive through the streets all over the world,
-  keeping to their lanes, giving way and handling roundabouts and traffic lights; trains run on the
-  tracks and boats sail in the harbours. At dusk the street lights and the building windows light up.
+  keeping to their lanes, giving way and handling roundabouts and traffic lights; there are trains
+  and trams, and ferries, pleasure boats, fishing boats and cargo ships in harbours, lakes and rivers.
+  At dusk the street lights and the building windows light up.
 - **A real sky.** Physical atmosphere, volumetric clouds with their shadows, any time and date,
   wind and turbulence, and night flying with navigation and landing lights.
 - **Start anywhere on the planet.** In the menu, “Pick on the world map” opens a globe you spin and
@@ -684,13 +686,14 @@ so the river can pass. They come with *3D buildings* in the menu.
 
 Cars, vans, lorries, articulated lorries and buses drive along the OpenStreetMap roads and streets
 anywhere in the world, on the right side for each country: they keep to their lane, give way, enter
-roundabouts, stop at traffic lights and never drive through each other. Trains run on the tracks,
-with their level crossings, and boats sail in the harbours. It's simulated traffic, not the real
+roundabouts, stop at traffic lights and never drive through each other. There are trains and trams,
+with their level crossings, and ferries, pleasure boats, fishing boats and cargo ships in harbours,
+lakes and rivers. It's simulated traffic, not the real
 traffic of the moment, and it changes with the time of day: there's more at rush hour. You can crash
 into them, so watch out when landing on a road.
 
-At dusk the vehicles turn on their headlights, the street lights light up the urban streets (some
-orange sodium, some white LED) and the building windows light up: lots of them around nine in the
+At dusk the vehicles turn on their headlights, the street lights light up the urban streets and
+their façades (some orange sodium, some white LED) and the building windows light up: lots of them around nine in the
 evening and few in the small hours. *Menu → Scenery → Traffic* removes the vehicles; the street
 lights and windows stay.
 
