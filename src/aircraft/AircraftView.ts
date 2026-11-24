@@ -142,6 +142,8 @@ export class AircraftView {
   /** luces de navegación, destellos y foco de aterrizaje */
   readonly lights = new AircraftLights()
   private modelKey = ''
+  /** boquillas de fumigación del modelo (nodos `spray_NN`, Gyro Tractor); vacío si no lleva */
+  sprayNozzles: Object3D[] = []
   private readonly cgOff = new Vector3()
   private glassMeshes: Mesh[] = []
 
@@ -194,6 +196,7 @@ export class AircraftView {
       })
     }
     this.parts = {}
+    this.sprayNozzles = []
     this.rig = null
     this.rotorSpin = null
     this.propSpin = null
@@ -232,6 +235,9 @@ export class AircraftView {
     if (this.parts.eye_front) this.eyeLocal.copy(this.parts.eye_front.position).sub(CG)
     if (this.parts.pilot_rear) this.parts.pilot_rear.visible = false
     if (this.parts.rotor) this.rotorRest.copy(this.parts.rotor.position)
+    scene.traverse((o) => {
+      if (/^spray_\d+$/.test(o.name)) this.sprayNozzles.push(o)
+    })
 
     scene.traverse((o) => {
       const m = o as Mesh

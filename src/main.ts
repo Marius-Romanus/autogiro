@@ -35,6 +35,7 @@ import { gpuHelpHtml } from './hud/gpuHelp.ts'
 import { Sound } from './audio/Sound.ts'
 import { Multiplayer } from './net/Multiplayer.ts'
 import { CrashSystem, type AircraftState, type CrashWorld } from './crash/CrashSystem.ts'
+import { CropSprayer } from './fx/SprayFx.ts'
 import type { RoomConditions } from './net/protocol.ts'
 import { WorldMap, type MapPick } from './menu/WorldMap.ts'
 import { buildLocationSelect, localizeLocationSelect, showDeparture, syncCurrentDeparture } from './menu/locationSelect.ts'
@@ -114,6 +115,8 @@ class App {
   private worldMap = new WorldMap()
   /** física de accidentes (despiece con Rapier, src/crash) */
   crashSys: CrashSystem
+  /** fumigación del Gyro Tractor (src/fx/SprayFx.ts) */
+  spray: CropSprayer
   private crashShown = false
   /** estado al principio del fotograma (para rebobinar choques con obstáculos) */
   private snap: AircraftState = { pos: new Vector3(), quat: new Quaternion(), vel: new Vector3(), omega: new Vector3() }
@@ -126,6 +129,7 @@ class App {
     this.gfx.sunLight.shadow.camera.layers.enable(SHADOW_ONLY_LAYER)
     this.gfx.scene.add(this.view.root)
     this.crashSys = new CrashSystem(this.gfx.scene, { sun: this.gfx.sunLight, sky: this.gfx.skyLight })
+    this.spray = new CropSprayer(this.gfx.scene, { sun: this.gfx.sunLight, sky: this.gfx.skyLight })
     this.input = new Input(this.settings, this.gfx.renderer.domElement)
     // interruptores y llave del panel, pulsables en la vista de cabina
     this.view.cockpit.bindPointer(
@@ -179,6 +183,7 @@ class App {
     this.loadedAircraft = m.id
     void this.view.load(`${import.meta.env.BASE_URL}${m.url}`, airframeById(m.id)).then(() => {
       this.view.setPassenger(this.settings.passenger)
+      this.spray.setNozzles(this.view.sprayNozzles)
       if (this.envTex) this.view.setEnvMap(this.envTex)
     })
   }
@@ -240,6 +245,8 @@ class App {
     this.ac.setAirframe(airframeById(s.aircraft))
     this.ac.setLoad(s.passenger)
     this.view.setPassenger(s.passenger)
+    // fumigador: tolva cargada (hasta el peso máximo) y paso cerrado
+    this.spray.reset(airframeById(s.aircraft).sprayer, this.view.sprayNozzles, this.ac)
     this.ac.crash = null
     this.crashSys.reset()
     this.crashShown = false
@@ -335,6 +342,7 @@ class App {
     this.rig.rebase(m)
     this.gfx.detail.rebase(m)
     this.gfx.water.rebase(m)
+    this.spray.rebase(m)
     this.spawnXZ.applyMatrix4(m)
     this.gfx.camera.position.applyMatrix4(m)
     this.gfx.camera.quaternion.premultiply(q)
@@ -408,6 +416,10 @@ class App {
       this.rig.update(dt, ac, this.view, groundY, this.input.dragging)
     }
     this.view.lights.update(dt, this.gfx.camera, this.gfx.renderer.toneMappingExposure, this.gfx.sunDirWorld.y)
+    // fumigación: caldo de las boquillas, gotas en el aire y nivel de la tolva
+    const sprayGround = this.ground.valid ? this.ground.heightAt(ac.pos.x, ac.pos.z, this.wv2) : null
+    const sprayMsg = this.spray.update(dt, ac, this.view.root, this.wv, sprayGround, this.state === 'flying' && !this.menuOpen)
+    if (sprayMsg) this.toast(sprayMsg)
 
     // luces / atmósfera
     if (w) {
@@ -701,6 +713,9 @@ class App {
         case 'guide':
           if (!this.menuOpen) this.guide.toggle()
           break
+        case 'spray':
+          if (!this.menuOpen && this.state === 'flying') this.toast(this.spray.toggle())
+          break
         case 'mouseStick':
           this.input.mouseStick = !this.input.mouseStick
           this.settings.mouseStick = this.input.mouseStick
@@ -961,6 +976,7 @@ class App {
     // sin foco tras el clic: si no, Espacio (frenos) volvería a pulsar el botón
     $('btn-lights').addEventListener('mousedown', (e) => e.preventDefault())
     $('btn-lights').addEventListener('click', () => this.toggleLights())
+    this.spray.button.addEventListener('click', () => this.input.trigger('spray'))
     $('crash-retry').addEventListener('click', () => {
       this.spawn()
       this.closeMenu()

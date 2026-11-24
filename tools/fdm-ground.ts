@@ -19,6 +19,9 @@ const pitchOf = (ac: Autogyro) => Math.asin(new Vector3(1, 0, 0).applyQuaternion
 // solo interesa la carrera: sin nadie a los mandos, una vez en el aire acabaría cayendo de lado.
 const GROUND_AF: Record<string, { runRpm: number; runStick: number; preThrottle: number; stopAgl: number }> = {
   carterpav: { runRpm: 300, runStick: 0.3, preThrottle: 1, stopAgl: 1 },
+  // con el 915 iS (un 20 % más de par que el 914) las ~3400 rpm de motor de la guía salen con un tercio de gas
+  vencejo: { runRpm: 176, runStick: 1, preThrottle: 0.33, stopAgl: 8 },
+  tractor: { runRpm: 215, runStick: 1, preThrottle: 0.33, stopAgl: 8 },
 }
 
 let fails = 0

@@ -161,7 +161,8 @@ class Billboards {
   }
 }
 
-const BILLBOARD_VS = /* glsl */ `
+// (también los usa la fumigación: SprayFx.ts)
+export const BILLBOARD_VS = /* glsl */ `
   #include <common>
   #include <logdepthbuf_pars_vertex>
   attribute vec3 iPos;
@@ -180,7 +181,7 @@ const BILLBOARD_VS = /* glsl */ `
     #include <logdepthbuf_vertex>
   }
 `
-const BILLBOARD_FS = /* glsl */ `
+export const BILLBOARD_FS = /* glsl */ `
   #include <common>
   #include <logdepthbuf_pars_fragment>
   uniform sampler2D map;
@@ -199,7 +200,7 @@ const BILLBOARD_FS = /* glsl */ `
   }
 `
 
-function softTexture(size: number, kind: 'dust' | 'spark'): CanvasTexture {
+export function softTexture(size: number, kind: 'dust' | 'spark'): CanvasTexture {
   const c = document.createElement('canvas')
   c.width = c.height = size
   const g = c.getContext('2d')!

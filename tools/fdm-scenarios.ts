@@ -333,7 +333,8 @@ function landing(name: string, flareAgl: number, approachStick: number, engineOf
   }
   if (rows.length) report('Aterrizaje sin motor (planeo a ~80 km/h, tirar de palanca al llegar a la altura indicada)', good >= 3, `\n        ${rows.join('\n        ')}`)
   // (el Cavalon, más pesado y con menos recorrido de cabeza hacia atrás, recoge un metro antes)
-  const flareOff = ({ cavalon: 7, sclightning: 8, sclightning_f: 7 } as Record<string, number>)[airframe.id] ?? 6
+  // (el Gyro Tractor, con las barras, planea empinado: hay que empezar la recogida más arriba)
+  const flareOff = ({ cavalon: 7, sclightning: 8, sclightning_f: 7, tractor: 8, wa116: 8 } as Record<string, number>)[airframe.id] ?? 6
   const o2 = landing('Aterrizaje con motor PARADO', flareOff, 0.25, true)
   if (o2) {
     const td = o2.touchdown
@@ -388,7 +389,8 @@ if (run('Flapping')) {
   // Un rotor articulado de palas largas y lentas (el Cierva, 3 palas con articulaciones de
   // batimiento) no golpea los topes: corriendo se embala y el aparato se va al aire, que es como
   // despegaban los primeros Cierva antes de tener prerrotador. Lo que se comprueba entonces es eso.
-  const articulated = airframe.rotor.blades > 2
+  // (el tripala del Vencejo es uno moderno, sin articulaciones: bate como los bipala)
+  const articulated = airframe.rotor.blades > 2 && airframe.id === 'cierva'
   // El rotor del Carter PAV, con 34 kg en cada punta, tampoco llega a los topes: el aparato se va al
   // aire con el ala (y, sin nadie al alabeo en esta prueba, acaba tocando con una punta).
   const heavy = Boolean(airframe.slowedRotor)

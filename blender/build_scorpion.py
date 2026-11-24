@@ -515,12 +515,14 @@ def build_keel():
                'Metal_Frame', n=10)
     # tail tube up to the tailplane, flattened bar under the stab to the tail wheel
     a = R(NODE[0] - 0.03, NODE[1] + 0.01)
-    b = R(-1.44, -2.195)
+    # tube end and bar tight under the tailplane, no gap (side_left_pure_1: the stab underside rests on the
+    # bar); they sat 2 cm low with spacer blocks in between
+    b = R(-1.44, -2.182)
     mb.cyl(a, b, 0.030, 'Paint_White', n=16)
-    mb.tube([R(-1.40, -2.200), R(-1.80, -2.200), R(-2.12, -2.200)], 0.0, 'Paint_White', n=12,
+    mb.tube([R(-1.40, -2.181), R(-1.80, -2.182), R(-2.12, -2.158)], 0.0, 'Paint_White', n=12,
             square=(0.05, 0.04, 6), cap=True)
-    for x in (-1.50, -1.90):
-        mb.box(R(x, -2.168), (0.05, 0.06, 0.03), 'Metal_Frame', bevel=0.004, segs=1)
+    for x in (-1.50, -1.90):        # clamp bands round the bar
+        mb.box(R(x, -2.181 if x > -1.7 else -2.177), (0.03, 0.058, 0.045), 'Metal_Frame', bevel=0.004, segs=1)
     # tail wheel (small castor) under the bar end
     tw = R(-2.07, -2.222)
     mb.lathe(B.tire_profile(0.032, 0.016, 0.022), tw, V(0, 1, 0), 'Rubber', n=20, closed_profile=True)

@@ -36,6 +36,9 @@ export function make(dual = false): Autogyro {
   const ac = new Autogyro(airframe)
   applyTune(ac)
   ac.setLoad(dual)
+  // fumigador (monoplaza): «con pasajero» es con la tolva cargada
+  const sp = airframe.sprayer
+  if (dual && sp) ac.setPayload(sp.load * sp.density)
   const rp = { ...ac.rotor.p }
   for (const [k, v] of Object.entries(overrides)) {
     if (k === 'pitch') rp.pitch = (v * Math.PI) / 180
@@ -224,6 +227,25 @@ const REFS: Record<string, Ref> = {
   // Cavalon con el 914 (manual de vuelo): VNE 160-195 km/h según el rotor, crucero 145, ascenso
   // 3,8 m/s con 500 kg, planeo 1:3
   cavalon: { vmax: [155, 185], climbSolo: [4.5, 7.0], climbDual: [3.0, 4.8], glide: [3.3, 4.8], vmin: [35, 60] },
+  // Vencejo X1 (inventado): casco limpio, hélice carenada y 141 CV; algo más rápido que un Calidus
+  // Wallis WA-116 (monoplaza de 72 CV, ~230 kg en vuelo): máxima ~160 km/h, ascenso ~5,4 m/s
+  // (1000+ ft/min); rotor pequeño de 6,20 m muy cargado; «con pasajero» = el mismo vuelo
+  wa116: {
+    vmax: [130, 170], climbSolo: [3.8, 6.5], climbDual: [3.8, 6.5], glide: [2.8, 4.7], minSink: [4.0, 8.0],
+    vmin: [30, 60], pmin: [12, 30], rpmGlide: [380, 520], rpmCruise: [400, 540], rpmDual: [400, 540], cruiseIas: [80, 115],
+  },
+  // ELA Gyro Tractor (hoja de ELA): fumiga a 110 km/h y sube 500 ft/min (2,5 m/s) a 650 kg;
+  // «con pasajero» = tolva cargada (650 kg), «solo» = tolva vacía. Las barras frenan mucho (más
+  // potencia mínima) y el rotor del ELA 07 con 650 kg gira más deprisa que en un biplaza
+  tractor: {
+    vmax: [130, 170], climbSolo: [3.8, 7.5], climbDual: [2.0, 3.8], glide: [2.8, 4.4], pmin: [30, 55],
+    cruiseIas: [95, 120], rpmCruise: [330, 395], rpmDual: [380, 460],
+  },
+  // rotor tripala de 8,80 m: gira a ~0,82 de las vueltas de los bipala y, grande y ligero, cae despacio
+  vencejo: {
+    vmax: [185, 215], climbSolo: [5.5, 9.0], climbDual: [3.8, 6.5], glide: [4.0, 6.4], minSink: [3.3, 6.0],
+    rpmGlide: [260, 305], rpmCruise: [265, 310], rpmDual: [285, 335],
+  },
   cierva: {
     vmax: [142, 165],
     climbSolo: [2.1, 3.4],

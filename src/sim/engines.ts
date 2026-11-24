@@ -100,6 +100,56 @@ export const ROTAX_914UL: EngineSpec = {
 }
 
 /**
+ * Rotax 915 iS (ELA Gyro Tractor): turbo con intercooler e inyección, 141 CV (104 kW) en despegue a
+ * 5800 rpm y 135 CV continuos, reductora de 2,54:1. Rotax no publica el par: con 104 kW a 5800 rpm
+ * son 171 N·m, y en banco dan ~176 N·m con una curva plana (máximo hacia 5000 rpm). Mantiene la
+ * potencia de despegue hasta 15 000 ft (4572 m, ρ ≈ 0,77 kg/m³).
+ */
+export const ROTAX_915IS: EngineSpec = {
+  id: '915is',
+  name: 'Rotax 915 iS',
+  maxPower: 104000,
+  torquePeak: 175,
+  rpmPeak: 5000,
+  dropBelow: 2.8e-6,
+  dropAbove: 6.25e-6,
+  // el mismo par al ralentí que el 914
+  idle: 0.171,
+  turbo: true,
+  rhoCrit: 0.77,
+  ...ROTAX_COMMON,
+  gear: 2.54,
+}
+
+/**
+ * McCulloch 4318A (Wallis WA-116 Agile): el motor de los blancos aéreos del ejército de EE. UU.
+ * (O-100-1), cuatro cilindros opuestos de dos tiempos refrigerados por aire, 1,63 l, 35 kg. 72 CV
+ * (54 kW) a 4100 rpm en toma directa: la hélice gira a las vueltas del motor. Cuatro cilindros de dos
+ * tiempos dan las explosiones por vuelta de ocho de cuatro tiempos (de ahí `cylinders`).
+ */
+export const MCCULLOCH_4318A: EngineSpec = {
+  id: 'mcculloch-4318a',
+  name: 'McCulloch 4318A',
+  maxPower: 53700,
+  torquePeak: 128,
+  rpmPeak: 3700,
+  dropBelow: 9.7e-6,
+  dropAbove: 1.9e-5,
+  idle: 0.2,
+  turbo: false,
+  rhoCrit: 1.225,
+  gear: 1,
+  rpmLimit: 4300,
+  starterRpm: 900,
+  idleRpm: 1800,
+  cruiseRpm: 3600,
+  friction: [3, 0.001],
+  inertia: 0.3,
+  cylinders: 8,
+  tach: { max: 5000, step: 1000, minor: 500, green: [1800, 4100], yellow: [4100, 4200], red: 4200 },
+}
+
+/**
  * Armstrong Siddeley Genet Major IA (Cierva C.30A): radial de 7 cilindros, 7,3 l, atmosférico y
  * de toma directa. 140 CV (104 kW) a 2200 rpm según Flight (1934); la libreta del motor que probó
  * la RAE daba 152 CV a 2420 rpm (ARC R&M 1859). Par máximo ~460 N·m hacia 2000 rpm. Al ralentí

@@ -63,10 +63,11 @@ const YAW_ROD: Record<string, { x: number; top: number }> = {
 }
 
 /**
- * Aparatos sin hilo de guiñada: el C.30A de 1934 no lo llevaba, y el Carter PAV es más avión que
- * autogiro (cabina de avión, con su bola en el panel).
+ * Aparatos sin hilo de guiñada: el C.30A de 1934 no lo llevaba, el Carter PAV es más avión que
+ * autogiro (cabina de avión, con su bola en el panel) y el Vencejo X1 inventado lleva la bola en la
+ * pantalla (y su cúpula de una pieza, casi invisible, dejaba el hilo flotando en el aire).
  */
-const NO_YAW_STRING = new Set(['cierva_c30a', 'carterpav'])
+const NO_YAW_STRING = new Set(['cierva_c30a', 'carterpav', 'vencejo'])
 
 /** Lo que el hilo necesita del aparato. */
 export interface CockpitAircraft {

@@ -117,6 +117,8 @@ export class Autogyro {
   readonly rotor = new Rotor(DEFAULT_ROTOR)
 
   mass = 400
+  /** carga que se suelta en vuelo (kg): el producto de la tolva de un fumigador (`setPayload`) */
+  payload = 0
   readonly inertia = new Vector3(320, 470, 540) // alabeo, guiñada, cabeceo
 
   // motor
@@ -238,7 +240,7 @@ export class Autogyro {
     // (un monoplaza no lleva pasajero aunque el menú lo pida)
     this.passenger = passenger
     const pax = passenger && (this.af.seats ?? 2) > 1 ? PASSENGER_MASS : 0
-    this.mass = this.af.emptyMass + this.af.fuelMass + PILOT_MASS + pax
+    this.mass = this.af.emptyMass + this.af.fuelMass + PILOT_MASS + pax + this.payload
     // asientos lado a lado: cada ocupante tira del CG hacia su lado
     const sz = this.af.seatZ
     this.cgOff.set(0, 0, sz ? (PILOT_MASS * sz.pilot + pax * sz.passenger) / this.mass : 0)
@@ -247,6 +249,22 @@ export class Autogyro {
     // lo justo para que el empuje del rotor pase por el CG (el fuselaje cuelga algo ladeado)
     if (sz) this.tune.rollTrim = (this.af.rollTrim ?? 0.35) - Math.atan2(this.cgOff.z, this.af.hub.y - this.cg.y) / DEG
     for (let i = 0; i < this.contacts.length; i++) this.contacts[i].r.copy(this.contactPts[i]).sub(this.cg)
+    this.scaleInertia()
+  }
+
+  /**
+   * Carga suelta en vuelo (kg, va sobre el CG: la tolva de un fumigador está detrás del piloto, encima
+   * del CG). Cambia la masa y las inercias sin tocar lo demás.
+   */
+  setPayload(kg: number): void {
+    const m = Math.max(0, kg)
+    if (m === this.payload) return
+    this.mass += m - this.payload
+    this.payload = m
+    this.scaleInertia()
+  }
+
+  private scaleInertia(): void {
     const s = this.mass / 400
     const [ix, iy, iz] = this.af.inertia ?? [320, 470, 540]
     this.inertia.set(ix * s, iy * s, iz * s)

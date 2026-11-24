@@ -11,7 +11,7 @@
 // también el peso en vacío, la resistencia de la célula y el motor (prestaciones).
 
 import { Vector3 } from 'three'
-import { GENET_MAJOR, LYCOMING_IO540, ROTAX_503, ROTAX_912ULS, ROTAX_914UL, type EngineSpec } from './engines.ts'
+import { GENET_MAJOR, LYCOMING_IO540, MCCULLOCH_4318A, ROTAX_503, ROTAX_912ULS, ROTAX_914UL, ROTAX_915IS, type EngineSpec } from './engines.ts'
 import { DEFAULT_ROTOR, type RotorParams } from './rotor.ts'
 import type { WreckZones } from './wreck/parts.ts'
 import type { CspPropSpec, SlowedRotorSpec, WingSpec } from './compound.ts'
@@ -168,6 +168,11 @@ export interface Airframe {
   seatZ?: { pilot: number; passenger: number }
   /** incidencia del estabilizador respecto al fuselaje (°, + borde de ataque arriba); −1,5 si falta */
   stabIncidence?: number
+  /**
+   * Equipo de fumigación (Gyro Tractor): tolva y barras. Las boquillas son los nodos `spray_NN` del
+   * modelo; la tecla U abre y cierra el paso (src/fx/SprayFx.ts) y el producto que sale aligera el aparato.
+   */
+  sprayer?: SprayerSpec
 
   // ---- Autogiro compuesto de rotor frenado (Carter PAV): `compound.ts` ----
   /** ala con alerones (fuerzas en el centro aerodinámico de cada franja) */
@@ -185,6 +190,17 @@ export interface Airframe {
    * automático y salto. Avisos y accidente de bajas vueltas referidos a la ley de vueltas.
    */
   slowedRotor?: SlowedRotorSpec
+}
+
+export interface SprayerSpec {
+  /** capacidad de la tolva (l) y lo que se carga al salir (l: hasta el peso máximo) */
+  hopper: number
+  load: number
+  /** densidad del caldo (kg/l) */
+  density: number
+  /** dosis (l/ha) y anchura de pasada (m): el caudal sigue a la velocidad respecto al suelo */
+  rate: number
+  swath: number
 }
 
 export interface PropCoef {
@@ -1115,6 +1131,213 @@ export const NIKI: Airframe = {
   ],
 }
 
+/**
+ * Wallis WA-116 Agile (Ken Wallis, Reymerston Hall, Norfolk): el prototipo G-ARRT de 1961, el de la
+ * serie que construyó Beagle (y del que salió «Little Nellie»). Monoplaza abierto diminuto: góndola
+ * de fibra con el piloto al aire, mástil inclinado adelante con la cabeza de cardán desplazado de
+ * Wallis (estable con las manos fuera), McCulloch de dos tiempos con la bipala en toma directa y una
+ * deriva con un gran timón compensado. Calcado resolviendo la cámara de tres fotos de G-ARRT
+ * (blender/build_wa116.py). Datos: rotor de 6,20 m, 116 kg en vacío, 249 kg de máximo, ~160 km/h.
+ */
+export const WA116: Airframe = {
+  id: 'wa116',
+  wreck: wreckZones(-0.95, 0.03, -0.713, 0.224, -0.111, 0.35, -0.736),
+  hub: v(-0.111, 1.107),
+  // cardán desplazado: el pivote de cabeceo va 0,10 m por delante del buje
+  headPivot: v(-0.011, 0.885),
+  // bipala de madera de 48 pulgadas (1,22 m)
+  prop: v(-0.736, 0.147),
+  propRadius: 0.61,
+  cg: CG_COMMON.clone(),
+  noseWheel: v(1.003, -0.713),
+  mainL: v(0.03, -0.713, -0.76),
+  mainR: v(0.03, -0.713, 0.76),
+  // patín de cola
+  tail: v(-1.551, -0.647),
+  // estabilizador de 0,90 × 0,275 m sobre la deriva, sin placas de punta
+  stab: v(-1.08, 0.147),
+  stabArea: 0.24,
+  ...stabCoeffs(0.9, 0.24, 0),
+  // deriva (0,18 m²) + gran timón compensado (0,37 m²)
+  fin: v(-1.331, -0.172),
+  finArea: 0.548,
+  // rotor pequeño y muy cargado y estabilizador diminuto: palanca centrada a ~105 km/h con la cabeza
+  // a 9,6° y tope trasero en 14,2°
+  head: { base: 9.6, aft: 4.6, fwd: 7.0 },
+  // 116 kg en vacío; 26 kg de gasolina; 249 kg de máximo
+  emptyMass: 116,
+  fuelMass: 26,
+  mtow: 249,
+  seats: 1,
+  // góndola pequeña, pero el piloto va con medio cuerpo al aire
+  cdA: 0.46,
+  engine: MCCULLOCH_4318A,
+  // 6,20 m de diámetro y 7 pulgadas de cuerda; tan cargado gira a ~450 rpm (1,3 veces los biplaza)
+  rotor: { ...DEFAULT_ROTOR, radius: 3.1, chord: 0.178, inertia: 55, rootCutout: 0.3 },
+  rpmScale: 1.3,
+  propPitch: 1,
+  // bipala de madera de 48 pulgadas en toma directa: ~120 kgf a punto fijo a 4100 rpm
+  propCoef: { ct0: 0.1, cp0: 0.055, j0: 0.75, j1: 0.82 },
+  propBlades: 2,
+  // prerrotador mecánico: el rotor, más pequeño y rápido, se suelta hacia 280 rpm
+  prerotator: { minEngineRpm: 2000, ratio: 0.115, maxRpm: 300, torque: 120 },
+  inertia: [200, 230, 250],
+  body: { vertCdA: 1.2, vertCP: v(0.3, -0.1), sideCdA: 1.1, sideCP: v(0.1, 0.2) },
+  gearScale: 0.45,
+  wheelRadius: 0.1,
+  crashPoints: [
+    { name: 'morro', p: v(1.604, -0.228) },
+    { name: 'quilla', p: v(0.489, -0.463) },
+    { name: 'eje del tren', p: v(0.03, -0.622) },
+    { name: 'costado izquierdo', p: v(0.209, -0.093, -0.224) },
+    { name: 'costado derecho', p: v(0.209, -0.093, 0.224) },
+    { name: 'motor', p: v(-0.461, 0.149, -0.338) },
+    { name: 'motor', p: v(-0.461, 0.149, 0.338) },
+    { name: 'mástil', p: v(-0.111, 1.142) },
+    { name: 'estabilizador', p: v(-1.151, 0.147, -0.45) },
+    { name: 'estabilizador', p: v(-1.151, 0.147, 0.45) },
+    { name: 'deriva', p: v(-1.368, 0.347) },
+    { name: 'deriva', p: v(-1.723, -0.191) },
+  ],
+}
+
+/**
+ * ELA Gyro Tractor (ELA Aviación, Córdoba): el ELA 07 de cola alta convertido en fumigador. Monoplaza
+ * con una tolva de 200 l donde iba el asiento de atrás, Rotax 915 iS de 141 CV con una Helix de
+ * 1,75 m y barras de 8,25 m desplegadas con 20 boquillas (`spray_NN` en el modelo; tecla U). Calcado
+ * sobre las fotos de fábrica resolviendo la cámara de cada una (blender/build_tractor.py).
+ * Hoja de ELA: 650 kg de máximo, 280 kg de carga útil, 200 l de tolva, 30 l/ha en pasadas de 15 m a
+ * 110 km/h, 500 ft/min de ascenso con todo, 200 m de carrera de despegue.
+ */
+export const TRACTOR: Airframe = {
+  id: 'tractor',
+  wreck: wreckZones(-1.62, -0.45, -0.95, 0.385, -0.25, 0.6, -1.29),
+  hub: v(-0.25, 1.782),
+  headPivot: v(-0.25, 1.576),
+  // Helix tripala de 1,75 m
+  prop: v(-1.29, 0.292),
+  propRadius: 0.875,
+  cg: CG_COMMON.clone(),
+  noseWheel: v(1.26, -0.95),
+  mainL: v(-0.45, -0.95, -0.84),
+  mainR: v(-0.45, -0.95, 0.84),
+  // ruedecilla de cola
+  tail: v(-2.35, -0.594),
+  // el estabilizador del ELA 07 con las puntas dobladas 0,50 m hacia arriba
+  stab: v(-2.029, -0.388),
+  stabArea: 1.083,
+  ...stabCoeffs(1.56, 1.083, 0.5),
+  // palanca centrada a ~110 km/h, la velocidad de fumigar; tope trasero en 14,3°
+  head: { base: 8.0, aft: 6.3, fwd: 8.2 },
+  // deriva (0,24 m²) + timón (0,26 m²) + las dos puntas dobladas (0,13 m² cada una)
+  fin: v(-2.315, -0.037),
+  finArea: 0.758,
+  // 370 kg en vacío (650 de máximo menos 280 de carga útil); 30 l de gasolina
+  emptyMass: 370,
+  fuelMass: 22,
+  mtow: 650,
+  seats: 1,
+  // bastidor abierto y, sobre todo, 8,25 m de barras, tirantes, cables y boquillas al aire
+  cdA: 0.85,
+  engine: ROTAX_915IS,
+  // 8,23 m de diámetro y 22 cm de cuerda, como el ELA 07
+  rotor: { ...DEFAULT_ROTOR, radius: 4.115, chord: 0.22, inertia: 179 },
+  propPitch: 1.12,
+  wheelRadius: 0.2,
+  // tolva cargada hasta los 650 kg: 650 − 370 − 22 − piloto ≈ 170 l
+  sprayer: { hopper: 200, load: 170, density: 1, rate: 30, swath: 15 },
+  crashPoints: [
+    { name: 'morro', p: v(2.15, -0.302) },
+    { name: 'carenado de la rueda de morro', p: v(1.477, -0.747) },
+    { name: 'panza', p: v(0.48, -0.779) },
+    { name: 'quilla', p: v(-1.272, -0.77) },
+    { name: 'costado izquierdo', p: v(0.2, 0.08, -0.384) },
+    { name: 'costado derecho', p: v(0.2, 0.08, 0.384) },
+    { name: 'barra de fumigación izquierda', p: v(-0.37, -0.158, -4.185) },
+    { name: 'barra de fumigación derecha', p: v(-0.37, -0.158, 4.185) },
+    { name: 'barra de fumigación izquierda', p: v(-0.37, -0.263, -2.49) },
+    { name: 'barra de fumigación derecha', p: v(-0.37, -0.263, 2.49) },
+    { name: 'mástil', p: v(-0.292, 1.65) },
+    { name: 'estabilizador', p: v(-2.61, -0.385, -0.22) },
+    { name: 'estabilizador', p: v(-2.61, -0.385, 0.22) },
+    { name: 'deriva lateral', p: v(-2.195, 0.092, -0.9) },
+    { name: 'deriva lateral', p: v(-2.195, 0.092, 0.9) },
+    { name: 'deriva', p: v(-2.187, 0.492) },
+  ],
+}
+
+/**
+ * Vencejo X1: biplaza en tándem INVENTADO para el simulador (un concepto de hacia 2045, no existe).
+ * Casco en gota de carbono con una sola cúpula tintada, pilón en flecha con la cabeza carenada,
+ * rotor tripala de 8,80 m y, detrás, una hélice carenada de 7 palas y 1,30 m en un anillo. Sobre el
+ * anillo no va nada (el disco inclinado 15° atrás pasa a 0,33 m): el timón es una pala vertical
+ * dentro del chorro, y las derivas son las aletas de las puntas del estabilizador, que atraviesa el
+ * anillo. Diseñado con blender/build_vencejo.py. Motor: el Rotax 915 iS del Gyro Tractor.
+ */
+export const VENCEJO: Airframe = {
+  id: 'vencejo',
+  wreck: wreckZones(-1.85, -0.83, -0.95, 0.475, -0.25, 0.5, -2.25),
+  hub: v(-0.25, 1.82),
+  headPivot: v(-0.25, 1.62),
+  // hélice carenada de 7 palas y 1,30 m
+  prop: v(-2.25, 0.2),
+  propRadius: 0.648,
+  cg: CG_COMMON.clone(),
+  noseWheel: v(1.39, -0.95),
+  mainL: v(-0.83, -0.95, -0.8),
+  mainR: v(-0.83, -0.95, 0.8),
+  // patín bajo el anillo
+  tail: v(-2.5, -0.541),
+  // estabilizador de 2,15 m que atraviesa el anillo (0,80 m²) con aletas de 0,90 m en las puntas
+  stab: v(-2.432, 0.2),
+  stabArea: 0.8,
+  ...stabCoeffs(2.15, 0.8, 0.9),
+  // aletas de punta (0,63 m²) + timón y estatores en el chorro (0,30 m²)
+  fin: v(-2.554, 0.246),
+  finArea: 0.94,
+  // rotor tripala de 8,80 m (más superficie de pala que los bipala): palanca centrada a ~105 km/h
+  // con la cabeza a 5,45° (sin motor y manos fuera planea a más de 80); tope trasero en 12,45°
+  head: { base: 5.45, aft: 7.0, fwd: 8.2 },
+  // carbono: 300 kg en vacío; 40 kg de combustible; 560 kg de máximo
+  emptyMass: 300,
+  fuelMass: 40,
+  mtow: 560,
+  // casco en gota cerrado y ruedas carenadas, pero el anillo y las aletas también rozan
+  cdA: 0.42,
+  engine: ROTAX_915IS,
+  // tripala de 8,80 m y 20 cm de cuerda, palas de material compuesto; con más pala gira más
+  // despacio que los bipala (~285 rpm en crucero): avisos y cuentavueltas a esa escala
+  rotor: { ...DEFAULT_ROTOR, radius: 4.4, chord: 0.2, blades: 3, inertia: 215 },
+  rpmScale: 0.82,
+  propPitch: 1,
+  // hélice carenada: mucho más empuje por superficie de disco que una hélice libre de su tamaño;
+  // absorbe los 104 kW a ~2280 rpm (5800 del motor) y sigue empujando a más avance
+  propCoef: { ct0: 0.43, cp0: 0.36, j0: 1.6, j1: 1.7 },
+  propBlades: 7,
+  wheelRadius: 0.2,
+  crashPoints: [
+    { name: 'morro', p: v(2.37, -0.24) },
+    { name: 'morro', p: v(2.05, -0.395) },
+    { name: 'panza', p: v(0.05, -0.655) },
+    { name: 'panza', p: v(-1.1, -0.545) },
+    { name: 'costado izquierdo', p: v(0.65, -0.32, -0.475) },
+    { name: 'costado derecho', p: v(0.65, -0.32, 0.475) },
+    { name: 'carenado izquierdo', p: v(-1.23, -0.81, -0.8) },
+    { name: 'carenado derecho', p: v(-1.23, -0.81, 0.8) },
+    { name: 'mástil', p: v(-0.25, 1.715) },
+    { name: 'anillo', p: v(-2.19, 0.928) },
+    { name: 'anillo', p: v(-2.16, -0.528) },
+    { name: 'anillo', p: v(-2.25, 0.2, -0.728) },
+    { name: 'anillo', p: v(-2.25, 0.2, 0.728) },
+    { name: 'estabilizador', p: v(-2.54, 0.2, -1.075) },
+    { name: 'estabilizador', p: v(-2.54, 0.2, 1.075) },
+    { name: 'deriva lateral', p: v(-2.785, 0.76, -1.213) },
+    { name: 'deriva lateral', p: v(-2.785, 0.76, 1.213) },
+    { name: 'deriva lateral', p: v(-2.455, -0.14, -0.972) },
+    { name: 'deriva lateral', p: v(-2.455, -0.14, 0.972) },
+  ],
+}
+
 export const AIRFRAMES: Record<string, Airframe> = {
   generic: GENERIC,
   ela07: ELA07,
@@ -1129,6 +1352,9 @@ export const AIRFRAMES: Record<string, Airframe> = {
   calidus: CALIDUS,
   cavalon: CAVALON,
   carterpav: CARTER_PAV,
+  vencejo: VENCEJO,
+  tractor: TRACTOR,
+  wa116: WA116,
 }
 
 /** Geometría de vuelo del aparato del catálogo (la genérica si no tiene una propia). */

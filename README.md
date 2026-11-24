@@ -32,8 +32,9 @@ autogiro no se pilota como un avión ni como un helicóptero.
 - **Física de autogiro, no de avión con hélice arriba.** El rotor gira libre en autorrotación,
   hay que prerrotarlo para despegar, sus vueltas dependen de la carga y avisa si bate las palas o
   si lo descargas. Las prestaciones se han contrastado con datos reales de cada aparato.
-- **13 autogiros distintos.** De escuela, de cabina cerrada, monoplazas de bastidor abierto, el
-  Cierva C.30A de 1934 y hasta el compuesto Carter PAV, cada uno con su motor, su rotor y su física.
+- **16 autogiros distintos.** De escuela, de cabina cerrada, monoplazas de bastidor abierto, el
+  Cierva C.30A de 1934, el Wallis WA-116, un fumigador que fumiga de verdad (tecla U), el compuesto
+  Carter PAV y un futurista inventado, cada uno con su motor, su rotor y su física.
 - **El mundo real.** En toda España vuelas sobre la ortofoto del PNOA y el relieve de 5 m del IGN,
   con los edificios de OpenStreetMap y del Catastro con sus tejados, y los árboles sacados de la propia
   foto. En todo el planeta hay mar, lagos y ríos con oleaje y reflejos, puentes en 3D por los que se
@@ -148,15 +149,23 @@ autogiro no se pilota como un avión ni como un helicóptero.
   </tr>
   <tr>
     <td width="50%"><img src="docs/img/carterpav.jpg" alt="Carter PAV" /></td>
-    <td width="50%"></td>
+    <td width="50%"><img src="docs/img/tractor.jpg" alt="ELA Gyro Tractor" /></td>
   </tr>
   <tr>
     <td><b>Carter PAV</b> · compuesto de rotor lento con alas de 13,7 m: despega de un salto y, a 250 km/h, el rotor gira a poco más de 100 rpm.</td>
-    <td></td>
+    <td><b>ELA Gyro Tractor</b> · el fumigador de ELA: tolva de 200 l y barras de 8,25 m. Con la tecla <kbd>U</kbd> fumiga pasadas de 15 m y se va aligerando.</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/img/wa116.jpg" alt="Wallis WA-116 Agile" /></td>
+    <td width="50%"><img src="docs/img/vencejo.jpg" alt="Vencejo X1" /></td>
+  </tr>
+  <tr>
+    <td><b>Wallis WA-116 Agile (1961)</b> · el monoplaza diminuto de Ken Wallis, hermano de «Little Nellie», con un motor de dos tiempos de 72 CV.</td>
+    <td><b>Vencejo X1</b> · un futurista inventado para el juego: cúpula de una pieza, rotor tripala y hélice carenada.</td>
   </tr>
 </table>
 
-Todos menos el monoplaza Sport Copter se pueden llevar solos o con pasajero, y cada uno tiene sus pesos, su motor, su rotor y su
+Todos menos los monoplazas (Sport Copter, Gyro Tractor y WA-116) se pueden llevar solos o con pasajero, y cada uno tiene sus pesos, su motor, su rotor y su
 cola: no vuelan igual.
 
 ## Instalar
@@ -231,6 +240,7 @@ Para tomar: aproximación a 80–90 km/h y, a unos 6–8 m del suelo, tira de pa
 | `Espacio` / `O` | Frenos / freno de parking |
 | `M` | Arrancar o parar el motor |
 | `L` | Luces |
+| `U` | Fumigar (Gyro Tractor) |
 | `J` | Guía de pilotaje lateral (despegue, vuelo y aterrizaje); también con el botón «Guía» |
 | `C` / `V` | Cambiar de cámara / mirar atrás |
 | Ratón (arrastrar, rueda) | Mirar, zoom |
@@ -356,7 +366,8 @@ si te gusta, [invítame a un café en Ko-fi](https://ko-fi.com/mario_creativecod
 - Cierva C.30A: plano de tres vistas de *Flight* (1934) reproducido en la
   [NACA Aircraft Circular 196](https://ntrs.nasa.gov/citations/19930090361), datos de vuelo de los
   ensayos de la RAE (ARC R&M 1859 y 1727) y decoración de la réplica del Museo del Aire de Madrid.
-- MT-03, Calidus, Cavalon, ELA 07 Cougar y Scorpion, ELA 10, J-RO, Niki Lightning, Sport Copter Lightning y Carter PAV:
+- MT-03, Calidus, Cavalon, ELA 07 Cougar y Scorpion, ELA 10, ELA Gyro Tractor, J-RO, Niki Lightning, Sport Copter
+  Lightning, Wallis WA-116 y Carter PAV:
   calcados sobre fotos de [Wikimedia Commons](https://commons.wikimedia.org) y de sus fabricantes, los
   manuales de vuelo de AutoGyro y DTA, las hojas de datos de la CAA británica y, para el Carter PAV, el
   artículo de Carter y Lewis en el European Rotorcraft Forum de 2015.
@@ -405,8 +416,9 @@ like an aeroplane nor like a helicopter.
 - **Gyro physics, not an aeroplane with a propeller on top.** The rotor spins freely in
   autorotation, you have to pre-rotate it to take off, its RPM depends on the load, and it warns you
   about blade flapping and low-g. Performance has been checked against real data for each aircraft.
-- **13 different gyrocopters.** Trainers, enclosed cabins, open-frame single-seaters, the 1934
-  Cierva C.30A and even the Carter PAV compound, each with its own engine, rotor and physics.
+- **16 different gyrocopters.** Trainers, enclosed cabins, open-frame single-seaters, the 1934
+  Cierva C.30A, the Wallis WA-116, a crop sprayer that really sprays (U key), the Carter PAV
+  compound and an invented futuristic one, each with its own engine, rotor and physics.
 - **The real world.** All over Spain you fly over the IGN's PNOA orthophotos and 5 m terrain model,
   with OpenStreetMap and Land Registry buildings with their roofs, and trees detected in the photo
   itself. Outside Spain you get Esri satellite imagery. All over the planet there are seas, lakes and
@@ -521,15 +533,23 @@ like an aeroplane nor like a helicopter.
   </tr>
   <tr>
     <td width="50%"><img src="docs/img/carterpav.jpg" alt="Carter PAV" /></td>
-    <td width="50%"></td>
+    <td width="50%"><img src="docs/img/tractor.jpg" alt="ELA Gyro Tractor" /></td>
   </tr>
   <tr>
     <td><b>Carter PAV</b> · slowed-rotor compound with 13.7 m wings: it jumps off the ground and, at 250 km/h, its rotor turns at just over 100 rpm.</td>
-    <td></td>
+    <td><b>ELA Gyro Tractor</b> · ELA's crop sprayer: 200 l hopper and 8.25 m booms. Press <kbd>U</kbd> to spray 15 m swaths; it gets lighter as it goes.</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/img/wa116.jpg" alt="Wallis WA-116 Agile" /></td>
+    <td width="50%"><img src="docs/img/vencejo.jpg" alt="Vencejo X1" /></td>
+  </tr>
+  <tr>
+    <td><b>Wallis WA-116 Agile (1961)</b> · Ken Wallis's tiny single-seater, sister of "Little Nellie", with a 72 hp two-stroke engine.</td>
+    <td><b>Vencejo X1</b> · a futuristic one invented for the game: one-piece canopy, three-blade rotor and ducted fan.</td>
   </tr>
 </table>
 
-All but the single-seat Sport Copter can be flown solo or with a passenger, and each one has its own weights, engine, rotor
+All but the single-seaters (Sport Copter, Gyro Tractor and WA-116) can be flown solo or with a passenger, and each one has its own weights, engine, rotor
 and tail: they don't fly the same.
 
 ## Install
@@ -604,6 +624,7 @@ To land: approach at 80–90 km/h and, about 6–8 m above the ground, pull the 
 | `Space` / `O` | Brakes / parking brake |
 | `M` | Start or stop the engine |
 | `L` | Lights |
+| `U` | Crop spraying (Gyro Tractor) |
 | `J` | Side flying guide (takeoff, flight and landing); also the «Guide» button |
 | `C` / `V` | Change camera / look back |
 | Mouse (drag, wheel) | Look around, zoom |
@@ -731,7 +752,8 @@ if you like it, [buy me a coffee on Ko-fi](https://ko-fi.com/mario_creativecode)
 - Cierva C.30A: three-view drawing from *Flight* (1934) reproduced in
   [NACA Aircraft Circular 196](https://ntrs.nasa.gov/citations/19930090361), flight data from the RAE
   tests (ARC R&M 1859 and 1727) and colour scheme of the replica at the Museo del Aire in Madrid.
-- MT-03, Calidus, Cavalon, ELA 07 Cougar and Scorpion, ELA 10, J-RO, Niki Lightning, Sport Copter Lightning and Carter PAV:
+- MT-03, Calidus, Cavalon, ELA 07 Cougar and Scorpion, ELA 10, ELA Gyro Tractor, J-RO, Niki Lightning, Sport Copter
+  Lightning, Wallis WA-116 and Carter PAV:
   traced on photos from [Wikimedia Commons](https://commons.wikimedia.org) and from their makers, the
   AutoGyro and DTA flight manuals, the UK CAA data sheets and, for the Carter PAV, the paper by Carter
   and Lewis at the 2015 European Rotorcraft Forum.

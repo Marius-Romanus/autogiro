@@ -549,6 +549,7 @@ const en: Dict = {
         <div><kbd>Space</kbd> · <kbd>O</kbd></div><div>Wheel brakes · parking brake</div>
         <div><kbd>M</kbd></div><div>Engine on / off</div>
         <div><kbd>L</kbd></div><div>Exterior lights (navigation, strobes and landing)</div>
+        <div><kbd>U</kbd></div><div>Crop spraying (Gyro Tractor): open or close the boom valve</div>
         <div><kbd>Tab</kbd></div><div>Labels and arrows for the other pilots (multiplayer)</div>
         <div><kbd>C</kbd> · <kbd>V</kbd></div><div>Change camera · look back</div>
         <div>Mouse (drag) · wheel</div><div>Look around · zoom</div>
@@ -557,7 +558,7 @@ const en: Dict = {
         <div><kbd>I</kbd> · <kbd>H</kbd></div><div>Hide instruments · this help</div>
         <div><kbd>Backspace</kbd> · <kbd>Esc</kbd></div><div>Restart · menu</div>`,
   'help.pad':
-    'Xbox-style gamepad: left stick = stick, right stick = pedals, triggers = throttle, A = prerotator, B = brakes, LB/RB = trim. Joystick: axes configurable in the menu.',
+    'Xbox-style gamepad: left stick = stick, right stick = pedals, triggers = throttle, A = prerotator, B = brakes, LB/RB = trim, Y = crop spraying. Joystick: axes configurable in the menu.',
   'crash.eyebrow': 'Crash',
   'crash.retry': 'Retry',
   'crash.menu': 'Menu',

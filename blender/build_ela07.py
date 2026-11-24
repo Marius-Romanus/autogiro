@@ -504,18 +504,22 @@ def build_frame():
     st.append((R(-1.205, -2.475), 0.150, 0.020))       # trailing edge, 2 cm further aft on the centre line
     K.delta_plate(mb, st)
     # boom up to the tailplane saddle, flat bar under the stab to the tail wheel (x 1380-1480 px)
-    saddle = R(-1.50, -2.305)
+    # The boom end and the flat bar run tight UNDER the tailplane, with nothing in between (Descripcion.jpg,
+    # 239 px/m: stab underside y 917 = Z -2.234, bar 4.6 cm deep right below it, boom-end bolt at Z -2.255).
+    # They used to sit 7 cm lower, with 10 cm metal blocks holding the stab up; the owner: "hay como unas
+    # pletinas de aluminio que elevan la cola". The tailplane itself matches the photos and stays put.
+    saddle = R(-1.55, -2.240)
     mb.tube([R(NODE[0] - 0.02, NODE[1] + 0.01), saddle], 0.0, 'Paint_White', n=16, square=(0.05, 0.05, 6),
             cap=True)
-    mb.tube([saddle, R(-1.85, -2.300), R(-2.13, -2.295)], 0.0, 'Paint_White', n=12, square=(0.06, 0.035, 6),
+    mb.tube([saddle, R(-1.85, -2.241), R(-2.13, -2.221)], 0.0, 'Paint_White', n=12, square=(0.06, 0.045, 6),
             cap=True)
-    for x in (-1.55, -2.05):
-        mb.box(R(x, -2.240), (0.05, 0.05, 0.10), 'Metal_Frame', bevel=0.004, segs=1)
-    mb.cyl(R(-1.62, -2.285), R(-2.08, -2.20), 0.006, 'Chrome', n=6)
+    for x in (-1.60, -2.05):        # clamp bands round the bar where the stab is bolted on
+        mb.box(R(x, -2.240 if x > -1.9 else -2.226), (0.035, 0.068, 0.05), 'Metal_Frame', bevel=0.004, segs=1)
+    mb.cyl(R(-1.62, -2.262, 0.04), R(-2.08, -2.245, 0.04), 0.006, 'Chrome', n=6)
     # tail wheel (small castor) under the bar end
     tw = R(-2.10, -2.340)
     mb.lathe(B.tire_profile(0.036, 0.018, 0.025), tw, V(0, 1, 0), 'Rubber', n=20, closed_profile=True)
-    mb.box(tw + V(0.0, 0, 0.03), (0.03, 0.04, 0.04), 'Metal_Frame', bevel=0.004, segs=1)
+    mb.box(tw + V(0.0, 0, 0.068), (0.03, 0.04, 0.09), 'Metal_Frame', bevel=0.004, segs=1)
     return mb.finish(sharp_angle=40, wn=True)
 
 

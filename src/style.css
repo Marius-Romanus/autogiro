@@ -773,3 +773,60 @@ details a {
   background: var(--accent);
   box-shadow: 0 0 8px 2px rgba(246, 196, 0, 0.7);
 }
+
+/* fumigación (solo el Gyro Tractor, src/fx/SprayFx.ts): nivel de la tolva y litros */
+#btn-spray {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(8, 10, 12, 0.62);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: rgba(255, 255, 255, 0.82);
+  font: 600 15px/1.1 var(--font-cond);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+#btn-spray.hidden {
+  display: none;
+}
+#btn-spray:hover {
+  background: rgba(8, 10, 12, 0.82);
+  color: #fff;
+}
+#btn-spray.on {
+  border-bottom-color: var(--accent);
+  color: #fff;
+}
+#btn-spray kbd {
+  font-size: 12px;
+  opacity: 0.7;
+}
+#btn-spray .tank {
+  width: 44px;
+  height: 9px;
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+}
+#btn-spray .tank i {
+  display: block;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.75);
+  transition: width 0.3s;
+}
+#btn-spray.on .tank i {
+  background: var(--accent);
+  box-shadow: 0 0 8px 1px rgba(246, 196, 0, 0.6);
+}
+#btn-spray .litres {
+  min-width: 3.2em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+}

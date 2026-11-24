@@ -22,6 +22,7 @@ export type Action =
   | 'zoomOut'
   | 'lights'
   | 'guide'
+  | 'spray'
 
 const ACTION_KEYS: Record<string, Action> = {
   KeyC: 'camera',
@@ -38,6 +39,8 @@ const ACTION_KEYS: Record<string, Action> = {
   KeyO: 'parkBrake',
   KeyL: 'lights',
   KeyJ: 'guide',
+  // fumigación (solo el Gyro Tractor)
+  KeyU: 'spray',
   Equal: 'zoomIn',
   NumpadAdd: 'zoomIn',
   Minus: 'zoomOut',
@@ -89,6 +92,7 @@ export class Input {
   private lastPitchDir = 0
   private gpThrottleSeen = false
   private lastGpThrottle = -2
+  private gpSprayDown = false
 
   private settings: Settings
   constructor(settings: Settings, el: HTMLElement) {
@@ -300,6 +304,10 @@ export class Input {
         ctl.wheelBrake = Math.max(ctl.wheelBrake, gp.buttons[1]?.value ?? 0)
         if (gp.buttons[4]?.pressed) this.trim = Math.max(-1, this.trim - dt * 0.35)
         if (gp.buttons[5]?.pressed) this.trim = Math.min(1, this.trim + dt * 0.35)
+        // Y: fumigación (al pulsar, no mientras se mantiene)
+        const y3 = gp.buttons[3]?.pressed ?? false
+        if (y3 && !this.gpSprayDown) this.actions.push('spray')
+        this.gpSprayDown = y3
       } else {
         // joystick genérico (HOTAS): ejes configurables
         const p = dz(ax(s.axisPitch), 0.03)
