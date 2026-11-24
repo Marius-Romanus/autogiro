@@ -588,7 +588,8 @@ export class Multiplayer {
     if (w && this.peers.size) {
       const shift = this.datumShift()
       _qInv.setFromRotationMatrix(w.frame.ecefToWorld)
-      const groundAt = (x: number, z: number, yAbove: number) => (w.sampleGround(x, z, yAbove, _sample) ? _sample.y : null)
+      // (yAbove = 60 m sobre el aparato: cuenta también el tablero de un puente si está posado en él)
+      const groundAt = (x: number, z: number, yAbove: number) => (w.sampleGround(x, z, yAbove, _sample, yAbove - 59) ? _sample.y : null)
       const inset = this.screenInset(W)
       for (const p of this.peers.values()) {
         p.update(dt, now, w.frame.ecefToWorld, _qInv, shift, groundAt)

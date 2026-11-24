@@ -286,7 +286,7 @@ class App {
     const yHint = ac.pos.y + 60
     if (ac.agl > 150 && this.ground.valid) {
       // lejos del suelo: una muestra basta
-      if (w.sampleGround(ac.pos.x, ac.pos.z, yHint + 2000, s)) {
+      if (w.sampleGround(ac.pos.x, ac.pos.z, yHint + 2000, s, ac.pos.y)) {
         this.ground.p0.set(ac.pos.x, s.y, ac.pos.z)
         this.ground.n.copy(s.normal)
       }
@@ -296,7 +296,8 @@ class App {
     const hits: Vector3[] = []
     for (const p of pts) {
       p.applyQuaternion(ac.quat).add(ac.pos)
-      if (w.sampleGround(p.x, p.z, yHint, s)) hits.push(new Vector3(p.x, s.y, p.z))
+      // (con la calzada de los puentes que queden por debajo del aparato: se puede rodar por ellos)
+      if (w.sampleGround(p.x, p.z, yHint, s, ac.pos.y)) hits.push(new Vector3(p.x, s.y, p.z))
     }
     if (hits.length === 3) {
       const n = new Vector3().subVectors(hits[1], hits[0]).cross(new Vector3().subVectors(hits[2], hits[0])).normalize()
@@ -438,7 +439,8 @@ class App {
     const w = this.world!
     this.loadingT += dt
     const s = this.sample
-    const ok = w.sampleGround(this.spawnXZ.x, this.spawnXZ.z, 9000, s)
+    // (si el punto de salida está sobre un puente, en su calzada)
+    const ok = w.sampleGround(this.spawnXZ.x, this.spawnXZ.z, 9000, s, 9000)
     const progress = w.loadProgress
     $('loading').classList.toggle('hidden', this.menuOpen && this.loadingT < 0.5 ? false : false)
     $('loading').classList.remove('hidden')

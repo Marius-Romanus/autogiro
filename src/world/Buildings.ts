@@ -356,6 +356,9 @@ export class Buildings extends TileLayer<BuildingTile> {
     const osm = new RingGrid(E)
     // metros por unidad de la tesela vectorial (Mercator: igual en x que en y)
     const mPerPx = (40075016.7 * Math.cos((((north + south) / 2) * Math.PI) / 180)) / n / E
+    // puentes de la tesela: hay contornos de puente etiquetados como edificio (building=bridge),
+    // que saldrían como un bloque macizo de orilla a orilla; el puente lo dibuja Bridges.ts
+    const bridgeLines = bridgeSamples(vt, E, mPerPx)
 
     for (let i = 0; layer && i < layer.length; i++) {
       const f = layer.feature(i)
@@ -376,6 +379,7 @@ export class Buildings extends TileLayer<BuildingTile> {
         if (rings.length === 0) continue
         osm.add(rings[0].pts)
         if (props.hide_3d) continue // contorno con partes (building:part) que ya se dibujan
+        if (bridgeLines.length > 0 && coversBridge(rings, bridgeLines)) continue
         if (landmarkHere) {
           const [cx, cy] = ringCentroidArea(rings[0].pts)
           const [la, lo] = toGeo(cx, cy)
@@ -1434,6 +1438,53 @@ function aerodromePolygons(vt: { layers: Record<string, any> }, E: number): Ring
     if (f.type === 3 && f.properties.class === 'aerodrome') out.push(...classifyRings(f.loadGeometry()))
   }
   return out
+}
+
+/** Puntos cada ~8 m a lo largo de cada puente (líneas brunnel=bridge) de la tesela, en sus unidades. */
+function bridgeSamples(vt: { layers: Record<string, any> }, E: number, mPerPx: number): Array<Array<[number, number]>> {
+  const layer = vt.layers.transportation
+  const out: Array<Array<[number, number]>> = []
+  if (!layer || layer.extent !== E) return out
+  const step = 8 / mPerPx
+  for (let i = 0; i < layer.length; i++) {
+    const f = layer.feature(i)
+    if (f.type !== 2 || f.properties.brunnel !== 'bridge') continue
+    for (const line of f.loadGeometry() as Array<Array<{ x: number; y: number }>>) {
+      const pts: Array<[number, number]> = []
+      let carry = 0
+      for (let k = 1; k < line.length; k++) {
+        const dx = line[k].x - line[k - 1].x
+        const dy = line[k].y - line[k - 1].y
+        const len = Math.hypot(dx, dy)
+        if (len === 0) continue
+        let d = carry
+        for (; d < len; d += step) pts.push([line[k - 1].x + (dx * d) / len, line[k - 1].y + (dy * d) / len])
+        carry = d - len
+      }
+      if (pts.length >= 3) out.push(pts)
+    }
+  }
+  return out
+}
+
+/** ¿La huella es en realidad un puente? (la recorre por dentro la mayor parte de uno, 24 m o más) */
+function coversBridge(rings: Array<{ pts: Array<[number, number]> }>, lines: Array<Array<[number, number]>>): boolean {
+  let minX = Infinity
+  let maxX = -Infinity
+  let minY = Infinity
+  let maxY = -Infinity
+  for (const [x, y] of rings[0].pts) {
+    minX = Math.min(minX, x)
+    maxX = Math.max(maxX, x)
+    minY = Math.min(minY, y)
+    maxY = Math.max(maxY, y)
+  }
+  for (const line of lines) {
+    let inside = 0
+    for (const [x, y] of line) if (x >= minX && x <= maxX && y >= minY && y <= maxY && inRings(rings, x, y)) inside++
+    if (inside >= 3 && inside >= 0.6 * line.length) return true
+  }
+  return false
 }
 
 /** ¿El centro del anillo cae dentro de alguno de los polígonos (con sus huecos)? */

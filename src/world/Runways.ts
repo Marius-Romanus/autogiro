@@ -15,19 +15,42 @@
 // Las teselas finas (niveles 15–16) que tocan una pista se vuelven a mallar con una
 // rejilla regular (~2 m en el nivel 16) muestreada del propio TIN, y luego se corrige
 // cada vértice. Las teselas lejanas, más groseras, solo corrigen sus vértices.
+//
+// El mismo mecanismo aplica otros parches de terreno que le pasen (`setExtra`): los rebajes
+// bajo los puentes que el MDT trae incrustados (Bridges.ts).
+//
+// Fuera de España (relieve global Terrarium, ~30 m) se usa solo la parte de descubrir y
+// perfilar las pistas, con un suavizado más ancho (RUNWAY_TUNING.global); la corrección se
+// aplica a la rejilla de alturas del relieve en gridRunways.ts.
 
 import { BufferAttribute, Matrix4, Vector3, type BufferGeometry, type Mesh, type Object3D } from 'three'
-import type { QMHeightSource } from './HeightSource.ts'
+import type { HeightSource, QMHeightSource } from './HeightSource.ts'
 import { fetchVectorTile, latToY, lonToX, xToLon, yToLat, Z } from './mapTiles.ts'
 
 const DEG = Math.PI / 180
 /** separación de las estaciones del perfil a lo largo de la pista (m) */
 const STATION = 5
-/** suavizado de la altura del eje y de la pendiente transversal (sigma, m) */
-const SIGMA_H = 30
-const SIGMA_X = 60
-/** transición entre la pista alisada y el MDT (m), a los lados y más allá de los extremos */
-const BLEND = 20
+
+/** Cómo se perfila cada pista, según la finura del relieve. */
+export interface RunwayTuning {
+  /** suavizado de la altura del eje y de la pendiente transversal (sigma, m) */
+  sigmaH: number
+  sigmaX: number
+  /** transición entre la pista alisada y el relieve (m), a los lados y más allá de los extremos */
+  blend: number
+  /** pendiente transversal máxima (m/m) */
+  maxCross: number
+}
+
+export const RUNWAY_TUNING: Record<'ign' | 'global', RunwayTuning> = {
+  // MDT05: respeta los cambios de rasante reales
+  ign: { sigmaH: 30, sigmaX: 60, blend: 20, maxCross: Infinity },
+  // Terrarium (SRTM, ~30 m, con picos sueltos de 5–10 m sobre las pistas): solo las tendencias
+  // largas (la regresión local conserva las rampas; lo que suaviza es la curvatura, que en una
+  // pista de verdad es muy poca); no más del 2 % de pendiente transversal, y el borde se funde
+  // más despacio porque al lado el relieve puede quedar varios metros por encima o por debajo
+  global: { sigmaH: 250, sigmaX: 400, blend: 50, maxCross: 0.02 },
+}
 /** celdas por lado de la rejilla con que se vuelven a mallar las teselas finas (nivel 16) */
 const GRID = 128
 /** WGS84 (el elipsoide de tiles.ellipsoid) */
@@ -56,11 +79,29 @@ export interface Runway {
   ds: number
   a: Float64Array
   b: Float64Array
+  /** transición con el relieve (m) */
+  blend: number
   south: number
   west: number
   north: number
   east: number
 }
+
+/**
+ * Corrección del terreno que no es una pista (p. ej. el rebaje bajo un puente): rectángulo
+ * donde actúa y la altura corregida de un punto a partir de la del MDT.
+ */
+export interface TerrainPatch {
+  key: string
+  south: number
+  west: number
+  north: number
+  east: number
+  apply(lat: number, lon: number, h: number): number
+}
+
+export type Patch = Runway | TerrainPatch
+type Box ={ south: number; west: number; north: number; east: number }
 
 interface Piece {
   ref: string
@@ -103,9 +144,10 @@ function toGeo(r: Pick<Runway, 'lat0' | 'lon0' | 'mLat' | 'mLon' | 'ux' | 'uy'>,
 function weightAt(r: Runway, s: number, off: number): number {
   const dl = Math.abs(off) - r.hw
   const de = s < 0 ? -s : s - r.len
-  if (dl >= BLEND || de >= BLEND) return 0
-  const wl = dl <= 0 ? 1 : smooth01(1 - dl / BLEND)
-  const we = de <= 0 ? 1 : smooth01(1 - de / BLEND)
+  const blend = r.blend
+  if (dl >= blend || de >= blend) return 0
+  const wl = dl <= 0 ? 1 : smooth01(1 - dl / blend)
+  const we = de <= 0 ? 1 : smooth01(1 - de / blend)
   return wl * we
 }
 
@@ -122,9 +164,13 @@ function profileAt(r: Runway, s: number, off: number): number {
 const _loc = { s: 0, off: 0 }
 
 /** Altura del terreno con las pistas de `list` alisadas (h = altura del MDT en el punto). */
-function adjustWith(list: Runway[], lat: number, lon: number, h: number): number {
+export function adjustWith(list: Patch[], lat: number, lon: number, h: number): number {
   for (const r of list) {
     if (lat < r.south || lat > r.north || lon < r.west || lon > r.east) continue
+    if ('apply' in r) {
+      h = r.apply(lat, lon, h)
+      continue
+    }
     toLocal(r, lat, lon, _loc)
     const w = weightAt(r, _loc.s, _loc.off)
     if (w > 0) h += w * (profileAt(r, _loc.s, _loc.off) - h)
@@ -132,13 +178,26 @@ function adjustWith(list: Runway[], lat: number, lon: number, h: number): number
   return h
 }
 
-function inAnyBox(list: Runway[], lat: number, lon: number): boolean {
+function inAnyBox(list: Box[], lat: number, lon: number): boolean {
   for (const r of list) if (lat >= r.south && lat <= r.north && lon >= r.west && lon <= r.east) return true
   return false
 }
 
+/** Las correcciones de `list` cuyo rectángulo toca [south, north] × [west, east], en su orden. */
+function touching<T extends Box>(list: T[], south: number, west: number, north: number, east: number): T[] {
+  return list.filter((r) => north >= r.south && south <= r.north && east >= r.west && west <= r.east)
+}
+
+/**
+ * Celda del índice de correcciones (grados). Con cientos de parches (rebajes y rellenos de los
+ * puentes) recorrerlos todos en cada consulta del suelo y en cada vértice pesaba.
+ */
+const INDEX_CELL = 0.01
+const indexKey = (la: number, lo: number) => (la + 9000) * 40000 + lo + 20000
+const NO_PATCHES: Patch[] = []
+
 /** ¿Algún rectángulo de pista solapa con [south, north] × [west, east] (grados)? */
-function boxTouches(list: Runway[], south: number, west: number, north: number, east: number): boolean {
+function boxTouches(list: Box[], south: number, west: number, north: number, east: number): boolean {
   return list.some((r) => north >= r.south && south <= r.north && east >= r.west && west <= r.east)
 }
 
@@ -215,16 +274,25 @@ const _b = new Vector3()
 const _c = new Vector3()
 
 export class Runways {
-  /** pistas vigentes (las que se aplican ahora) */
-  private runways: Runway[] = []
-  /** versión de `runways`: cambia al aparecer o desaparecer pistas */
+  /** correcciones vigentes (las que se aplican ahora): las pistas y los parches externos */
+  private runways: Patch[] = []
+  /** las pistas de `runways` */
+  private own: Runway[] = []
+  /** parches externos (rebajes bajo puentes) */
+  private extra: TerrainPatch[] = []
+  /** `runways` por celdas, para `adjust`, y la versión con que se hizo */
+  private readonly index = new Map<number, Patch[]>()
+  private indexVersion = -1
+  /** versión de `runways`: cambia al aparecer o desaparecer pistas o parches */
   private version = 0
-  private readonly versions = new Map<number, Runway[]>([[0, []]])
+  private readonly versions = new Map<number, Patch[]>([[0, []]])
   private readonly vtiles = new Map<string, VTile>()
   private readonly built = new Map<string, Runway | null>()
   private readonly building = new Set<string>()
   private readonly abort = new AbortController()
-  private readonly heights: QMHeightSource
+  /** relieve con que se perfilan las pistas */
+  private readonly heights: HeightSource
+  private readonly tuning: RunwayTuning
   private readonly tiles: TilesLike
   private centerX = NaN
   private centerY = NaN
@@ -235,17 +303,33 @@ export class Runways {
   private disposed = false
   /** versión de las pistas con que se dejó cada geometría */
   private readonly applied = new WeakMap<BufferGeometry, number>()
-  /** pistas que cambiaron en la última versión */
-  private lastChanged: Runway[] = []
+  /** correcciones que cambiaron en la última versión */
+  private lastChanged: Patch[] = []
   private readonly tileVersion = new WeakMap<object, number>()
   /** geometrías ya convertidas en rejilla */
   private readonly gridded = new WeakSet<BufferGeometry>()
   /** teselas que ya se mandaron recargar para mallarlas (una vez) */
   private readonly reloaded = new WeakSet<object>()
 
-  constructor(heights: QMHeightSource, tiles: TilesLike) {
+  /**
+   * heights: relieve con que se perfilan las pistas. Para alisar mallas del IGN (plugin(),
+   * reapply, refresh) tiene que ser el QMHeightSource de esas mallas; con el relieve global
+   * solo se usan el descubrimiento y los perfiles (gridRunways.ts).
+   */
+  constructor(heights: HeightSource, tiles: TilesLike, tuning: RunwayTuning = RUNWAY_TUNING.ign) {
     this.heights = heights
     this.tiles = tiles
+    this.tuning = tuning
+  }
+
+  /** El MDT del IGN (solo en las funciones que trabajan sobre sus mallas). */
+  private get qm(): QMHeightSource {
+    return this.heights as QMHeightSource
+  }
+
+  /** Todas las correcciones vigentes (pistas y parches externos). */
+  get patches(): readonly Patch[] {
+    return this.runways
   }
 
   /** Plugin para TilesRenderer: alisa cada tesela de terreno al cargarla. */
@@ -277,7 +361,7 @@ export class Runways {
     if (!wait && !boxTouches(this.runways, ...reg)) return null
     return (async () => {
       if (wait) await this.whenSettled()
-      if (boxTouches(this.runways, ...reg)) await this.heights.ensureTile(z, x, y)
+      if (boxTouches(this.runways, ...reg)) await this.qm.ensureTile(z, x, y)
       return fetch(url, options)
     })()
   }
@@ -293,12 +377,53 @@ export class Runways {
 
   /** Altura del suelo en (lat, lon) con las pistas alisadas, a partir de la del MDT. */
   adjust(lat: number, lon: number, h: number): number {
-    return this.runways.length ? adjustWith(this.runways, lat, lon, h) : h
+    if (!this.runways.length) return h
+    if (this.indexVersion !== this.version) this.buildIndex()
+    return adjustWith(this.index.get(indexKey(Math.floor(lat / INDEX_CELL), Math.floor(lon / INDEX_CELL))) ?? NO_PATCHES, lat, lon, h)
+  }
+
+  /** Reparte las correcciones vigentes por celdas de INDEX_CELL (cada celda, en el orden de la lista). */
+  private buildIndex(): void {
+    this.index.clear()
+    for (const r of this.runways) {
+      for (let la = Math.floor(r.south / INDEX_CELL); la <= Math.floor(r.north / INDEX_CELL); la++) {
+        for (let lo = Math.floor(r.west / INDEX_CELL); lo <= Math.floor(r.east / INDEX_CELL); lo++) {
+          const k = indexKey(la, lo)
+          const l = this.index.get(k)
+          if (l) l.push(r)
+          else this.index.set(k, [r])
+        }
+      }
+    }
+    this.indexVersion = this.version
   }
 
   /** Pistas vigentes (para depurar). */
   get list(): readonly Runway[] {
-    return this.runways
+    return this.own
+  }
+
+  /** Parches de terreno externos (los rebajes bajo puentes de Bridges.ts): sustituyen a los anteriores. */
+  setExtra(patches: TerrainPatch[]): void {
+    if (this.disposed) return
+    this.extra = patches
+    this.commit(this.own)
+  }
+
+  /** Publica la lista de correcciones si ha cambiado (nueva versión: las mallas se ponen al día). */
+  private commit(own: Runway[]): void {
+    this.own = own
+    const next: Patch[] = [...own, ...this.extra]
+    const same = next.length === this.runways.length && next.every((r, i) => r === this.runways[i])
+    if (same) return
+    // las que aparecen o desaparecen: solo las mallas que tocan alguna cambian de altura
+    this.lastChanged = [...next.filter((r) => !this.runways.includes(r)), ...this.runways.filter((r) => !next.includes(r))]
+    this.runways = next
+    this.version++
+    this.versions.set(this.version, next)
+    // versiones viejas que ya no puede tener ninguna malla (se guardan unas cuantas por las teselas en vuelo)
+    for (const v of this.versions.keys()) if (v < this.version - 64) this.versions.delete(v)
+    this.changed = true
   }
 
   /** true una vez tras cambiar las pistas: hay que volver a aplicar las mallas cargadas. */
@@ -377,20 +502,9 @@ export class Runways {
         })
     }
     if (this.building.size > 0) return
-    const next = keys.map((k) => this.built.get(k)).filter((r): r is Runway => Boolean(r))
-    const same = next.length === this.runways.length && next.every((r, i) => r === this.runways[i])
-    if (!same) {
-      // las que aparecen o desaparecen: solo las mallas que tocan alguna cambian de altura
-      this.lastChanged = [...next.filter((r) => !this.runways.includes(r)), ...this.runways.filter((r) => !next.includes(r))]
-      this.runways = next
-      this.version++
-      this.versions.set(this.version, next)
-      // versiones viejas que ya no puede tener ninguna malla (se guardan unas pocas por las teselas en vuelo)
-      for (const v of this.versions.keys()) if (v < this.version - 8) this.versions.delete(v)
-      // olvidar perfiles de pistas lejanas
-      if (this.built.size > 64) for (const k of this.built.keys()) if (!keys.includes(k)) this.built.delete(k)
-      this.changed = true
-    }
+    this.commit(keys.map((k) => this.built.get(k)).filter((r): r is Runway => Boolean(r)))
+    // olvidar perfiles de pistas lejanas
+    if (this.built.size > 64) for (const k of this.built.keys()) if (!keys.includes(k)) this.built.delete(k)
     // las teselas que esperaban a conocer las pistas ya pueden seguir
     const w = this.waiters
     this.waiters = []
@@ -424,13 +538,14 @@ export class Runways {
     const len = Math.hypot(ex, ny)
     if (len < 150 || len > 6000) return null
     const hw = widthFor(len) / 2 + 4
+    const { sigmaH, sigmaX, blend, maxCross } = this.tuning
     const base = { lat0, lon0, mLat, mLon, ux: ex / len, uy: ny / len }
     let south = 90
     let north = -90
     let west = 180
     let east = -180
-    for (const s of [-BLEND, len + BLEND]) {
-      for (const off of [-hw - BLEND, hw + BLEND]) {
+    for (const s of [-blend, len + blend]) {
+      for (const off of [-hw - blend, hw + blend]) {
         const [la, lo] = toGeo(base, s, off)
         south = Math.min(south, la)
         north = Math.max(north, la)
@@ -472,10 +587,13 @@ export class Runways {
       valid++
     }
     if (valid < count * 0.6) return null
-    const a = localLinear(aRaw, ok, ds, SIGMA_H)
-    const b = localLinear(bRaw, ok, ds, SIGMA_X)
-    for (let i = 0; i < count; i++) if (!Number.isFinite(a[i]) || !Number.isFinite(b[i])) return null
-    return { key: g.key, ...base, len, hw, ds, a, b, south, west, north, east }
+    const a = localLinear(aRaw, ok, ds, sigmaH)
+    const b = localLinear(bRaw, ok, ds, sigmaX)
+    for (let i = 0; i < count; i++) {
+      if (!Number.isFinite(a[i]) || !Number.isFinite(b[i])) return null
+      b[i] = Math.max(-maxCross, Math.min(maxCross, b[i]))
+    }
+    return { key: g.key, ...base, len, hw, ds, a, b, blend, south, west, north, east }
   }
 
   // -------------------------------------------------------------------------
@@ -525,7 +643,7 @@ export class Runways {
    * Pone al día una malla cargada (si se procesó con otra versión de las pistas). Con
    * `changed`, si venía de la versión anterior y no toca ninguna de esas pistas, no cambia.
    */
-  refresh(mesh: Mesh, changed?: Runway[]): void {
+  refresh(mesh: Mesh, changed?: Patch[]): void {
     const v = this.applied.get(mesh.geometry)
     if (v === this.version) return
     const tile = mesh.userData.tile
@@ -535,7 +653,7 @@ export class Runways {
   }
 
   /** Corrección (m) que las pistas de `list` dan a un punto; NaN si falta el MDT fino. */
-  private deltaAt(list: Runway[], lat: number, lon: number): number {
+  private deltaAt(list: Patch[], lat: number, lon: number): number {
     if (!list.length || !inAnyBox(list, lat, lon)) return 0
     const h = this.heights.sample(lat, lon)
     if (h === null) return NaN
@@ -568,7 +686,7 @@ export class Runways {
     const tx = Math.round((west + 180) / size)
     const ty = Math.round((south + 90) / size)
     // los datos los cargó fetchData; si no están (tesela recién descartada), se queda en TIN
-    if (this.heights.sampleTile(z, tx, ty, 0.5, 0.5) === null) return
+    if (this.qm.sampleTile(z, tx, ty, 0.5, 0.5) === null) return
 
     const pos = geo.getAttribute('position')
     const uv = geo.getAttribute('uv')
@@ -593,7 +711,7 @@ export class Runways {
     this.ecefMatrix(m, _m)
     const inv = _mi.copy(_m).invert()
     const ell = this.tiles.ellipsoid
-    const list = this.runways
+    const list = touching(this.runways, south, west, north, east)
     // ECEF por filas y columnas (WGS84, como tiles.ellipsoid; se comprueba con él en una esquina)
     const cosL = new Float64Array(side)
     const sinL = new Float64Array(side)
@@ -614,7 +732,7 @@ export class Runways {
       const nr = WGS_A / Math.sqrt(1 - WGS_E2 * sp * sp)
       for (let i = 0; i < side; i++) {
         const fu = i / grid
-        const h = this.heights.sampleTile(z, tx, ty, fu, fv)
+        const h = this.qm.sampleTile(z, tx, ty, fu, fv)
         if (h === null) return
         const k = j * side + i
         R[k] = h
@@ -714,7 +832,18 @@ export class Runways {
       const g0 = geo.groups[0]
       for (let k = g0.start; k < g0.start + g0.count; k++) Mo[idx.getX(k)] = 1
     }
-    const oldList = inherited ? (this.versions.get(inherited) ?? []) : []
+    let oldList = inherited ? (this.versions.get(inherited) ?? []) : []
+    if (oldList.length) {
+      // (por vértice, solo las que tocan la malla)
+      if (!geo.boundingSphere) geo.computeBoundingSphere()
+      const sph = geo.boundingSphere!
+      _v.copy(sph.center).applyMatrix4(_m)
+      this.tiles.ellipsoid.getPositionToCartographic(_v, _carto)
+      const cLat = _carto.lat / DEG
+      const rLat = sph.radius / 111000
+      const rLon = rLat / Math.max(0.1, Math.cos(cLat * DEG))
+      oldList = touching(oldList, cLat - rLat, _carto.lon / DEG - rLon, cLat + rLat, _carto.lon / DEG + rLon)
+    }
     for (let i = 0; i < count; i++) {
       _v.fromBufferAttribute(pos, i).applyMatrix4(_m)
       this.tiles.ellipsoid.getPositionToCartographic(_v, _carto)
@@ -733,7 +862,7 @@ export class Runways {
    * Deja los vértices de una malla en la altura que les dan las pistas vigentes, calculada
    * siempre desde su altura original (atributos RAW/MODE), sin acumular correcciones.
    */
-  private applyMesh(mesh: Mesh, inherited: number, changed?: Runway[]): void {
+  private applyMesh(mesh: Mesh, inherited: number, changed?: Patch[]): void {
     const geo = mesh.geometry as BufferGeometry
     const pos = geo.getAttribute('position')
     if (!pos || this.applied.get(geo) === this.version) return
@@ -752,7 +881,9 @@ export class Runways {
     const cLon = _carto.lon / DEG
     const rLat = sph.radius / 111000
     const rLon = rLat / Math.max(0.1, Math.cos(cLat * DEG))
-    const near = boxTouches(list, cLat - rLat, cLon - rLon, cLat + rLat, cLon + rLon)
+    // (por vértice, solo las que tocan la malla)
+    const local = touching(list, cLat - rLat, cLon - rLon, cLat + rLat, cLon + rLon)
+    const near = local.length > 0
     const unaffected = changed && !boxTouches(changed, cLat - rLat, cLon - rLon, cLat + rLat, cLon + rLon)
     if ((!near && !raw) || unaffected) {
       this.applied.set(geo, this.version)
@@ -774,11 +905,11 @@ export class Runways {
       const lon = _carto.lon / DEG
       const r0 = raw.getX(i)
       let target = r0
-      if (list.length && inAnyBox(list, lat, lon)) {
+      if (near && inAnyBox(local, lat, lon)) {
         // la rejilla parte de su propia altura; el resto, de la del MDT fino en el punto
         const base = mode && mode.getX(i) < 0.5 ? r0 : this.heights.sample(lat, lon)
         if (base === null) continue
-        target = r0 + adjustWith(list, lat, lon, base) - base
+        target = r0 + adjustWith(local, lat, lon, base) - base
       }
       const dd = target - _carto.height
       if (Math.abs(dd) > 1e-3) {
