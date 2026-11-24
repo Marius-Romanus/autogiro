@@ -1,31 +1,21 @@
 <a name="espanol"></a>
 
 <p align="center">
-  <img src="docs/img/icono.png" width="112" alt="" />
+  <img src="docs/img/cabecera.png" alt="Autogiro · Vuela un autogiro sobre el mundo real" />
 </p>
-
-<h1 align="center">Autogiro</h1>
 
 <p align="center">
   <b>Español</b> · <a href="#english"><b>English</b></a>
 </p>
 
 <p align="center">
-  <b>Vuela un autogiro sobre el mundo real</b><br />
-  Física de autogiro de verdad · relieve y ortofotos del IGN · edificios y árboles en 3D · multijugador
+  <a href="https://github.com/Marius-Romanus/autogiro/releases/latest/download/Autogiro-Setup.exe"><img src="https://img.shields.io/github/v/release/Marius-Romanus/autogiro?style=for-the-badge&label=Descargar%20para%20Windows&color=f6c400&labelColor=0d0d0d" alt="Descargar para Windows" /></a>
+  <a href="#linux"><img src="https://img.shields.io/github/v/release/Marius-Romanus/autogiro?style=for-the-badge&label=Descargar%20para%20Linux&color=e6e6e6&labelColor=0d0d0d" alt="Descargar para Linux" /></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/Marius-Romanus/autogiro/releases/latest/download/Autogiro-Setup.exe"><img src="https://img.shields.io/github/v/release/Marius-Romanus/autogiro?style=for-the-badge&label=Descargar%20para%20Windows&color=ff5a1f" alt="Descargar para Windows" /></a>
-</p>
-
-<p align="center">
-  Gratis · Windows 10 y 11 · en español e inglés · se actualiza solo ·
+  Gratis · Windows y Linux · en español e inglés · se actualiza solo ·
   <a href="https://github.com/Marius-Romanus/autogiro/releases">novedades</a>
-</p>
-
-<p align="center">
-  <img src="docs/img/portada.jpg" alt="ELA 10 Eclipse volando sobre Toledo" />
 </p>
 
 <p align="center">
@@ -42,9 +32,16 @@ autogiro no se pilota como un avión ni como un helicóptero.
 - **Física de autogiro, no de avión con hélice arriba.** El rotor gira libre en autorrotación,
   hay que prerrotarlo para despegar, sus vueltas dependen de la carga y avisa si bate las palas o
   si lo descargas. Las prestaciones se han contrastado con datos reales de cada aparato.
+- **13 autogiros distintos.** De escuela, de cabina cerrada, monoplazas de bastidor abierto, el
+  Cierva C.30A de 1934 y hasta el compuesto Carter PAV, cada uno con su motor, su rotor y su física.
 - **El mundo real.** En toda España vuelas sobre la ortofoto del PNOA y el relieve de 5 m del IGN,
-  con los edificios de OpenStreetMap y los árboles sacados de la propia foto. Con una clave de Google
-  puedes usar también el 3D fotorrealista de Google en cualquier parte del planeta.
+  con los edificios de OpenStreetMap y del Catastro con sus tejados, y los árboles sacados de la propia
+  foto. En todo el planeta hay mar, lagos y ríos con oleaje y reflejos, puentes en 3D por los que se
+  puede pasar por debajo y tendidos eléctricos contra los que te puedes estrellar. Con una clave de
+  Google puedes usar también el 3D fotorrealista de Google en cualquier parte del planeta.
+- **Ciudades con vida.** Coches, furgonetas, camiones y autobuses circulan por las calles de todo el
+  mundo respetando carriles, cedas el paso, rotondas y semáforos; hay trenes por las vías y barcos en
+  los puertos. Al anochecer se encienden las farolas y las ventanas de los edificios.
 - **Cielo de verdad.** Atmósfera física, nubes volumétricas con su sombra, la hora y la fecha que
   quieras, viento y turbulencia, y vuelo nocturno con luces de navegación y de aterrizaje.
 - **Sal desde cualquier punto del planeta.** En el menú, «Elegir en el mapa del mundo» abre un globo
@@ -66,17 +63,33 @@ autogiro no se pilota como un avión ni como un helicóptero.
 - **Accidentes realistas.** Si te la pegas, el aparato se rompe por piezas según los golpes.
 - **Teclado, ratón, mando o joystick/HOTAS**, con una ayuda al pilotaje opcional para volar con
   teclado sin pelearte con el fugoide.
-- **En español e inglés.** El juego se pone en el idioma de tu Windows y se cambia en el menú
+- **En español e inglés.** El juego se pone en el idioma de tu ordenador y se cambia en el menú
   (botones `ES` / `EN`, arriba).
 
 <table>
   <tr>
+    <td width="50%"><img src="docs/img/ciudad.jpg" alt="AutoGyro Calidus sobre Madrid" /></td>
+    <td width="50%"><img src="docs/img/puente.jpg" alt="AutoGyro MT-03 llegando al puente de Rande" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Madrid con sus edificios y tejados en 3D</sub></td>
+    <td align="center"><sub>El puente de Rande y la ría de Vigo, con el sol en el agua</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/img/trafico.jpg" alt="Tráfico en el paseo de la Castellana" /></td>
+    <td width="50%"><img src="docs/img/noche.jpg" alt="Madrid al anochecer" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Tráfico en la Castellana: coches, furgonetas y tráileres</sub></td>
+    <td align="center"><sub>Madrid al anochecer: farolas, ventanas y faros encendidos</sub></td>
+  </tr>
+  <tr>
     <td width="50%"><img src="docs/img/instrumentos.jpg" alt="Vuelo con instrumentos sobre Toledo" /></td>
-    <td width="50%"><img src="docs/img/ciudad.jpg" alt="Edificios 3D de OpenStreetMap" /></td>
+    <td width="50%"><img src="docs/img/menu.jpg" alt="Menú del juego" /></td>
   </tr>
   <tr>
     <td align="center"><sub>Relojes de rotor, motor, velocidad y variómetro</sub></td>
-    <td align="center"><sub>Edificios reales en 3D, con sus alturas</sub></td>
+    <td align="center"><sub>El menú: aparato, salida, hora y meteo, escenario y multijugador</sub></td>
   </tr>
 </table>
 
@@ -100,12 +113,54 @@ autogiro no se pilota como un avión ni como un helicóptero.
     <td><b>Cierva C.30A (1934)</b> · homenaje a Juan de la Cierva, con hélice delante, rotor
     tripala, radial de 7 cilindros y rueda de cola. Se vuela como entonces.</td>
   </tr>
+  <tr>
+    <td width="50%"><img src="docs/img/mt03.jpg" alt="AutoGyro MT-03" /></td>
+    <td width="50%"><img src="docs/img/calidus.jpg" alt="AutoGyro Calidus" /></td>
+  </tr>
+  <tr>
+    <td><b>AutoGyro MT-03</b> · el tándem abierto alemán que popularizó el autogiro moderno, Rotax 912.</td>
+    <td><b>AutoGyro Calidus</b> · cabina cerrada en tándem, fina y rápida, Rotax 914 turbo.</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/img/cavalon.jpg" alt="AutoGyro Cavalon" /></td>
+    <td width="50%"><img src="docs/img/scorpion.jpg" alt="ELA 07 Scorpion" /></td>
+  </tr>
+  <tr>
+    <td><b>AutoGyro Cavalon</b> · cabina cerrada con los dos asientos lado a lado; el piloto va a la derecha.</td>
+    <td><b>ELA 07 Scorpion</b> · el ELA 07 deportivo: motor carenado, dos parabrisas y cola alta, Rotax 914.</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/img/jro.jpg" alt="DTA J-RO" /></td>
+    <td width="50%"><img src="docs/img/niki.jpg" alt="Niki Lightning" /></td>
+  </tr>
+  <tr>
+    <td><b>DTA J-RO</b> · tándem cerrado francés de carbono, con puertas de ala de gaviota y tres derivas.</td>
+    <td><b>Niki Lightning</b> · búlgaro, con la hélice en medio del aparato, girando alrededor del tubo de cola.</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/img/sclightning.jpg" alt="Sport Copter Lightning" /></td>
+    <td width="50%"><img src="docs/img/sclightning_f.jpg" alt="Sport Copter Lightning carenado" /></td>
+  </tr>
+  <tr>
+    <td><b>Sport Copter Lightning</b> · ultraligero monoplaza de bastidor abierto, con un Rotax 503 de dos tiempos.</td>
+    <td><b>Sport Copter Lightning carenado</b> · el mismo monoplaza con morro, parabrisas y techo.</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/img/carterpav.jpg" alt="Carter PAV" /></td>
+    <td width="50%"></td>
+  </tr>
+  <tr>
+    <td><b>Carter PAV</b> · compuesto de rotor lento con alas de 13,7 m: despega de un salto y, a 250 km/h, el rotor gira a poco más de 100 rpm.</td>
+    <td></td>
+  </tr>
 </table>
 
-Todos se pueden llevar solos o con pasajero, y cada uno tiene sus pesos, su motor, su rotor y su
+Todos menos el monoplaza Sport Copter se pueden llevar solos o con pasajero, y cada uno tiene sus pesos, su motor, su rotor y su
 cola: no vuelan igual.
 
 ## Instalar
+
+### Windows
 
 1. **[Descarga el instalador](https://github.com/Marius-Romanus/autogiro/releases/latest/download/Autogiro-Setup.exe)**
    (unos 20 MB) y ábrelo.
@@ -113,16 +168,29 @@ cola: no vuelan igual.
    firmado: pulsa **Más información → Ejecutar de todas formas**.
 3. Se instala solo, sin permisos de administrador, y crea el acceso directo en el escritorio.
 
+<a name="linux"></a>
+
+### Linux
+
+1. **[Descarga el AppImage](https://github.com/Marius-Romanus/autogiro/releases/latest/download/Autogiro-Linux.AppImage)**
+   (unos 125 MB), que vale para cualquier distribución.
+2. Dale permiso de ejecución: *clic derecho → Propiedades → Permitir ejecutar como programa*, o en
+   la terminal `chmod +x Autogiro-Linux.AppImage`.
+3. Ábrelo con doble clic. No hace falta instalar nada más.
+
+Si prefieres un paquete de tu distribución, también está en
+**[.deb](https://github.com/Marius-Romanus/autogiro/releases/latest/download/Autogiro-Linux.deb)**
+(Ubuntu, Debian, Mint…) y
+**[.rpm](https://github.com/Marius-Romanus/autogiro/releases/latest/download/Autogiro-Linux.rpm)**
+(Fedora, openSUSE…); esos piden tu contraseña al instalarse y al actualizarse.
+
 Cuando salga una versión nueva, el juego te lo dirá al abrirlo y se actualizará con un clic.
 
-**Qué necesitas:** Windows 10 u 11, conexión a Internet (el paisaje se descarga mientras vuelas) y,
-mejor, una tarjeta gráfica dedicada. El juego usa siempre la gráfica potente del portátil y elige
-la calidad solo; puedes cambiarla en el menú (*Gráficos y mandos → Calidad*). **F11** pone la
+**Qué necesitas:** Windows 10 u 11 o un Linux de 64 bits reciente (Ubuntu 22.04, Debian 12,
+Fedora 36 o más nuevos), conexión a Internet (el paisaje se descarga mientras vuelas) y, mejor, una
+tarjeta gráfica dedicada. El juego elige la calidad solo; puedes cambiarla en el menú (*Ajustes →
+Gráficos → Calidad*). En Windows usa siempre la gráfica potente del portátil. **F11** pone la
 pantalla completa.
-
-<p align="center">
-  <img src="docs/img/menu.jpg" alt="Menú del juego" width="85%" />
-</p>
 
 ## Tu primer vuelo
 
@@ -192,7 +260,7 @@ el tiempo para todos, y cada uno su aparato.
 
 | Modo | Qué ves | Necesita |
 |---|---|---|
-| **Ortofoto + relieve** (de serie) | En España, ortofoto PNOA y relieve de 5 m del IGN, edificios 3D de OpenStreetMap y del Catastro con tejados inclinados, y árboles 3D. Fuera de España, imágenes de satélite de Esri. | Nada |
+| **Ortofoto + relieve** (de serie) | En España, ortofoto PNOA y relieve de 5 m del IGN, edificios 3D de OpenStreetMap y del Catastro con tejados inclinados, y árboles 3D. Fuera de España, imágenes de satélite de Esri. En todo el mundo, mar, lagos y ríos con oleaje y reflejos, puentes y tendidos eléctricos en 3D, y tráfico por las calles. | Nada |
 | **Fotorrealista 3D de Google** | Ciudades, árboles y montañas en 3D fotorrealista en todo el mundo. | Una clave gratuita de Google |
 
 ### Edificios y tejados
@@ -207,10 +275,51 @@ el tiempo para todos, y cada uno su aparato.
   rumbo que llevas, de modo que al llegar ya están. Cada municipio se descarga una sola vez (entre 1 y 6 MB;
   Madrid capital, unos 120 MB, solo si vuelas por encima) y se queda guardado en tu ordenador: un pueblo
   ocupa unos cientos de kB y una ciudad como Móstoles, unos 3 MB.
-  - *Menú → Escenario → Completar con los edificios del Catastro* lo activa o lo quita.
+  - *Menú → Escenario → Completar con el Catastro* lo activa o lo quita.
   - *Menú → Escenario → Datos del Catastro descargados* muestra cada municipio guardado y lo que ocupa,
     con un botón para borrarlo (o borrarlo todo).
   - País Vasco y Navarra tienen catastro propio y no están incluidos: allí se ven solo los de OpenStreetMap.
+
+### Agua
+
+El mar, los lagos, los embalses y los ríos de todo el mundo conservan el color que tienen en la foto (el
+azul oscuro del mar abierto, el turquesa de un arrecife, el verde de un embalse) y encima llevan lo que
+hace que el agua parezca agua: reflejan el cielo, más cuanto más a ras miras; el sol deja su camino de
+destellos; y el oleaje sale del **viento que pongas en el menú**. En calma un lago es un espejo; con 10 nudos
+el agua se riza a rachas; desde unos 12 nudos el mar saca borreguillos. Un piloto lee el viento en el agua,
+y aquí también se puede.
+
+### Tendidos eléctricos
+
+Las líneas eléctricas de todo el mundo están en 3D: torres de celosía de alta tensión, apoyos de media
+y postes de baja, cada uno con su forma según la tensión, y los cables colgando entre ellos. Se ven
+como en vuelo: las torres desde lejos y los cables nítidos solo de cerca, cuando ya casi no da tiempo.
+**Se choca con ellos**: un cable que entra en el disco del rotor parte las palas. Sirven también para
+navegar, como en la realidad. En España salen de un fichero que va con el juego; fuera, de OpenInfraMap.
+Las de teléfono casi no están en los mapas, así que apenas aparecen.
+*Menú → Escenario → Tendidos eléctricos* los quita o los pone, también a mitad de vuelo.
+
+### Puentes
+
+Los puentes de OpenStreetMap de todo el mundo están en 3D, con su tablero a la altura de los estribos,
+sus pilas y, según el tipo, sus arcos, celosías, tirantes o cables colgantes (el tipo sale de
+Wikidata). Se puede pasar por debajo, posarse y rodar por el tablero o, si no calculas bien, chocar con
+ellos. Donde el relieve trae el puente como si fuera un dique, el terreno se rebaja por debajo para que
+pase el río. Van con los *Edificios 3D* del menú.
+
+### Tráfico y ciudades de noche
+
+Por las carreteras y calles de OpenStreetMap de cualquier parte del mundo circulan coches, furgonetas,
+camiones, tráileres y autobuses, por el lado que toca en cada país: van por su carril, ceden el paso,
+entran en las rotondas, paran en los semáforos y no se atraviesan unos a otros. Hay trenes por las
+vías, con sus pasos a nivel, y barcos en los puertos. Es
+tráfico simulado, no el real del momento, y cambia con la hora: en hora punta hay más. Se puede chocar
+con ellos, así que ojo al tomar en un camino.
+
+Al anochecer los vehículos encienden los faros, las farolas alumbran las calles urbanas (unas de
+sodio, naranjas, y otras LED, blancas) y se encienden las ventanas de los edificios: muchas hacia las
+nueve de la noche y pocas de madrugada. *Menú → Escenario → Tráfico* quita los vehículos; las farolas
+y las ventanas siguen.
 
 <details>
 <summary><b>Cómo conseguir la clave de Google</b></summary>
@@ -230,8 +339,12 @@ si te gusta, [invítame a un café en Ko-fi](https://ko-fi.com/mario_creativecod
 
 - Ortofoto PNOA y MDT05 © Instituto Geográfico Nacional ([scne.es](https://www.scne.es)), CC BY 4.0 ·
   imágenes Esri World Imagery · relieve global Mapzen / AWS Terrain Tiles · Google Photorealistic 3D Tiles © Google.
-- Edificios y formas de tejado © colaboradores de OpenStreetMap (ODbL), teselas de [OpenFreeMap](https://openfreemap.org) / OpenMapTiles,
+- Tendidos eléctricos © colaboradores de OpenStreetMap (ODbL): en España, del volcado de
+  [Geofabrik](https://download.geofabrik.de); fuera, teselas de [Open Infrastructure Map](https://openinframap.org).
+- Edificios, formas de tejado, agua (mar, lagos y ríos), puentes y las calles, vías y puertos del tráfico
+  © colaboradores de OpenStreetMap (ODbL), teselas de [OpenFreeMap](https://openfreemap.org) / OpenMapTiles,
   y © [Dirección General del Catastro](https://www.catastro.hacienda.gob.es) (datos INSPIRE de edificios).
+- Tipo de estructura de los puentes (colgante, atirantado, arco, celosía): [Wikidata](https://www.wikidata.org) (CC0).
 - Mapa del mundo: aeródromos de [OurAirports](https://ourairports.com/data/) (dominio público), pistas y
   búsqueda de lugares © colaboradores de OpenStreetMap (OpenFreeMap y [Nominatim](https://nominatim.openstreetmap.org)).
 - [3d-tiles-renderer](https://github.com/NASA-AMMOS/3DTilesRendererJS) (NASA-AMMOS),
@@ -242,6 +355,10 @@ si te gusta, [invítame a un café en Ko-fi](https://ko-fi.com/mario_creativecod
 - Cierva C.30A: plano de tres vistas de *Flight* (1934) reproducido en la
   [NACA Aircraft Circular 196](https://ntrs.nasa.gov/citations/19930090361), datos de vuelo de los
   ensayos de la RAE (ARC R&M 1859 y 1727) y decoración de la réplica del Museo del Aire de Madrid.
+- MT-03, Calidus, Cavalon, ELA 07 Cougar y Scorpion, ELA 10, J-RO, Niki Lightning, Sport Copter Lightning y Carter PAV:
+  calcados sobre fotos de [Wikimedia Commons](https://commons.wikimedia.org) y de sus fabricantes, los
+  manuales de vuelo de AutoGyro y DTA, las hojas de datos de la CAA británica y, para el Carter PAV, el
+  artículo de Carter y Lewis en el European Rotorcraft Forum de 2015.
 
 ## Licencia
 
@@ -256,23 +373,21 @@ Para un uso comercial, escríbeme a través de [creativecode.es](https://creativ
 
 <a name="english"></a>
 
-<h1 align="center">Autogiro · English</h1>
+<p align="center">
+  <img src="docs/img/cabecera-en.png" alt="Autogiro · Fly a gyrocopter over the real world" />
+</p>
 
 <p align="center">
   <a href="#espanol"><b>Español</b></a> · <b>English</b>
 </p>
 
 <p align="center">
-  <b>Fly a gyrocopter over the real world</b><br />
-  Real autogyro physics · Spanish IGN terrain and orthophotos · 3D buildings and trees · multiplayer
+  <a href="https://github.com/Marius-Romanus/autogiro/releases/latest/download/Autogiro-Setup.exe"><img src="https://img.shields.io/github/v/release/Marius-Romanus/autogiro?style=for-the-badge&label=Download%20for%20Windows&color=f6c400&labelColor=0d0d0d" alt="Download for Windows" /></a>
+  <a href="#linux-en"><img src="https://img.shields.io/github/v/release/Marius-Romanus/autogiro?style=for-the-badge&label=Download%20for%20Linux&color=e6e6e6&labelColor=0d0d0d" alt="Download for Linux" /></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/Marius-Romanus/autogiro/releases/latest/download/Autogiro-Setup.exe"><img src="https://img.shields.io/github/v/release/Marius-Romanus/autogiro?style=for-the-badge&label=Download%20for%20Windows&color=ff5a1f" alt="Download for Windows" /></a>
-</p>
-
-<p align="center">
-  Free · Windows 10 and 11 · in English and Spanish · updates itself ·
+  Free · Windows and Linux · in English and Spanish · updates itself ·
   <a href="https://github.com/Marius-Romanus/autogiro/releases">release notes</a> (in Spanish)
 </p>
 
@@ -289,9 +404,16 @@ like an aeroplane nor like a helicopter.
 - **Gyro physics, not an aeroplane with a propeller on top.** The rotor spins freely in
   autorotation, you have to pre-rotate it to take off, its RPM depends on the load, and it warns you
   about blade flapping and low-g. Performance has been checked against real data for each aircraft.
+- **13 different gyrocopters.** Trainers, enclosed cabins, open-frame single-seaters, the 1934
+  Cierva C.30A and even the Carter PAV compound, each with its own engine, rotor and physics.
 - **The real world.** All over Spain you fly over the IGN's PNOA orthophotos and 5 m terrain model,
-  with OpenStreetMap buildings and trees detected in the photo itself. Outside Spain you get Esri
-  satellite imagery, and with a Google key you can use Google's photorealistic 3D anywhere on Earth.
+  with OpenStreetMap and Land Registry buildings with their roofs, and trees detected in the photo
+  itself. Outside Spain you get Esri satellite imagery. All over the planet there are seas, lakes and
+  rivers with waves and reflections, 3D bridges you can fly under and power lines you can crash into.
+  With a Google key you can also use Google's photorealistic 3D anywhere on Earth.
+- **Living cities.** Cars, vans, lorries and buses drive through the streets all over the world,
+  keeping to their lanes, giving way and handling roundabouts and traffic lights; trains run on the
+  tracks and boats sail in the harbours. At dusk the street lights and the building windows light up.
 - **A real sky.** Physical atmosphere, volumetric clouds with their shadows, any time and date,
   wind and turbulence, and night flying with navigation and landing lights.
 - **Start anywhere on the planet.** In the menu, “Pick on the world map” opens a globe you spin and
@@ -312,17 +434,33 @@ like an aeroplane nor like a helicopter.
 - **Realistic crashes.** If you crash, the aircraft breaks apart piece by piece depending on the impacts.
 - **Keyboard, mouse, gamepad or joystick/HOTAS**, with an optional flying assist so you can fly with
   the keyboard without fighting the phugoid.
-- **In English and Spanish.** The game follows your Windows language, and you can switch it in the
+- **In English and Spanish.** The game follows your computer's language, and you can switch it in the
   menu (`ES` / `EN` buttons at the top).
 
 <table>
   <tr>
+    <td width="50%"><img src="docs/img/ciudad.jpg" alt="AutoGyro Calidus over Madrid" /></td>
+    <td width="50%"><img src="docs/img/puente.jpg" alt="AutoGyro MT-03 approaching the Rande bridge" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Madrid with its 3D buildings and roofs</sub></td>
+    <td align="center"><sub>The Rande bridge over the Vigo estuary, with the sun on the water</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/img/trafico.jpg" alt="Traffic on the Paseo de la Castellana" /></td>
+    <td width="50%"><img src="docs/img/noche.jpg" alt="Madrid at dusk" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Traffic on the Castellana: cars, vans and articulated lorries</sub></td>
+    <td align="center"><sub>Madrid at dusk: street lights, windows and headlights on</sub></td>
+  </tr>
+  <tr>
     <td width="50%"><img src="docs/img/instrumentos.jpg" alt="Flying over Toledo with the instruments" /></td>
-    <td width="50%"><img src="docs/img/ciudad.jpg" alt="3D buildings from OpenStreetMap" /></td>
+    <td width="50%"><img src="docs/img/menu.jpg" alt="The game menu" /></td>
   </tr>
   <tr>
     <td align="center"><sub>Rotor, engine, airspeed and vertical speed gauges</sub></td>
-    <td align="center"><sub>Real buildings in 3D, with their heights</sub></td>
+    <td align="center"><sub>The menu: aircraft, departure, time and weather, scenery and multiplayer</sub></td>
   </tr>
 </table>
 
@@ -347,12 +485,54 @@ like an aeroplane nor like a helicopter.
     tractor propeller, three-blade rotor, 7-cylinder radial engine and tailwheel. You fly it the way
     it was flown back then.</td>
   </tr>
+  <tr>
+    <td width="50%"><img src="docs/img/mt03.jpg" alt="AutoGyro MT-03" /></td>
+    <td width="50%"><img src="docs/img/calidus.jpg" alt="AutoGyro Calidus" /></td>
+  </tr>
+  <tr>
+    <td><b>AutoGyro MT-03</b> · the German open tandem that made the modern gyroplane popular, Rotax 912.</td>
+    <td><b>AutoGyro Calidus</b> · sleek, fast enclosed tandem, Rotax 914 turbo.</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/img/cavalon.jpg" alt="AutoGyro Cavalon" /></td>
+    <td width="50%"><img src="docs/img/scorpion.jpg" alt="ELA 07 Scorpion" /></td>
+  </tr>
+  <tr>
+    <td><b>AutoGyro Cavalon</b> · enclosed cabin with side-by-side seats; the pilot sits on the right.</td>
+    <td><b>ELA 07 Scorpion</b> · the sporty ELA 07: cowled engine, two windscreens and a high tail, Rotax 914.</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/img/jro.jpg" alt="DTA J-RO" /></td>
+    <td width="50%"><img src="docs/img/niki.jpg" alt="Niki Lightning" /></td>
+  </tr>
+  <tr>
+    <td><b>DTA J-RO</b> · French enclosed carbon tandem with gull-wing doors and three fins.</td>
+    <td><b>Niki Lightning</b> · Bulgarian, with the propeller in the middle of the airframe, turning round the tail boom.</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/img/sclightning.jpg" alt="Sport Copter Lightning" /></td>
+    <td width="50%"><img src="docs/img/sclightning_f.jpg" alt="Sport Copter Lightning (faired)" /></td>
+  </tr>
+  <tr>
+    <td><b>Sport Copter Lightning</b> · open-frame single-seat ultralight with a two-stroke Rotax 503.</td>
+    <td><b>Sport Copter Lightning (faired)</b> · the same single-seater with a nose pod, windscreen and roof.</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/img/carterpav.jpg" alt="Carter PAV" /></td>
+    <td width="50%"></td>
+  </tr>
+  <tr>
+    <td><b>Carter PAV</b> · slowed-rotor compound with 13.7 m wings: it jumps off the ground and, at 250 km/h, its rotor turns at just over 100 rpm.</td>
+    <td></td>
+  </tr>
 </table>
 
-All of them can be flown solo or with a passenger, and each one has its own weights, engine, rotor
+All but the single-seat Sport Copter can be flown solo or with a passenger, and each one has its own weights, engine, rotor
 and tail: they don't fly the same.
 
 ## Install
+
+### Windows
 
 1. **[Download the installer](https://github.com/Marius-Romanus/autogiro/releases/latest/download/Autogiro-Setup.exe)**
    (about 20 MB) and run it. It shows up in English or Spanish depending on your Windows.
@@ -360,12 +540,29 @@ and tail: they don't fly the same.
    click **More info → Run anyway**.
 3. It installs by itself, without administrator rights, and adds a shortcut to your desktop.
 
+<a name="linux-en"></a>
+
+### Linux
+
+1. **[Download the AppImage](https://github.com/Marius-Romanus/autogiro/releases/latest/download/Autogiro-Linux.AppImage)**
+   (about 125 MB), which works on any distribution.
+2. Make it executable: *right click → Properties → Allow executing as program*, or in a terminal
+   `chmod +x Autogiro-Linux.AppImage`.
+3. Double-click it. Nothing else to install.
+
+If you'd rather use a package for your distribution, there are also
+**[.deb](https://github.com/Marius-Romanus/autogiro/releases/latest/download/Autogiro-Linux.deb)**
+(Ubuntu, Debian, Mint…) and
+**[.rpm](https://github.com/Marius-Romanus/autogiro/releases/latest/download/Autogiro-Linux.rpm)**
+(Fedora, openSUSE…) packages; those ask for your password when installing and updating.
+
 When a new version comes out, the game tells you when you open it and updates with one click.
 
-**You need:** Windows 10 or 11, an Internet connection (the scenery is downloaded as you fly) and,
-ideally, a dedicated graphics card. The game always uses the laptop's powerful GPU and picks the
-quality by itself; you can change it in the menu (*Graphics & controls → Quality*). **F11** toggles
-full screen.
+**You need:** Windows 10 or 11 or a recent 64-bit Linux (Ubuntu 22.04, Debian 12, Fedora 36 or
+newer), an Internet connection (the scenery is downloaded as you fly) and, ideally, a dedicated
+graphics card. The game picks the quality by itself; you can change it in the menu (*Settings →
+Graphics → Quality*). On Windows it always uses the laptop's powerful GPU. **F11** toggles full
+screen.
 
 ## Your first flight
 
@@ -435,7 +632,7 @@ for everyone, and each pilot picks their own aircraft.
 
 | Mode | What you see | Needs |
 |---|---|---|
-| **Orthophoto + terrain** (default) | In Spain, PNOA orthophotos and the IGN 5 m terrain model, 3D buildings from OpenStreetMap and the Spanish Land Registry (Catastro) with pitched roofs, and 3D trees. Outside Spain, Esri satellite imagery. | Nothing |
+| **Orthophoto + terrain** (default) | In Spain, PNOA orthophotos and the IGN 5 m terrain model, 3D buildings from OpenStreetMap and the Spanish Land Registry (Catastro) with pitched roofs, and 3D trees. Outside Spain, Esri satellite imagery. All over the world, seas, lakes and rivers with waves and reflections, 3D bridges and power lines, and traffic in the streets. | Nothing |
 | **Google Photorealistic 3D** | Photorealistic 3D cities, trees and mountains all over the world. | A free Google key |
 
 ### Buildings and roofs
@@ -450,11 +647,52 @@ for everyone, and each pilot picks their own aircraft.
   heading, so they are ready when you get there. Each municipality is downloaded only once (1–6 MB;
   Madrid city, about 120 MB, only if you fly over it) and stays on your computer: a village takes a few
   hundred kB and a town like Móstoles about 3 MB.
-  - *Menu → Scenery → Add the Spanish Land Registry (Catastro) buildings* turns it on or off.
+  - *Menu → Scenery → Fill in with the Catastro* turns it on or off.
   - *Menu → Scenery → Downloaded Catastro data* lists every stored municipality and its size, with a
     button to delete it (or everything).
   - The Basque Country and Navarre have their own land registries and are not included: only
     OpenStreetMap buildings are shown there.
+
+### Water
+
+Seas, lakes, reservoirs and rivers all over the world keep the colour they have in the photo (the dark
+blue of the open sea, the turquoise of a reef, the green of a reservoir) and add what makes water look
+like water: they reflect the sky, the more the flatter you look; the sun leaves its trail of glints; and
+the waves come from the **wind you set in the menu**. In calm air a lake is a mirror; at 10 knots the
+water ripples in gusts; from about 12 knots the sea shows whitecaps. A pilot reads the wind on the
+water, and you can do it here too.
+
+### Power lines
+
+Power lines all over the world are in 3D: lattice towers for high voltage, medium-voltage poles and
+low-voltage posts, each shaped by its voltage, with the wires sagging between them. They look as they
+do in flight: the towers from far away and the wires sharp only up close, when there's hardly any time
+left. **You can hit them**: a wire that gets into the rotor disc breaks the blades. They also help you
+navigate, as in real life. In Spain they come from a file shipped with the game; elsewhere, from
+OpenInfraMap. Telephone lines are barely mapped, so you'll rarely see them.
+*Menu → Scenery → Power lines* turns them on or off, even in mid-flight.
+
+### Bridges
+
+OpenStreetMap bridges all over the world are in 3D, with their deck level with the abutments, their
+piers and, depending on the type, their arches, trusses, stays or suspension cables (the type comes
+from Wikidata). You can fly under them, land and taxi on the deck or, if you misjudge it, crash into
+them. Where the terrain model has the bridge as if it were a dam, the ground underneath is carved out
+so the river can pass. They come with *3D buildings* in the menu.
+
+### Traffic and cities at night
+
+Cars, vans, lorries, articulated lorries and buses drive along the OpenStreetMap roads and streets
+anywhere in the world, on the right side for each country: they keep to their lane, give way, enter
+roundabouts, stop at traffic lights and never drive through each other. Trains run on the tracks,
+with their level crossings, and boats sail in the harbours. It's simulated traffic, not the real
+traffic of the moment, and it changes with the time of day: there's more at rush hour. You can crash
+into them, so watch out when landing on a road.
+
+At dusk the vehicles turn on their headlights, the street lights light up the urban streets (some
+orange sodium, some white LED) and the building windows light up: lots of them around nine in the
+evening and few in the small hours. *Menu → Scenery → Traffic* removes the vehicles; the street
+lights and windows stay.
 
 <details>
 <summary><b>How to get the Google key</b></summary>
@@ -474,8 +712,12 @@ if you like it, [buy me a coffee on Ko-fi](https://ko-fi.com/mario_creativecode)
 
 - PNOA orthophoto and MDT05 © Instituto Geográfico Nacional ([scne.es](https://www.scne.es)), CC BY 4.0 ·
   Esri World Imagery · global terrain Mapzen / AWS Terrain Tiles · Google Photorealistic 3D Tiles © Google.
-- Buildings and roof shapes © OpenStreetMap contributors (ODbL), tiles by [OpenFreeMap](https://openfreemap.org) / OpenMapTiles,
+- Power lines © OpenStreetMap contributors (ODbL): in Spain, from the [Geofabrik](https://download.geofabrik.de)
+  extracts; elsewhere, tiles by [Open Infrastructure Map](https://openinframap.org).
+- Buildings, roof shapes, water (seas, lakes and rivers), bridges and the streets, tracks and harbours
+  of the traffic © OpenStreetMap contributors (ODbL), tiles by [OpenFreeMap](https://openfreemap.org) / OpenMapTiles,
   and © [Dirección General del Catastro](https://www.catastro.hacienda.gob.es) (INSPIRE building data).
+- Bridge structure types (suspension, cable-stayed, arch, truss): [Wikidata](https://www.wikidata.org) (CC0).
 - World map: airfields from [OurAirports](https://ourairports.com/data/) (public domain), runways and
   place search © OpenStreetMap contributors (OpenFreeMap and [Nominatim](https://nominatim.openstreetmap.org)).
 - [3d-tiles-renderer](https://github.com/NASA-AMMOS/3DTilesRendererJS) (NASA-AMMOS),
@@ -486,6 +728,10 @@ if you like it, [buy me a coffee on Ko-fi](https://ko-fi.com/mario_creativecode)
 - Cierva C.30A: three-view drawing from *Flight* (1934) reproduced in
   [NACA Aircraft Circular 196](https://ntrs.nasa.gov/citations/19930090361), flight data from the RAE
   tests (ARC R&M 1859 and 1727) and colour scheme of the replica at the Museo del Aire in Madrid.
+- MT-03, Calidus, Cavalon, ELA 07 Cougar and Scorpion, ELA 10, J-RO, Niki Lightning, Sport Copter Lightning and Carter PAV:
+  traced on photos from [Wikimedia Commons](https://commons.wikimedia.org) and from their makers, the
+  AutoGyro and DTA flight manuals, the UK CAA data sheets and, for the Carter PAV, the paper by Carter
+  and Lewis at the 2015 European Rotorcraft Forum.
 
 ## License
 

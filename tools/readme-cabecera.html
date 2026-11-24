@@ -1,0 +1,61 @@
+<!doctype html>
+<!-- Cabecera del README (docs/img/cabecera.png y cabecera-en.png con #en), estilo «Pista».
+     Se abre en Chrome a 1600×440 con ?fondo=<captura 16:9> y se guarda la captura de la página
+     (DESARROLLO.md, «README»). -->
+<html>
+<head>
+<meta charset="utf-8" />
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; background: #0d0d0d; }
+  .b {
+    position: relative; width: 1600px; height: 440px; overflow: hidden; background: #0d0d0d; color: #fff;
+    font-family: Barlow, sans-serif;
+  }
+  .photo {
+    position: absolute; right: 0; top: 0; width: 1000px; height: 100%;
+    background: var(--fondo) 62% 42% / cover no-repeat;
+  }
+  .photo::after {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(90deg, #0d0d0d 0%, rgba(13,13,13,0.85) 18%, rgba(13,13,13,0.25) 55%, rgba(13,13,13,0) 100%);
+  }
+  .txt { position: absolute; left: 72px; top: 0; bottom: 0; display: flex; flex-direction: column; justify-content: center; }
+  .row { display: flex; align-items: center; gap: 34px; }
+  .row img { width: 148px; height: 148px; display: block; }
+  .word { font: 700 132px/0.9 'Barlow Condensed', sans-serif; letter-spacing: 0.1em; margin: 0 0 6px; }
+  .tag {
+    display: inline-block; margin-top: 30px; padding: 10px 18px 9px;
+    border: 3px solid #f6c400; color: #f6c400;
+    font: 700 30px/1 'Barlow Condensed', sans-serif; letter-spacing: 0.14em; text-transform: uppercase;
+  }
+  .chips { margin-top: 22px; display: flex; gap: 0; font: 600 23px/1 'Barlow Condensed', sans-serif; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255,255,255,0.86); }
+  .chips span + span::before { content: '·'; color: #f6c400; margin: 0 16px; }
+  .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 10px; background: #f6c400; }
+</style>
+</head>
+<body>
+<div class="b">
+  <div class="photo"></div>
+  <div class="txt">
+    <div class="row">
+      <img src="../src-tauri/icons/app-icon.svg" alt="" />
+      <h1 class="word">AUTOGIRO</h1>
+    </div>
+    <div><span class="tag" id="tag"></span></div>
+    <div class="chips" id="chips"></div>
+  </div>
+  <div class="bar"></div>
+</div>
+<script>
+  const en = location.hash === '#en'
+  const fondo = new URLSearchParams(location.search).get('fondo')
+  if (fondo) document.querySelector('.photo').style.setProperty('--fondo', 'url(' + JSON.stringify(fondo) + ')')
+  document.getElementById('tag').textContent = en ? 'Fly a gyrocopter over the real world' : 'Vuela un autogiro sobre el mundo real'
+  const chips = en
+    ? ['Real gyro physics', '13 gyrocopters', 'The whole planet', 'Multiplayer']
+    : ['Física de autogiro real', '13 autogiros', 'Todo el planeta', 'Multijugador']
+  document.getElementById('chips').innerHTML = chips.map((c) => `<span>${c}</span>`).join('')
+</script>
+</body>
+</html>
