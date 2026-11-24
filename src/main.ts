@@ -331,6 +331,7 @@ class App {
     this.ground.applyMatrix(m)
     this.rig.rebase(m)
     this.gfx.detail.rebase(m)
+    this.gfx.water.rebase(m)
     this.spawnXZ.applyMatrix4(m)
     this.gfx.camera.position.applyMatrix4(m)
     this.gfx.camera.quaternion.premultiply(q)
@@ -1129,14 +1130,14 @@ class App {
   private applySettings(initial: boolean): void {
     const s = this.settings
     this.wind.settings = { fromDeg: s.windFrom, speed: s.windSpeed * KT, turbulence: s.turbulence }
+    // el mismo viento riza el agua
+    this.gfx.water.setWind(s.windFrom, s.windSpeed * KT)
     this.gfx.renderer.toneMappingExposure = s.exposure
     this.sound.volume = s.volume
     // fecha y hora local → UTC
     const loc = this.currentLocation()
-    const spain = isInSpain(loc.lat, loc.lon)
-    const summer = s.dayOfYear > 87 && s.dayOfYear < 299
-    // Canarias, una hora menos que la península
-    const tz = spain ? (summer ? 2 : 1) - (loc.lon < -12 ? 1 : 0) : Math.round(loc.lon / 15)
+    // (España: hora oficial, Canarias una menos; fuera, la solar redondeada; también la usa el menú)
+    const tz = localUtcOffset(loc.lat, loc.lon, s.dayOfYear)
     const ms = Date.UTC(2026, 0, 1) + (s.dayOfYear - 1) * 86400e3 + (s.hour - tz) * 3600e3
     this.simDate = new Date(ms)
     this.gfx.setDate(this.simDate)

@@ -10,6 +10,8 @@
 // Las alturas son ortométricas (sobre el nivel del mar), igual que las usa el
 // renderizador (las coloca tal cual sobre el elipsoide).
 
+import { tileHasLandBelowSea } from './seaLevel.ts'
+
 export interface HeightSource {
   /** Altura (m) en (lat°, lon°) o null si aún no hay datos (y los pide). */
   sample(latDeg: number, lonDeg: number): number | null
@@ -350,7 +352,9 @@ export class TerrariumHeightSource implements HeightSource {
         ctx.drawImage(img, 0, 0)
         const px = ctx.getImageData(0, 0, img.width, img.height).data
         const data = new Float32Array(img.width * img.height)
-        for (let i = 0; i < data.length; i++) data[i] = px[4 * i] * 256 + px[4 * i + 1] + px[4 * i + 2] / 256 - 32768
+        // el fondo marino (cotas negativas) se lleva a 0, como en el terreno que se dibuja (seaLevel.ts)
+        const lo = tileHasLandBelowSea(z, x, y) ? -Infinity : 0
+        for (let i = 0; i < data.length; i++) data[i] = Math.max(lo, px[4 * i] * 256 + px[4 * i + 1] + px[4 * i + 2] / 256 - 32768)
         entry.data = { w: img.width, h: img.height, data }
         entry.state = 'ok'
         img.close()

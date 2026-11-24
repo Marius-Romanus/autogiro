@@ -30,6 +30,7 @@ import { GlobeControls, TilesRenderer } from '3d-tiles-renderer'
 import * as TilesPlugins from '3d-tiles-renderer/plugins'
 import { LOCATIONS, locationCountry, locationName, locationNote, type Location, type StartMode } from '../config.ts'
 import { countryName, getLang, locale, t } from '../i18n.ts'
+import { skipEsriPlaceholders } from '../world/esriImagery.ts'
 import {
   distanceM,
   elevationAt,
@@ -443,7 +444,8 @@ export class WorldMap {
     const tiles = new TilesRenderer()
     tiles.registerPlugin(
       new GeneratedSurfacePlugin({
-        overlay: new XYZTilesOverlay({ url: ESRI, levels: 19 }),
+        // (donde Esri no tiene imagen a un nivel, la del nivel anterior en vez de su cartel gris)
+        overlay: skipEsriPlaceholders(new XYZTilesOverlay({ url: ESRI, levels: 19 })),
         applyOverlayTexture: true,
       }),
     )

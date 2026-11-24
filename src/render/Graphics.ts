@@ -294,8 +294,12 @@ export class Graphics {
       albedoScale: 0.85,
     } as any)
     // el sol sobre el terreno también se multiplica por la sombra de edificios y árboles
-    ;(this.aerial as any).setFragmentShader(patchAerialNearClouds(patchAerialShader((this.aerial as any).getFragmentShader())))
+    // …y donde la máscara dice que hay agua, se ilumina como agua (Water.ts)
+    ;(this.aerial as any).setFragmentShader(
+      patchAerialWater(patchAerialNearClouds(patchAerialShader((this.aerial as any).getFragmentShader()))),
+    )
     this.aerial.uniforms.set('cloudsNearMask', this.cloudNearMask)
+    for (const [name, uniform] of this.water.uniforms) this.aerial.uniforms.set(name, uniform)
     // Máscara de iluminación en el canal alfa del propio render: los materiales
     // del aparato escriben alfa = 0 (ya iluminados por las luces reales) y el
     // terreno alfa = 1 (albedo que se ilumina en posproceso). Es exacta por píxel;
@@ -649,6 +653,7 @@ export class Graphics {
     this.updateCloudShadows()
     this.sunProbe.update(dt, this.renderer, this.camera)
     this.updateViewerLight()
+    this.water.update(dt, this.camera.position)
     this.composer.render(dt)
   }
 

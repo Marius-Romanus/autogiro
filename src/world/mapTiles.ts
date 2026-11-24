@@ -3,6 +3,7 @@
 
 import { VectorTile } from '@mapbox/vector-tile'
 import { PbfReader } from 'pbf'
+import { drawTileCrop, isEsriImagery, loadEsriTile } from './esriImagery.ts'
 
 /** Nivel de las teselas de objetos: ~1,9 km de lado en España. */
 export const Z = 14
@@ -57,8 +58,24 @@ export async function loadOrthoMosaic(urlTemplate: string, x: number, y: number,
     const ctx = cv.getContext('2d', { willReadFrequently: true })!
     let ok = 0
     const jobs: Promise<void>[] = []
+    // Esri: donde no tiene imagen a z16 da un cartel gris; en su lugar, el recorte del nivel anterior
+    const esri = isEsriImagery(urlTemplate)
     for (let j = 0; j < k; j++) {
       for (let i = 0; i < k; i++) {
+        if (esri) {
+          jobs.push(
+            loadEsriTile(urlTemplate, x * k + i, y * k + j, Z + 2, signal)
+              .then((t) => {
+                if (t instanceof ImageBitmap) {
+                  ctx.drawImage(t, i * 256, j * 256, 256, 256)
+                  t.close()
+                } else drawTileCrop(ctx, t, i * 256, j * 256, 256)
+                ok++
+              })
+              .catch(() => undefined),
+          )
+          continue
+        }
         const u = urlTemplate
           .replace('{z}', String(Z + 2))
           .replace('{x}', String(x * k + i))

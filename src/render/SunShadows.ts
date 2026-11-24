@@ -31,7 +31,6 @@ import {
   OrthographicCamera,
   PlaneGeometry,
   RedFormat,
-  RGFormat,
   Scene,
   ShaderChunk,
   ShaderMaterial,
@@ -50,6 +49,7 @@ import {
 } from 'three'
 import { Pass } from 'postprocessing'
 import type { Quality } from '../config.ts'
+import { WATER_MASK_GLSL, waterMaskUniforms } from './Water.ts'
 
 /** Capa en la que se dibujan los que proyectan sombra (solo la ven las cámaras de sombra). */
 export const WORLD_SHADOW_LAYER = 14
@@ -519,9 +519,11 @@ export class SunShadows {
  * binaria porque el terreno escribe alfas intermedios al fundir niveles de detalle).
  * G: luz del sol que llega al terreno (edificios y árboles), que el efecto de atmósfera
  * multiplica por la irradiancia solar.
+ * B: cuánta agua hay en el píxel y A: cuánto oleaje admite (máscara mundial de agua,
+ * Water.ts), para que el efecto de atmósfera la ilumine como agua.
  */
 export class ShadowMaskPass extends Pass {
-  private readonly target = new WebGLRenderTarget(1, 1, { format: RGFormat, depthBuffer: false })
+  private readonly target = new WebGLRenderTarget(1, 1, { depthBuffer: false })
   private readonly cam: PerspectiveCamera
   private readonly material: ShaderMaterial
 
@@ -538,6 +540,7 @@ export class ShadowMaskPass extends Pass {
         camProjInv: new Uniform(new Matrix4()),
         logFar: new Uniform(1),
         ...wsUniforms,
+        ...waterMaskUniforms,
       },
       vertexShader: /* glsl */ `
         varying vec2 vUv;
@@ -552,11 +555,14 @@ export class ShadowMaskPass extends Pass {
         uniform mat4 camProjInv;
         uniform float logFar;
         ${WS_GLSL}
+        ${WATER_MASK_GLSL}
         varying vec2 vUv;
         void main() {
-          float mask = step(0.002, texture2D(inputBuffer, vUv).a);
+          vec4 src = texture2D(inputBuffer, vUv);
+          float mask = step(0.002, src.a);
           float sun = 1.0;
-          if (mask > 0.5 && wsFade.z > 0.5) {
+          vec2 water = vec2(0.0);
+          if (mask > 0.5 && (wsFade.z > 0.5 || wtOn > 0.5)) {
             float d = texture2D(depthBuffer, vUv).r;
             if (d < 1.0) {
               // profundidad logarítmica de three.js: d = log2(1 + w) / log2(far + 1)
@@ -568,10 +574,11 @@ export class ShadowMaskPass extends Pass {
               view *= w / -view.z;
               vec3 world = (camWorld * vec4(view, 1.0)).xyz;
               // el terreno no proyecta: sin desplazamiento por la normal
-              sun = wsShadow(world, vec3(0.0), length(view), 0.0);
+              if (wsFade.z > 0.5) sun = wsShadow(world, vec3(0.0), length(view), 0.0);
+              if (wtOn > 0.5) water = wtWater(world, length(view), src.rgb);
             }
           }
-          gl_FragColor = vec4(mask, sun, 0.0, 1.0);
+          gl_FragColor = vec4(mask, sun, water);
         }`,
       depthTest: false,
       depthWrite: false,
@@ -594,6 +601,8 @@ export class ShadowMaskPass extends Pass {
     u.camWorld.value.copy(this.cam.matrixWorld)
     u.camProjInv.value.copy(this.cam.projectionMatrixInverse)
     u.logFar.value = Math.log2(this.cam.far + 1)
+    // ángulo de un píxel: la orilla del agua se dibuja nítida de cerca y suave de lejos
+    waterMaskUniforms.wtPix.value = (2 * Math.tan((this.cam.fov * Math.PI) / 360)) / Math.max(this.target.height, 1)
     renderer.setRenderTarget(this.target)
     renderer.render(this.scene, this.camera)
   }
