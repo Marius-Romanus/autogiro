@@ -278,9 +278,11 @@ export class World {
       }
       if (this.settings.buildings) {
         this.bridgeHeights = ign ? new QMHeightSource(IGN_QM, 16, 900) : new TerrariumHeightSource(TERRARIUM, 15)
-        this.bridges = new Bridges(this.frame, this.bridgeHeights, { imageryUrl, carve: ign })
-        // donde el MDT trae el puente incrustado, el terreno se rebaja con el mecanismo de las pistas
-        this.bridges.onCarve = (patches) => this.runways?.setExtra(patches)
+        // rebajes (solo con el MDT del IGN) y rellenos de los accesos; fuera de España la rejilla
+        // de alturas es de ~7 m por texel y el relleno lleva margen para que alguno caiga dentro
+        this.bridges = new Bridges(this.frame, this.bridgeHeights, { imageryUrl, carve: ign, fill: true, fillPad: ign ? 0 : 4 })
+        // los parches los aplica el mecanismo de las pistas: mallas del IGN o rejilla del relieve mundial
+        this.bridges.onCarve = (patches) => (this.runways ?? this.gridRunways?.runways)?.setExtra(patches)
         this.scene.add(this.bridges.group, this.bridges.decals)
         this.bridges.syncFrame()
       }

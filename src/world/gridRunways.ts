@@ -167,9 +167,16 @@ export class GridRunways {
     const h = height - 2
     const mS = mercY(south)
     const mN = mercY(north)
+    // lado del texel (m): un parche pequeño (el relleno del acceso de un puente) no se aplica en
+    // una rejilla gruesa, donde un solo texel subido sería un bulto de cientos de metros
+    const cell = ((east - west) * DEG * 6378137 * Math.cos(((south + north) / 2) * DEG)) / w
+    const fits = (r: Patch) =>
+      r.north >= south && r.south <= north && r.east >= west && r.west <= east && !('apply' in r && r.maxCell !== undefined && cell > r.maxCell)
+    // (por texel, solo las de esta tesela: con cientos de parches de puentes, recorrerlas todas pesaba)
+    const local = list.filter(fits)
     let any = false
     for (const r of changed) {
-      if (r.north < south || r.south > north || r.east < west || r.west > east) continue
+      if (!fits(r)) continue
       // texeles interiores (1..w, 1..h; centro del i-ésimo en (i − 0,5)/w) dentro del rectángulo
       const i0 = Math.max(1, Math.floor(((r.west - west) / (east - west)) * w + 0.5))
       const i1 = Math.min(w, Math.ceil(((r.east - west) / (east - west)) * w + 0.5))
@@ -180,7 +187,7 @@ export class GridRunways {
         for (let i = i0; i <= i1; i++) {
           const lon = west + ((i - 0.5) / w) * (east - west)
           const k = j * width + i
-          data[k] = adjustWith(list as Patch[], lat, lon, raw[k])
+          data[k] = adjustWith(local, lat, lon, raw[k])
         }
       }
       any = true

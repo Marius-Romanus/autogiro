@@ -467,10 +467,11 @@ export class BridgeNet {
 
   /**
    * ¿Hay una calzada o una vía a nivel del suelo en este punto (unidades globales)? Con `skip`,
-   * sin contar las que empiezan o acaban a menos de skip.r metros de (skip.gx, skip.gy): la
-   * continuación de un puente en su extremo.
+   * sin contar las que conectan con el extremo de un puente en (skip.gx, skip.gy): las que
+   * empiezan o acaban a menos de skip.r metros o pasan a menos de skip.through metros de él (la
+   * simplificación de las teselas aparta a veces unos metros los extremos de las calles de un cruce).
    */
-  onGroundWay(gx: number, gy: number, margin: number, skip?: { gx: number; gy: number; r: number }): boolean {
+  onGroundWay(gx: number, gy: number, margin: number, skip?: { gx: number; gy: number; r: number; through?: number }): boolean {
     const t = this.tiles.get(tileKey(Math.floor(gx / E), Math.floor(gy / E)))
     if (!t || t.ground.length === 0) return false
     if (!t.groundGrid) {
@@ -502,6 +503,12 @@ export class BridgeNet {
       if (skip) {
         const m = w.gx.length - 1
         if (Math.hypot(w.gx[0] - skip.gx, w.gy[0] - skip.gy) < skipR || Math.hypot(w.gx[m] - skip.gx, w.gy[m] - skip.gy) < skipR) continue
+        if (skip.through) {
+          const lim = skip.through / mpu
+          let touches = false
+          for (let k = 1; k < w.gx.length && !touches; k++) touches = distToSegment(skip.gx, skip.gy, w.gx[k - 1], w.gy[k - 1], w.gx[k], w.gy[k]) < lim
+          if (touches) continue
+        }
       }
       const lim = (w.hw + margin) / mpu
       for (let k = 1; k < w.gx.length; k++) {

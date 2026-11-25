@@ -32,7 +32,7 @@ const cy = Math.floor(((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) /
 setBridgeTable(new Uint8Array(readFileSync('public/bridges.bin')))
 const net = new BridgeNet()
 const heights = new QMHeightSource('https://qm-mdt.idee.es/1.0.0/terrain/', 16, 2000)
-const builder = new ChainBuilder(net, heights, { carve: true })
+const builder = new ChainBuilder(net, heights, { carve: true, fill: true })
 // «perfil=<largo mínimo>»: medidas del rebaje, estación a estación, de los puentes de al menos ese largo
 const profArg = process.argv.find((a) => a.startsWith('perfil='))
 if (profArg) {

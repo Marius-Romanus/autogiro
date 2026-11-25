@@ -97,6 +97,8 @@ export interface TerrainPatch {
   west: number
   north: number
   east: number
+  /** celda más grande (m) de una rejilla de alturas en la que tiene sentido (gridRunways.ts); sin ella, todas */
+  maxCell?: number
   apply(lat: number, lon: number, h: number): number
 }
 

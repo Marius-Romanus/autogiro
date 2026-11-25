@@ -35,6 +35,11 @@ const FILL_SLOPE = 1.5
 const FILL_SHOULDER = 1.5
 /** hasta dónde, más allá del extremo, se busca el terreno a la altura de la calzada (m) */
 const FILL_REACH = 24
+/**
+ * celda más grande (m) de una rejilla de alturas en la que se aplica un relleno: en una más gruesa
+ * un solo texel subido haría un bulto de cientos de metros (ver gridRunways.ts)
+ */
+const FILL_MAX_CELL = 12
 /** hueco mínimo (m) que merece relleno, y máximo: más es un dato raro, no un terraplén suavizado */
 const FILL_MIN = 0.4
 const FILL_MAX = 15
@@ -91,6 +96,14 @@ export interface Chain {
 export interface ChainOptions {
   /** buscar tableros incrustados en el terreno y preparar su rebaje (solo con el MDT del IGN) */
   carve: boolean
+  /** rellenar los accesos donde el relieve redondea el terraplén contra el estribo */
+  fill?: boolean
+  /**
+   * margen (m) con que se ensancha y alarga el relleno: con una rejilla de alturas gruesa (el
+   * relieve mundial, ~7 m por texel) alguno de sus texeles tiene que caer dentro, y bajo el
+   * estribo, para que no quede hueco entre el final del tablero y el texel relleno
+   */
+  fillPad?: number
 }
 
 /** Punto a `off` metros a la derecha del eje en la estación i (lat, lon). */
@@ -451,8 +464,8 @@ export class ChainBuilder {
     }
     if (c.companion) c.depth = 0.35
     else this.placePiers(c)
-    // terraplenes de los accesos (con el MDT del IGN, como los rebajes)
-    if (this.opts.carve) {
+    // terraplenes de los accesos
+    if (this.opts.fill) {
       for (const end of [0, 1] as const) {
         if (!(end ? c.endTerminal : c.startTerminal)) continue
         const f = await this.approachFill(c, end)
@@ -488,8 +501,8 @@ export class ChainBuilder {
     const lat = c.lat[i]
     const lon = c.lon[i]
     const { mLat, mLon } = c
-    const pad = FILL_REACH + 50
-    await this.heights.ensure(lat - pad / mLat, lon - pad / mLon, lat + pad / mLat, lon + pad / mLon)
+    const around = FILL_REACH + 50
+    await this.heights.ensure(lat - around / mLat, lon - around / mLon, lat + around / mLat, lon + around / mLon)
     // (punto a d metros hacia fuera por el eje y o a la derecha)
     const geoAt = (d: number, o: number): [number, number] => [lat + (un * d - ue * o) / mLat, lon + (ue * d + un * o) / mLon]
     // hasta dónde llega el hueco: el primer punto del eje donde el terreno ya está a la altura de
@@ -518,8 +531,9 @@ export class ChainBuilder {
     const hw = c.hw[i]
     // semiancho de lo alto a cada lado (izquierda, derecha): la calzada y su arcén, o hasta media
     // mediana si al lado acaba otro puente paralelo (la otra calzada)
-    let wcL = hw + FILL_SHOULDER
-    let wcR = hw + FILL_SHOULDER
+    const pad = this.opts.fillPad ?? 0
+    let wcL = hw + FILL_SHOULDER + pad
+    let wcR = hw + FILL_SHOULDER + pad
     const [egx, egy] = geoToUnit(lat, lon)
     const mine = new Set(c.parts.map((q) => q.piece))
     const metres = (gx: number, gy: number): [number, number] => {
@@ -547,8 +561,10 @@ export class ChainBuilder {
       else wcL = Math.max(wcL, mid)
     }
     const slope = FILL_SLOPE * depth
-    const far = reach + slope
-    const inward = -1.5 - slope
+    // (lo alto, hasta donde el terreno alcanza la calzada; con margen, algo más)
+    const top0 = reach + pad
+    const far = top0 + slope
+    const inward = -1.5 - pad - slope
     const sideL = wcL + slope
     const sideR = wcR + slope
     /** altura del relleno en (d, o), sin mirar el terreno; -Infinity donde no hay */
@@ -556,11 +572,11 @@ export class ChainBuilder {
       const ao = Math.abs(o)
       if (ao <= hw + 0.3) {
         // bajo el tablero: solo hasta dentro del estribo, que mide 1,5 m hacia el puente
-        if (d < -2) return -Infinity
-        return top - Math.max(0, d - reach) / FILL_SLOPE - (d < 0 ? 0.15 : 0)
+        if (d < -2 - pad) return -Infinity
+        return top - Math.max(0, d - top0) / FILL_SLOPE - (d < 0 ? 0.15 : 0)
       }
       const lx = Math.max(0, ao - (o > 0 ? wcR : wcL))
-      return top - (Math.max(0, d - reach) + Math.max(0, -d - 1.5) + lx) / FILL_SLOPE
+      return top - (Math.max(0, d - top0) + Math.max(0, -d - 1.5 - pad) + lx) / FILL_SLOPE
     }
     // celdas de 1 m que el relleno subiría pero son de otra calle o vía a nivel del suelo
     const d0 = Math.floor(inward)
@@ -568,7 +584,7 @@ export class ChainBuilder {
     const nd = Math.ceil(far) - d0 + 1
     const no = Math.ceil(sideR) - o0 + 1
     const blocked = new Uint8Array(nd * no)
-    const skip = { gx: egx, gy: egy, r: 4 }
+    const skip = { gx: egx, gy: egy, r: 10, through: 1.5 }
     for (let a = 0; a < nd; a++) {
       for (let b = 0; b < no; b++) {
         const d = d0 + a
@@ -606,6 +622,7 @@ export class ChainBuilder {
       east,
       depth,
       reach,
+      maxCell: FILL_MAX_CELL,
       apply(la: number, lo: number, h: number): number {
         const px = (lo - lon0) * mLon - e0
         const py = (la - lat0) * mLat - n0
@@ -618,7 +635,7 @@ export class ChainBuilder {
         const b = Math.round(o) - o0
         if (a >= 0 && a < nd && b >= 0 && b < no && blocked[a * no + b]) return h
         // (bajo el estribo se funde con el terreno de debajo del tablero)
-        if (d < -1 && Math.abs(o) <= hw + 0.3) t = h + (d + 2) * (t - h)
+        if (d < -1 - pad && Math.abs(o) <= hw + 0.3) t = h + (d + 2 + pad) * (t - h)
         return t
       },
     }

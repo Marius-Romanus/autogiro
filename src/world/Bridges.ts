@@ -59,6 +59,9 @@ export interface BridgeOptions {
   imageryUrl: string | null
   /** rebajar el terreno bajo los puentes incrustados en el MDT (solo con el MDT del IGN) */
   carve: boolean
+  /** rellenar los accesos (terraplén contra el estribo) y margen del relleno (ver ChainOptions) */
+  fill: boolean
+  fillPad: number
 }
 
 /** dos calzadas con el rumbo de un vehículo igual de alineado (coseno, ≈ 10° junto a 0°) */
@@ -101,7 +104,7 @@ export class Bridges extends TileLayer<BridgeTile> {
     this.radius = 4000
     this.heights = heights
     this.opts = opts
-    this.builder = new ChainBuilder(this.net, heights, { carve: opts.carve })
+    this.builder = new ChainBuilder(this.net, heights, { carve: opts.carve, fill: opts.fill, fillPad: opts.fillPad })
     this.sampler = opts.imageryUrl ? new OrthoSampler(opts.imageryUrl) : null
     this.material = createBridgeMaterial()
     this.decalMaterial = new MeshBasicMaterial({ vertexColors: true })
@@ -347,7 +350,7 @@ export class Bridges extends TileLayer<BridgeTile> {
   private renew(): void {
     if (this.net.tileCount < Bridges.NET_MAX) return
     this.net = new BridgeNet()
-    this.builder = new ChainBuilder(this.net, this.heights, { carve: this.opts.carve })
+    this.builder = new ChainBuilder(this.net, this.heights, { carve: this.opts.carve, fill: this.opts.fill, fillPad: this.opts.fillPad })
     this.plans = new Map()
     this.tops = new Map()
     this.shapes.clear()
