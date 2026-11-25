@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: "🔒 Fallo de seguridad · Security issue"
+    url: https://github.com/Marius-Romanus/autogiro/security/advisories/new
+    about: "Avísalo en privado, no en un issue público. · Report it privately, not in a public issue."
+  - name: "📥 Descargar la última versión · Download the latest version"
+    url: https://github.com/Marius-Romanus/autogiro/releases/latest
+    about: "Comprueba que el fallo sigue en la última versión. · Check the bug is still there in the latest version."

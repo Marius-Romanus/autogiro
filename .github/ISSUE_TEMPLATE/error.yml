@@ -1,0 +1,125 @@
+name: "🐞 Algo no funciona · Bug report"
+description: "Un fallo, un cierre, algo que se ve mal o que va muy lento. · A bug, a crash, a visual glitch or poor performance."
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por avisar. Cuanto más concretos sean los datos, antes se arregla.
+        Antes de nada, comprueba que tienes la [última versión](https://github.com/Marius-Romanus/autogiro/releases/latest): el juego se actualiza solo al abrirlo.
+
+        *Thanks for reporting! You can write in English.*
+
+  - type: input
+    id: version
+    attributes:
+      label: "Versión del juego · Game version"
+      description: "Sale abajo a la derecha del menú (tecla Esc). · Bottom right of the menu (Esc key)."
+      placeholder: "v1.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: sistema
+    attributes:
+      label: "Sistema · Operating system"
+      options:
+        - "Windows 11"
+        - "Windows 10"
+        - "Linux · AppImage"
+        - "Linux · .deb"
+        - "Linux · .rpm"
+        - "Otro (dilo abajo) · Other (explain below)"
+    validations:
+      required: true
+
+  - type: input
+    id: grafica
+    attributes:
+      label: "Tarjeta gráfica · Graphics card"
+      description: "Si no la sabes, en Windows: Administrador de tareas → Rendimiento → GPU. · Windows: Task Manager → Performance → GPU."
+      placeholder: "NVIDIA RTX 3060, AMD Radeon RX 6600, Intel Iris Xe…"
+
+  - type: input
+    id: coordenadas
+    attributes:
+      label: "Coordenadas · Coordinates"
+      description: "Salen en la barra de arriba mientras vuelas. Con ellas voy justo a ese sitio. · Shown in the top bar while flying."
+      placeholder: "40.2350° -4.0280°"
+
+  - type: input
+    id: sitio
+    attributes:
+      label: "Dónde volabas · Where were you flying"
+      description: "El aeródromo (mejor con su código OACI), el pueblo, la sierra… · Airfield (ICAO code), town, landmark…"
+      placeholder: "Casarrubios (LEMT), puente de Rande, sobre Madrid…"
+
+  - type: input
+    id: autogiro
+    attributes:
+      label: "Autogiro · Aircraft"
+      placeholder: "ELA 07 Cougar, AutoGyro MT-03, Cierva C.30A…"
+
+  - type: dropdown
+    id: escenario
+    attributes:
+      label: "Escenario · Scenery"
+      description: "Paso 4 del menú. · Menu step 4."
+      options:
+        - "Ortofoto + relieve (gratis) · Orthophoto + terrain (free)"
+        - "Fotorrealista 3D de Google · Google Photorealistic 3D"
+        - "No lo sé · Don't know"
+
+  - type: dropdown
+    id: calidad
+    attributes:
+      label: "Calidad gráfica · Graphics quality"
+      description: "Ajustes → Gráficos → Calidad. · Settings → Graphics → Quality."
+      options:
+        - "Automática · Automatic"
+        - "Baja · Low"
+        - "Media · Medium"
+        - "Alta · High"
+        - "Ultra"
+        - "No lo sé · Don't know"
+
+  - type: dropdown
+    id: mandos
+    attributes:
+      label: "Con qué pilotabas · Controls"
+      multiple: true
+      options:
+        - "Teclado · Keyboard"
+        - "Ratón · Mouse"
+        - "Mando · Gamepad"
+        - "Joystick / HOTAS"
+
+  - type: checkboxes
+    id: multijugador
+    attributes:
+      label: "Multijugador · Multiplayer"
+      options:
+        - label: "Pasó volando en una sala con otros pilotos · It happened in a multiplayer room"
+
+  - type: textarea
+    id: que-pasa
+    attributes:
+      label: "Qué pasa · What happens"
+      description: "Lo que ves, y lo que esperabas que pasara. · What you see, and what you expected."
+    validations:
+      required: true
+
+  - type: textarea
+    id: pasos
+    attributes:
+      label: "Cómo hacer que pase · Steps to reproduce"
+      placeholder: |
+        1. Elijo el MT-03 en Casarrubios, en la cabecera 08
+        2. Despego y giro a la izquierda
+        3. Al pasar por encima del pueblo…
+
+  - type: textarea
+    id: capturas
+    attributes:
+      label: "Capturas o vídeo · Screenshots or video"
+      description: "Arrástralos aquí. Si en la captura se ve la barra de arriba, ya lleva las coordenadas, la altitud y los FPS. · Drag them here; the top bar shows coordinates, altitude and FPS."

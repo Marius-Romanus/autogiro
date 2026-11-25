@@ -1,0 +1,47 @@
+name: "💡 Sugerencia · Suggestion"
+description: "Un autogiro, un sitio, algo de la física o del juego que mejorarías. · An aircraft, a place, physics or anything you'd improve."
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Mira antes si alguien lo ha pedido ya en los [issues abiertos](https://github.com/Marius-Romanus/autogiro/issues?q=is%3Aissue+label%3Aenhancement): si es así, deja un 👍 allí.
+
+        *You can write in English.*
+
+  - type: dropdown
+    id: tipo
+    attributes:
+      label: "Sobre qué es · What is it about"
+      options:
+        - "Un autogiro nuevo · A new aircraft"
+        - "Un aeródromo o un sitio · An airfield or a place"
+        - "Física o manejo · Flight physics or handling"
+        - "Escenario, gráficos o tráfico · Scenery, graphics or traffic"
+        - "Mandos · Controls"
+        - "Menú o interfaz · Menu or interface"
+        - "Multijugador · Multiplayer"
+        - "Otra cosa · Something else"
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: "Qué propones · Your idea"
+      description: "Qué cambiarías o añadirías, y para qué. · What you'd change or add, and why."
+    validations:
+      required: true
+
+  - type: input
+    id: coordenadas
+    attributes:
+      label: "Coordenadas · Coordinates"
+      description: "Si es un sitio concreto. Salen en la barra de arriba mientras vuelas. · If it's about a specific place."
+      placeholder: "40.2350° -4.0280°"
+
+  - type: textarea
+    id: referencias
+    attributes:
+      label: "Fotos, datos o enlaces · Photos, data or links"
+      description: "Para un autogiro o para la física, lo que más ayuda son el manual del aparato, fichas técnicas, fotos desde varios ángulos o vídeos de vuelo. · For aircraft or physics: manuals, spec sheets, photos, flight videos."
