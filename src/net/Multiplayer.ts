@@ -14,6 +14,7 @@ import { CG, GEOM, type Autogyro, type Controls } from '../sim/autogyro.ts'
 import type { World } from '../world/World.ts'
 import type { Location, Settings } from '../config.ts'
 import { aircraftById, aircraftName } from '../aircraft/catalog.ts'
+import { airframeById } from '../sim/airframes.ts'
 import { getLang, onLangChange, t } from '../i18n.ts'
 import type { AircraftPose } from '../aircraft/AircraftView.ts'
 import type { GroundBeam } from '../render/LandingLightEffect.ts'
@@ -82,7 +83,10 @@ const STORE = 'autogiro.mp.v1'
 const SEND_INTERVAL = 1000 / 15
 const IDLE_INTERVAL = 500
 const DEG = Math.PI / 180
-const ROTOR_R = 4.2
+/** radio del rotor (m) del aparato de un piloto: va de 3,5 m (Sport Copter) a 6,9 m (Carter PAV) */
+function rotorRadiusOf(aircraft: string): number {
+  return airframeById(aircraftById(aircraft).id).rotor.radius
+}
 /** inputs del menú que fija el anfitrión */
 const ROOM_INPUTS = ['depmode-map', 'depmode-place', 'country', 'location', 'btn-worldmap', 'customLat', 'customLon', 'customHeading', 'hour', 'dayOfYear', 'windFrom', 'windSpeed', 'turbulence', 'clouds']
 const COND_KEYS = ['locationId', 'customLat', 'customLon', 'customHeading', 'customName', 'hour', 'dayOfYear', 'windFrom', 'windSpeed', 'turbulence', 'clouds', 'collisions'] as const
@@ -707,11 +711,13 @@ export class Multiplayer {
       if (p.status !== ST_FLYING && p.status !== ST_CRASHED) continue
       if (now - p.lastRecv > 2000 || now - p.spawnedAt < 3000) continue
       const other = p.predict(now, w.frame.ecefToWorld, _qInv, shift)
-      if (!other || other.pos.distanceTo(ac.pos) > 2 * ROTOR_R + 6) continue
+      const myR = ac.af.rotor.radius
+      const theirR = rotorRadiusOf(p.info.aircraft)
+      if (!other || other.pos.distanceTo(ac.pos) > myR + theirR + 6) continue
       const rel = ac.vel.distanceTo(other.vel)
       if (rel < 1.5) continue // apoyados o rodando juntos muy despacio: no cuenta
-      mine ??= shapeOf(ac, _mine)
-      if (!shapesHit(mine, shapeOf(other, _theirs))) continue
+      mine ??= shapeOf(ac, _mine, myR)
+      if (!shapesHit(mine, shapeOf(other, _theirs, theirR))) continue
       const both = ac.onGround && other.onGround
       this.hooks.collide(
         t(both ? 'mp.midairBoth' : 'mp.midair'),
@@ -1109,6 +1115,8 @@ class Shape {
   readonly hub = new Vector3()
   readonly normal = new Vector3()
   readonly rim = Array.from({ length: RIM_N }, () => new Vector3())
+  /** radio del rotor (m) */
+  r = 4.2
 }
 
 const _a = new Vector3()
@@ -1116,7 +1124,8 @@ const _b = new Vector3()
 const _mine = new Shape()
 const _theirs = new Shape()
 
-function shapeOf(pose: AircraftPose, s: Shape): Shape {
+function shapeOf(pose: AircraftPose, s: Shape, rotorR: number): Shape {
+  s.r = rotorR
   for (let i = 0; i < BODY_PTS.length; i++) s.body[i].copy(BODY_PTS[i]).applyQuaternion(pose.quat).add(pose.pos)
   s.hub.copy(pose.hubBody).applyQuaternion(pose.quat).add(pose.pos)
   s.normal.copy(pose.rotor.normal).normalize()
@@ -1128,8 +1137,8 @@ function shapeOf(pose: AircraftPose, s: Shape): Shape {
     const ang = (i / RIM_N) * Math.PI * 2
     s.rim[i]
       .copy(s.hub)
-      .addScaledVector(_a, Math.cos(ang) * ROTOR_R * 0.97)
-      .addScaledVector(_b, Math.sin(ang) * ROTOR_R * 0.97)
+      .addScaledVector(_a, Math.cos(ang) * rotorR * 0.97)
+      .addScaledVector(_b, Math.sin(ang) * rotorR * 0.97)
   }
   return s
 }
@@ -1141,7 +1150,7 @@ function discHit(s: Shape, pts: Vector3[]): boolean {
     const h = _a.dot(s.normal)
     if (Math.abs(h) > 0.35) continue
     const rr = _a.lengthSq() - h * h
-    if (rr < ROTOR_R * ROTOR_R) return true
+    if (rr < s.r * s.r) return true
   }
   return false
 }
