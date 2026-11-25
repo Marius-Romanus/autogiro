@@ -23,6 +23,7 @@ export type Action =
   | 'lights'
   | 'guide'
   | 'spray'
+  | 'telemetry'
 
 const ACTION_KEYS: Record<string, Action> = {
   KeyC: 'camera',
@@ -41,6 +42,8 @@ const ACTION_KEYS: Record<string, Action> = {
   KeyJ: 'guide',
   // fumigación (solo el Gyro Tractor)
   KeyU: 'spray',
+  // telemetría de rendimiento (src/hud/Telemetry.ts)
+  F3: 'telemetry',
   Equal: 'zoomIn',
   NumpadAdd: 'zoomIn',
   Minus: 'zoomOut',
@@ -99,7 +102,8 @@ export class Input {
     this.settings = settings
     window.addEventListener('keydown', (e) => {
       const target = e.target as HTMLElement | null
-      if (target?.tagName === 'INPUT') return
+      // (F3 sí: no escribe nada y el foco suele quedarse en un interruptor del menú)
+      if (target?.tagName === 'INPUT' && e.code !== 'F3') return
       // Con el desplegable abierto, sus teclas (Esc, flechas, letras) son suyas
       // (con la lista abierta el foco está en la <option>, no en el <select>)
       const sel = target?.closest?.('select')
@@ -109,7 +113,8 @@ export class Input {
         if (a) this.actions.push(a)
       }
       this.keys.add(e.code)
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Backspace', 'F1'].includes(e.code)) e.preventDefault()
+      // (F3 abre «buscar siguiente» en el navegador)
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Backspace', 'F1', 'F3'].includes(e.code)) e.preventDefault()
     })
     window.addEventListener('keyup', (e) => this.keys.delete(e.code))
     window.addEventListener('blur', () => {

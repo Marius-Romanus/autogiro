@@ -50,6 +50,7 @@
         <div><kbd>K</kbd> · botón central</div><div>Ratón como palanca · en ese modo, rueda = zoom / gas</div>
         <div><kbd>J</kbd></div><div>Guía de pilotaje lateral (despegue, vuelo y aterrizaje)</div>
         <div><kbd>I</kbd> · <kbd>H</kbd></div><div>Ocultar instrumentos · esta ayuda</div>
+        <div><kbd>F3</kbd></div><div>Telemetría de rendimiento (FPS, CPU, GPU, memoria)</div>
         <div><kbd>Retroceso</kbd> · <kbd>Esc</kbd></div><div>Reiniciar · menú</div>
       </div>
       <p class="muted" data-i18n="help.pad">Mando tipo Xbox: stick izquierdo = palanca, stick derecho = pedales, gatillos = gas, A = prerrotador, B = frenos, LB/RB = compensador, Y = fumigación. Joystick: ejes configurables en el menú.</p>
@@ -394,6 +395,10 @@
               <label for="exposure"><span data-i18n="menu.exposure">Exposición</span> <output id="expOut"></output></label>
               <input id="exposure" type="range" min="0.5" max="8" step="0.1" />
             </div>
+            <label class="m-row">
+              <span><b data-i18n="menu.telemetryT">Telemetría de rendimiento</b><small data-i18n="menu.telemetryD">FPS, tiempos de CPU y GPU, dibujos y memoria, para depurar · tecla <kbd>F3</kbd></small></span>
+              <span class="m-sw"><input id="telemetry-opt" type="checkbox" /><i></i></span>
+            </label>
           </section>
           <section class="m-group">
             <h3 data-i18n="menu.pilotingT">Pilotaje</h3>

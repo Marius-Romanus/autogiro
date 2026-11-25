@@ -671,6 +671,8 @@ export interface Settings {
   axisThrottle: number
   invertThrottle: boolean
   exposure: number
+  /** panel de telemetría de rendimiento (tecla F3, src/hud/Telemetry.ts) */
+  telemetry: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -711,6 +713,7 @@ export const DEFAULT_SETTINGS: Settings = {
   axisThrottle: 3,
   invertThrottle: true,
   exposure: 2.6,
+  telemetry: false,
 }
 
 const KEY = 'autogiro.settings.v4'

@@ -247,6 +247,7 @@ Para tomar: aproximación a 80–90 km/h y, a unos 6–8 m del suelo, tira de pa
 | `K` | Ratón como palanca |
 | `Intro` | Chat (en multijugador) |
 | `I` / `H` / `Esc` / `Retroceso` | Instrumentos / ayuda / menú / reiniciar |
+| `F3` | Telemetría de rendimiento (FPS, CPU, GPU y memoria) |
 | `F11` | Pantalla completa |
 
 **Mando tipo Xbox:** stick izquierdo = palanca, stick derecho = pedales, gatillos = gas,
@@ -636,6 +637,7 @@ To land: approach at 80–90 km/h and, about 6–8 m above the ground, pull the 
 | `K` | Mouse as stick |
 | `Enter` | Chat (multiplayer) |
 | `I` / `H` / `Esc` / `Backspace` | Instruments / help / menu / restart |
+| `F3` | Performance telemetry (FPS, CPU, GPU and memory) |
 | `F11` | Full screen |
 
 **Xbox-style gamepad:** left stick = cyclic stick, right stick = pedals, triggers = throttle,

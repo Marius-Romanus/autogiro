@@ -31,6 +31,8 @@ import { Input } from './input/Input.ts'
 import { camName, CameraRig, headingOf } from './camera/CameraRig.ts'
 import { Hud, type HudData } from './hud/Hud.ts'
 import { Guide } from './hud/Guide.ts'
+import { Telemetry, type TelemetryInfo } from './hud/Telemetry.ts'
+import { perf } from './hud/perf.ts'
 import { gpuHelpHtml } from './hud/gpuHelp.ts'
 import { Sound } from './audio/Sound.ts'
 import { Multiplayer } from './net/Multiplayer.ts'
@@ -78,6 +80,8 @@ class App {
   rig: CameraRig
   hud: Hud
   guide: Guide
+  /** panel de rendimiento (F3) */
+  telemetry: Telemetry
   sound = new Sound()
   mp: Multiplayer
   wind = new WindModel()
@@ -125,6 +129,8 @@ class App {
   constructor() {
     const container = $('app')
     this.gfx = new Graphics(container)
+    this.telemetry = new Telemetry(this.gfx.renderer)
+    this.telemetry.visible = this.settings.telemetry
     this.gfx.renderer.toneMappingExposure = this.settings.exposure
     this.gfx.sunLight.shadow.camera.layers.enable(SHADOW_ONLY_LAYER)
     this.gfx.scene.add(this.view.root)
@@ -358,6 +364,9 @@ class App {
     this.fps += (1 / dt - this.fps) * 0.05
     const ac = this.ac
     const w = this.world
+    // telemetría (F3): secciones del fotograma con perf.mark
+    perf.beginFrame(t)
+    perf.mark('sim')
 
     this.handleActions()
     this.ctl.prerotator = false
@@ -383,6 +392,7 @@ class App {
       if (this.state === 'flying') this.maybeRebase()
     }
     // accidente: los restos siguen su física (y mueven al aparato para la cámara)
+    perf.mark('aircraft')
     this.crashSys.prepare(this.view, this.gfx.renderer, this.gfx.camera)
     if (this.state === 'crashed' && this.crashSys.active && !this.menuOpen) {
       this.crashSys.update(dt, ac, this.gfx.camera)
@@ -423,15 +433,18 @@ class App {
 
     // luces / atmósfera
     if (w) {
+      perf.mark('env')
       const gY = this.ground.valid ? this.ground.heightAt(ac.pos.x, ac.pos.z, this.wv2) : null
       this.gfx.update(w.frame.worldToECEF, ac.pos, gY, this.ground.n, ac.agl)
       this.updateEnvMap(dt, w.frame.worldToECEF)
       this.gfx.camera.updateMatrixWorld()
       // tendidos: su interruptor, en vivo
       if (w.power) w.power.enabled = this.settings.power
+      perf.mark('world')
       w.update()
       // tráfico (src/traffic): hora local del lugar, aparato posado para que lo esquiven
       if (w.traffic) {
+        perf.mark('traffic')
         const tr = w.traffic
         tr.enabled = this.settings.traffic
         // la luz de las farolas sobre el terreno la dibuja un efecto de Graphics
@@ -443,6 +456,7 @@ class App {
       }
       if (Math.floor(t / 1000) !== Math.floor((t - dt * 1000) / 1000)) w.updateAttribution()
     }
+    perf.mark('mp')
     this.mp.update(dt)
     // focos de aterrizaje sobre el terreno: el propio y los de los demás pilotos
     const lights = this.view.lights
@@ -450,6 +464,7 @@ class App {
     // con el mapa del mundo abierto la escena no se ve: la GPU es para el globo
     if (!this.worldMap.isOpen) this.gfx.render(dt)
 
+    perf.mark('hud')
     this.updateHud(dt)
     this.guide.update(dt, {
       active: !this.menuOpen && this.state !== 'crashed' && Boolean(this.world),
@@ -461,6 +476,43 @@ class App {
     this.updateSound(dt)
     this.toastTimer -= dt
     if (this.toastTimer <= 0) $('toast').classList.remove('show')
+    perf.endFrame()
+    this.telemetry.update(this.telemetryInfo)
+  }
+
+  /** Datos de la partida para el panel de telemetría (src/hud/Telemetry.ts). */
+  private readonly telemetryInfo = (): TelemetryInfo => {
+    const w = this.world
+    const ac = this.ac
+    const geo = w ? w.frame.worldToGeo(ac.pos) : { lat: this.location?.lat ?? 0, lon: this.location?.lon ?? 0, h: 0 }
+    const msl = w && w.mode === 'google' ? geo.h - (this.location?.geoid ?? 0) : geo.h
+    const d = this.simDate
+    const tz = this.location ? localUtcOffset(this.location.lat, this.location.lon, this.settings.dayOfYear) : 0
+    const hour = (((d.getUTCHours() + d.getUTCMinutes() / 60 + tz) % 24) + 24) % 24
+    // (imageryName es la atribución entera: basta con la fuente de la foto)
+    const photo = !w ? '' : /PNOA/.test(w.imageryName) ? ' + PNOA' : /Esri/.test(w.imageryName) ? ' + Esri' : ''
+    const terrain = !w ? '' : w.mode === 'google' ? 'Google 3D' : `${w.terrainKind === 'ign' ? 'IGN MDT05' : 'Terrarium'}${photo}`
+    return {
+      gpu: this.gfx.gpuName,
+      quality: this.quality,
+      terrain,
+      place: this.location ? locationName(this.location) : '',
+      lat: geo.lat,
+      lon: geo.lon,
+      altFt: (msl - 1.05) * 3.28084,
+      camera: this.menuOpen ? t('tel.menu') : camName(this.rig.mode),
+      clock: fmtHour(hour),
+      peers: this.mp.inRoom ? this.mp.peers.size : -1,
+      tiles: (w?.tiles as unknown as TelemetryInfo['tiles']) ?? null,
+      layers: w
+        ? [
+            { key: 'buildings', layer: w.buildings },
+            { key: 'trees', layer: w.trees },
+            { key: 'bridges', layer: w.bridges },
+            { key: 'power', layer: w.power },
+          ]
+        : [],
+    }
   }
   private wv2 = new Vector3()
 
@@ -732,8 +784,19 @@ class App {
         case 'zoomOut':
           this.rig.zoom(1)
           break
+        case 'telemetry':
+          this.setTelemetry(!this.telemetry.visible)
+          break
       }
     }
+  }
+
+  /** Panel de telemetría (tecla F3 o Ajustes › Gráficos); se recuerda entre partidas. */
+  private setTelemetry(on: boolean): void {
+    this.telemetry.visible = on
+    this.settings.telemetry = on
+    ;($('telemetry-opt') as HTMLInputElement).checked = on
+    saveSettings(this.settings)
   }
 
   /** Luces exteriores (botón de la barra superior o tecla L). */
@@ -970,6 +1033,9 @@ class App {
     bindCheck('invertPitch')
     bindCheck('mouseStick')
     bindCheck('invertThrottle')
+    const telOpt = $('telemetry-opt') as HTMLInputElement
+    telOpt.checked = s.telemetry
+    telOpt.addEventListener('change', () => this.setTelemetry(telOpt.checked))
 
     $('btn-fly').addEventListener('click', () => this.fly())
     $('btn-help').addEventListener('click', () => $('help').classList.toggle('hidden'))

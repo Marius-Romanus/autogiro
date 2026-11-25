@@ -1,0 +1,225 @@
+/* Telemetría (tecla F3, src/hud/Telemetry.ts), estilo «Pista»: panel oscuro y recto, filete
+   amarillo de cartel a la izquierda, letra condensada y cifras tabulares. Sin desenfoque de
+   fondo: costaría GPU y falsearía lo que mide. */
+#telemetry {
+  position: fixed;
+  top: 44px;
+  right: 14px;
+  z-index: 60;
+  width: 344px;
+  max-height: calc(100vh - 56px);
+  overflow: hidden;
+  padding: 9px 12px 10px 11px;
+  background: rgba(8, 10, 12, 0.86);
+  border-left: 3px solid var(--accent);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
+  font: 500 13px/1.24 var(--font-cond);
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  pointer-events: none;
+  user-select: none;
+}
+
+#telemetry .tl-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 700 12px/1 var(--font-cond);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+#telemetry .tl-head kbd {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+#telemetry .tl-ver {
+  margin-left: auto;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+#telemetry .tl-fps {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 3px 0 5px;
+}
+
+#telemetry .tl-fps b {
+  font: 700 40px/1 var(--font-cond);
+  letter-spacing: 0;
+}
+
+#telemetry .tl-fps > span {
+  font: 700 18px/1 var(--font-cond);
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+/* qué limita el fotograma: cartel negro sobre amarillo (GPU/CPU) o discreto (pantalla) */
+#telemetry .tl-fps em {
+  margin-left: auto;
+  align-self: center;
+  padding: 3px 7px 2px;
+  font: 700 12px/1 var(--font-cond);
+  font-style: normal;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+#telemetry .tl-fps em.tl-bound-gpu,
+#telemetry .tl-fps em.tl-bound-cpu {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+#telemetry.tl-warn .tl-fps b {
+  color: var(--accent);
+}
+
+#telemetry.tl-bad .tl-fps b {
+  color: #ff4a4f;
+}
+
+#telemetry .tl-graph {
+  display: block;
+  width: 100%;
+  height: 54px;
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.22);
+}
+
+#telemetry .tl-legend {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 3px 0 5px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+#telemetry .tl-sw {
+  display: inline-block;
+  width: 10px;
+  height: 8px;
+  margin-left: 6px;
+}
+
+#telemetry .tl-sw:first-child {
+  margin-left: 0;
+}
+
+#telemetry .tl-sw-frame {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+#telemetry .tl-sw-cpu {
+  height: 2px;
+  background: var(--accent);
+}
+
+#telemetry .tl-sw-gpu {
+  height: 2px;
+  background: #fff;
+}
+
+#telemetry .tl-row {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 9px;
+}
+
+/* «CLAVE  748 geometrías · 767 texturas» */
+#telemetry .tl-list {
+  display: block;
+}
+
+#telemetry .tl-list .tl-k {
+  margin-right: 5px;
+}
+
+#telemetry .tl-list b {
+  font-weight: 600;
+}
+
+#telemetry .tl-list i {
+  font-style: normal;
+  color: var(--accent);
+}
+
+#telemetry .tl-k {
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+#telemetry .tl-k:empty,
+#telemetry .tl-v:empty {
+  display: none;
+}
+
+#telemetry .tl-hot,
+#telemetry .tl-hot .tl-v {
+  color: var(--accent);
+}
+
+/* tabla de secciones del fotograma */
+#telemetry .tl-sec {
+  display: grid;
+  grid-template-columns: 1fr 44px 44px 46px;
+  column-gap: 6px;
+}
+
+#telemetry .tl-sec > span:not(:first-child) {
+  text-align: right;
+}
+
+#telemetry .tl-sec > span:first-child {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+#telemetry .tl-sec-head {
+  margin-top: 6px;
+  padding-top: 5px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+#telemetry .tl-sep {
+  height: 1px;
+  margin: 6px 0 5px;
+  background: var(--line);
+}
+
+#telemetry .tl-ctx {
+  display: block;
+  color: rgba(255, 255, 255, 0.8);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+#telemetry .tl-err {
+  display: block;
+  margin-top: 6px;
+  padding: 4px 7px;
+  background: rgba(216, 38, 43, 0.22);
+  border-left: 3px solid var(--danger);
+  overflow-wrap: anywhere;
+}

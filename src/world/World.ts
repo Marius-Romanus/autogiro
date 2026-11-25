@@ -349,12 +349,19 @@ export class World {
       t.errorTarget = { low: 24, medium: 14, high: 8, ultra: 4 }[q]
       t.lruCache.maxBytesSize = { low: 0.4, medium: 0.7, high: 1.1, ultra: 1.6 }[q] * 1024 ** 3
       t.lruCache.minBytesSize = t.lruCache.maxBytesSize * 0.6
-    } else if (this.terrainKind === 'ign') {
-      // error en píxeles de la malla y de la textura compuesta de cada tesela
-      t.errorTarget = { low: 3, medium: 2, high: 1.4, ultra: 1 }[q]
     } else {
-      // 1 = un texel de ortofoto por píxel de pantalla
-      t.errorTarget = { low: 2.2, medium: 1.5, high: 1.0, ultra: 0.75 }[q]
+      if (this.terrainKind === 'ign') {
+        // error en píxeles de la malla y de la textura compuesta de cada tesela
+        t.errorTarget = { low: 3, medium: 2, high: 1.4, ultra: 1 }[q]
+      } else {
+        // 1 = un texel de ortofoto por píxel de pantalla
+        t.errorTarget = { low: 2.2, medium: 1.5, high: 1.0, ultra: 0.75 }[q]
+      }
+      // Caché de teselas (casi todo, la foto de cada una). Con los 0,4 GB de la librería se llenaba
+      // en Alta: sobre París, 409/410 MB con 129 teselas esperando, porque con la caché llena el
+      // renderer deja de pedir las nuevas. Baja se queda como estaba (gráficas integradas).
+      t.lruCache.maxBytesSize = { low: 0.4, medium: 0.7, high: 1.1, ultra: 1.6 }[q] * 1024 ** 3
+      t.lruCache.minBytesSize = t.lruCache.maxBytesSize * 0.75
     }
     if (this.buildings) this.buildings.radius = { low: 2200, medium: 3500, high: 5000, ultra: 7000 }[q]
     if (this.bridges) this.bridges.radius = { low: 2600, medium: 4000, high: 6000, ultra: 8000 }[q]

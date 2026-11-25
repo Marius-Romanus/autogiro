@@ -68,6 +68,7 @@ import { GroundDetailEffect } from './GroundDetailEffect.ts'
 import { LandingLightEffect } from './LandingLightEffect.ts'
 import { StreetLightEffect } from './StreetLightEffect.ts'
 import { patchAerialWater, WaterSurface } from './Water.ts'
+import { perf } from '../hud/perf.ts'
 import {
   csUniforms,
   EMPTY_CLOUD_SHADOW,
@@ -663,13 +664,33 @@ export class Graphics {
   }
 
   render(dt: number): void {
+    // (perf.mark: secciones de la telemetría, tecla F3; sin ella no hacen nada)
+    perf.mark('shadows')
     this.sunShadows.render(this.renderer, this.scene, this.camera, this.sunDirWorld, this.agl, this.worldToECEF)
+    perf.mark('light')
     this.updateCloudShadows()
     this.sunProbe.update(dt, this.renderer, this.camera)
     this.updateViewerLight()
     this.water.update(dt, this.camera.position)
+    perf.labelPasses(this.composer.passes, this.passKey)
     this.composer.render(dt)
   }
+
+  /** Nombre de cada pase del compositor en la telemetría. */
+  private readonly passKey = (p: object): string =>
+    p instanceof RenderPass
+      ? 'scene'
+      : p === this.normalPass
+        ? 'normals'
+        : p === this.maskPass
+          ? 'mask'
+          : p === this.cloudsPass
+            ? 'atmos'
+            : p === this.finalPass
+              ? 'final'
+              : p === this.smaaPass
+                ? 'smaa'
+                : 'pass'
 
   /**
    * Iluminancia horizontal en el aparato (unidades de escena): sol directo que llega (tras
