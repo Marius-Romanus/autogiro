@@ -60,7 +60,37 @@ const G_PROPB = grp(PROPB, WORLD | AIR | HUB | BLADE | PROPB | WHEEL | DEBRIS)
 const G_WHEEL = grp(WHEEL, WORLD | BLADE | PROPB | WHEEL | DEBRIS)
 const G_DEBRIS = grp(DEBRIS, ALL)
 
-export type Surface = 'ground' | 'obstacle' | 'part' | 'debris' | 'foliage'
+export type Surface = 'ground' | 'obstacle' | 'part' | 'debris' | 'foliage' | 'water'
+
+const RHO_WATER = 1000
+
+/**
+ * Densidad aparente (kg/m³) de cada pieza en el agua: entera, ya llena de agua, y segundos que tarda
+ * en llenarse sumergida. La góndola (cabina abierta, depósito con aire, espuma) flota un rato y se va
+ * al fondo; los neumáticos y las palas de la hélice (espuma y fibra) flotan; el acero se hunde.
+ */
+function waterDensity(id: string): [number, number, number] {
+  if (id === 'pod') return [650, 1450, 25]
+  if (id === 'tail') return [450, 1100, 60]
+  if (/^wheel[LRN]$/.test(id)) return [420, 420, Infinity]
+  if (/^blade/.test(id)) return [850, 1400, 20]
+  if (/^prop\d/.test(id)) return [700, 900, 60]
+  if (/^gear/.test(id)) return [1500, 1500, Infinity]
+  return [3000, 3000, Infinity]
+}
+
+/** Pieza mojada (para los efectos). Coordenadas locales del accidente. */
+export interface WetPart {
+  id: string
+  /** centro de lo que está metido y superficie del agua encima */
+  point: Vector3
+  surface: number
+  vel: Vector3
+  /** 0..1 cuánto está metida */
+  frac: number
+  /** tamaño (m) */
+  size: number
+}
 
 /** Contacto relevante (para efectos y sonido). Coordenadas locales del accidente. */
 export interface Impact {
@@ -155,6 +185,23 @@ interface Part {
   /** fuerza de las ramas (si está dentro de la copa de un árbol) y su punto */
   ff: Vector3
   fp: Vector3
+  // --- agua ---
+  /** puntos de muestra y caja de la pieza (marco del cuerpo) */
+  wpts: Vector3[]
+  bbMin: Vector3
+  bbMax: Vector3
+  /** 0..1 lo que se ha llenado de agua; cuánto está metida; si lo estaba el paso anterior */
+  flooded: number
+  wetFrac: number
+  wasWet: boolean
+  /** fuerza del agua de este paso (mundo) y su punto; centro de lo metido y su velocidad */
+  fw: Vector3
+  fwp: Vector3
+  wcb: Vector3
+  wsurf: number
+  wvel: Vector3
+  /** golpe contra el agua pendiente de pasar a los efectos */
+  wimp: Impact | null
 }
 
 interface Body {
@@ -196,6 +243,11 @@ const _q2 = new Quaternion()
 const _w1 = new Vector3()
 const _w2 = new Vector3()
 const _qc = new Quaternion()
+const _wl = new Vector3()
+const _wp = new Vector3()
+const _wv = new Vector3()
+const _wf = new Vector3()
+const _wq = new Quaternion()
 
 function rnd(seed: { s: number }): number {
   // mulberry32
@@ -235,6 +287,8 @@ export class Wreck {
   private readonly wind: Vector3
   private readonly seed: { s: number }
   private ground: RapierNS.Collider | null = null
+  /** superficie del agua alrededor (rejilla; NaN = tierra) */
+  private water: { cx: number; cz: number; size: number; n: number; s: Float32Array } | null = null
   /**
    * Pares de sólidos que no chocan entre sí: una pieza recién desprendida y el
    * sólido del que sale. Sus cascos convexos pueden solaparse (en la malla real el
@@ -347,6 +401,18 @@ export class Wreck {
         lastSpawn: -1,
         ff: new Vector3(),
         fp: new Vector3(),
+        wpts: [],
+        bbMin: new Vector3(),
+        bbMax: new Vector3(),
+        flooded: 0,
+        wetFrac: 0,
+        wasWet: false,
+        fw: new Vector3(),
+        fwp: new Vector3(),
+        wcb: new Vector3(),
+        wsurf: 0,
+        wvel: new Vector3(),
+        wimp: null,
       }
       this.parts.set(d.id, part)
     }
@@ -376,6 +442,7 @@ export class Wreck {
 
     // descriptores de colisión
     for (const p of this.parts.values()) this.makeDescs(p, sh, podMP)
+    for (const p of this.parts.values()) this.waterSamples(p, sh)
 
     // cuerpos: fuselaje, rotor, hélice, ruedas
     const bodyOf = (rootId: string, spin: Vector3 | null) => {
@@ -621,6 +688,199 @@ export class Wreck {
   }
 
   // ---------------------------------------------------------------------------
+  // Agua
+  // ---------------------------------------------------------------------------
+  /**
+   * Superficie del agua de size×size m centrada en (cx, cz): `surfaceAt` da su altura (local) o null
+   * donde es tierra. El suelo (`setGround`) es entonces el fondo, la profundidad más abajo.
+   */
+  setWater(surfaceAt: (x: number, z: number) => number | null, cx: number, cz: number, size = 128, cells = 64): void {
+    const n = cells
+    const s = new Float32Array((n + 1) * (n + 1))
+    const step = size / n
+    let any = false
+    for (let j = 0; j <= n; j++) {
+      for (let i = 0; i <= n; i++) {
+        const y = surfaceAt(cx - size / 2 + i * step, cz - size / 2 + j * step)
+        s[j * (n + 1) + i] = y === null || !Number.isFinite(y) ? NaN : y
+        if (y !== null) any = true
+      }
+    }
+    this.water = any ? { cx, cz, size, n, s } : null
+    for (const b of this.bodies) b.rb.wakeUp()
+  }
+
+  /** Altura de la superficie del agua en (x, z) (local); null: tierra o fuera de la rejilla. */
+  waterSurface(x: number, z: number): number | null {
+    const w = this.water
+    if (!w) return null
+    const step = w.size / w.n
+    const fx = (x - (w.cx - w.size / 2)) / step
+    const fz = (z - (w.cz - w.size / 2)) / step
+    if (fx < 0 || fz < 0 || fx > w.n || fz > w.n) return null
+    const i0 = Math.min(w.n - 1, Math.floor(fx))
+    const j0 = Math.min(w.n - 1, Math.floor(fz))
+    const a = fx - i0
+    const b = fz - j0
+    // la orilla: lo que diga la esquina más cercana; el nivel, la media de las esquinas con agua
+    const near = w.s[(j0 + (b > 0.5 ? 1 : 0)) * (w.n + 1) + i0 + (a > 0.5 ? 1 : 0)]
+    if (Number.isNaN(near)) return null
+    let sum = 0
+    let wsum = 0
+    for (let dj = 0; dj <= 1; dj++) {
+      for (let di = 0; di <= 1; di++) {
+        const v = w.s[(j0 + dj) * (w.n + 1) + i0 + di]
+        if (Number.isNaN(v)) continue
+        const k = (di ? a : 1 - a) * (dj ? b : 1 - b)
+        sum += v * k
+        wsum += k
+      }
+    }
+    return wsum > 0 ? sum / wsum : near
+  }
+
+  /** Puntos de muestra de la pieza (extremos del casco en 14 direcciones y centro) y su caja. */
+  private waterSamples(p: Part, sh: PartShapes): void {
+    const all: Vector3[] = []
+    const wheel = sh.wheels[p.id as 'wheelL' | 'wheelR' | 'wheelN']
+    if (/^wheel[LRN]$/.test(p.id) && wheel) {
+      const ax = wheel.axis.clone().normalize()
+      const u = new Vector3(1, 0, 0).addScaledVector(ax, -ax.x)
+      if (u.lengthSq() < 0.1) u.set(0, 1, 0).addScaledVector(ax, -ax.y)
+      u.normalize()
+      const v = new Vector3().crossVectors(ax, u)
+      for (const [d, r] of [[u, wheel.radius], [v, wheel.radius], [ax, wheel.halfWidth]] as const) {
+        all.push(wheel.center.clone().addScaledVector(d, r), wheel.center.clone().addScaledVector(d, -r))
+      }
+    } else {
+      for (const h of sh.hulls.get(p.id) ?? []) for (let i = 0; i + 2 < h.length; i += 3) all.push(new Vector3(h[i], h[i + 1], h[i + 2]))
+    }
+    if (!all.length) all.push(p.com.clone().addScalar(0.05), p.com.clone().addScalar(-0.05))
+    p.bbMin.set(Infinity, Infinity, Infinity)
+    p.bbMax.set(-Infinity, -Infinity, -Infinity)
+    const c = new Vector3()
+    for (const q of all) {
+      p.bbMin.min(q)
+      p.bbMax.max(q)
+      c.add(q)
+    }
+    c.multiplyScalar(1 / all.length)
+    const pts: Vector3[] = [c]
+    const dirs: Vector3[] = []
+    for (const x of [-1, 1]) for (const y of [-1, 1]) for (const z of [-1, 1]) dirs.push(new Vector3(x, y, z).normalize())
+    for (const k of [0, 1, 2]) for (const s of [-1, 1]) dirs.push(new Vector3(k === 0 ? s : 0, k === 1 ? s : 0, k === 2 ? s : 0))
+    for (const d of dirs) {
+      let best = all[0]
+      let bd = -Infinity
+      for (const q of all) {
+        const dd = q.dot(d)
+        if (dd > bd) {
+          bd = dd
+          best = q
+        }
+      }
+      if (!pts.some((q) => q.distanceToSquared(best) < 1e-6)) pts.push(best.clone())
+    }
+    p.wpts = pts
+  }
+
+  /**
+   * Agua sobre una pieza: empuje (la parte metida de su volumen aparente, que crece al llenarse de
+   * agua), resistencia ½ρ·A·|v|·v con el área que presenta en la dirección en que se mueve, y el golpe
+   * de entrada para los efectos. La fuerza se limita a lo que puede frenar en un paso.
+   */
+  private waterForce(p: Part): void {
+    const rb = p.body.rb
+    const t = rb.translation()
+    const r = rb.rotation()
+    _wq.set(r.x, r.y, r.z, r.w)
+    let wsum = 0
+    let ssum = 0
+    _wl.set(0, 0, 0)
+    for (const q of p.wpts) {
+      _wp.copy(q).applyQuaternion(_wq)
+      _wp.x += t.x
+      _wp.y += t.y
+      _wp.z += t.z
+      const s = this.waterSurface(_wp.x, _wp.z)
+      if (s === null) continue
+      const k = Math.max(0, Math.min(1, (s - _wp.y) / 0.12 + 0.5))
+      if (k <= 0) continue
+      wsum += k
+      ssum += s * k
+      _wl.addScaledVector(_wp, k)
+    }
+    const frac = wsum / p.wpts.length
+    p.wetFrac = frac
+    if (frac <= 0) {
+      p.wasWet = false
+      return
+    }
+    const cb = p.wcb.copy(_wl).multiplyScalar(1 / wsum)
+    const surf = (p.wsurf = ssum / wsum)
+    const [r0, r1, tau] = waterDensity(p.id)
+    if (tau < Infinity) p.flooded = Math.min(1, p.flooded + (WRECK_DT * frac) / tau)
+    const Fb = (RHO_WATER * G * p.mass * frac) / (r0 + (r1 - r0) * p.flooded)
+    const v = this.pointVel(rb, cb, p.wvel)
+    const sp = v.length()
+    const F = _wf.set(0, Fb, 0)
+    let drag = 0
+    if (sp > 1e-3) {
+      // área que presenta en la dirección del movimiento (caja de la pieza, en su marco)
+      const vb = _wv.copy(v).applyQuaternion(_q2.copy(_wq).invert())
+      const dx = p.bbMax.x - p.bbMin.x
+      const dy = p.bbMax.y - p.bbMin.y
+      const dz = p.bbMax.z - p.bbMin.z
+      const A = Math.max(0.004, (Math.abs(vb.x) * dy * dz + Math.abs(vb.y) * dx * dz + Math.abs(vb.z) * dx * dy) / sp)
+      drag = 0.5 * RHO_WATER * A * frac * sp * sp
+      // limitador: masa e inercia del cuerpo vistas en ese punto
+      const com = rb.worldCom()
+      const I = rb.principalInertia()
+      const r2 = (cb.x - com.x) ** 2 + (cb.y - com.y) ** 2 + (cb.z - com.z) ** 2
+      const wEff = 1 / Math.max(0.05, rb.mass()) + r2 / Math.max(1e-3, Math.min(I.x, I.y, I.z))
+      const kk = (drag * WRECK_DT * wEff) / sp
+      if (kk > 0.8) drag *= 0.8 / kk
+      F.addScaledVector(v, -drag / sp)
+    }
+    rb.addForceAtPoint(F, cb, true)
+    p.fw.add(F)
+    p.fwp.copy(cb)
+    // golpe de entrada (y, mientras corre por el agua, los rociones)
+    const vh = Math.hypot(v.x, v.z)
+    if ((!p.wasWet && sp > 1.2) || (vh > 3 && this.time - p.lastSpawn > 0.08)) {
+      p.lastSpawn = this.time
+      p.wimp = {
+        part: p.id,
+        material: p.def.material,
+        surface: 'water',
+        point: new Vector3(cb.x, surf, cb.z),
+        normal: new Vector3(0, 1, 0),
+        impulse: Math.max(drag, Fb * 0.2) * WRECK_DT * (p.wasWet ? 1 : 6),
+        slide: vh,
+        tangent: vh > 1e-3 ? new Vector3(v.x / vh, 0, v.z / vh) : new Vector3(),
+        approach: Math.max(0, -v.y),
+      }
+    }
+    p.wasWet = true
+  }
+
+  /** Piezas metidas en el agua ahora (para la espuma, las burbujas y los rociones). */
+  wetParts(out: WetPart[] = []): WetPart[] {
+    out.length = 0
+    for (const p of this.parts.values()) {
+      if (p.wetFrac <= 0) continue
+      const size = Math.max(p.bbMax.x - p.bbMin.x, p.bbMax.y - p.bbMin.y, p.bbMax.z - p.bbMin.z)
+      out.push({ id: p.id, point: p.wcb.clone(), surface: p.wsurf, vel: p.wvel.clone(), frac: p.wetFrac, size })
+    }
+    return out
+  }
+
+  /** Cuánto está metida en el agua una pieza (0..1). */
+  partWet(id: string): number {
+    return this.parts.get(id)?.wetFrac ?? 0
+  }
+
+  // ---------------------------------------------------------------------------
   // Paso
   // ---------------------------------------------------------------------------
   step(): void {
@@ -638,6 +898,7 @@ export class Wreck {
       b.fh.set(0, 0, 0)
     }
     for (const b of this.bodies) if (!b.rb.isSleeping()) this.aero(b)
+    if (this.water) for (const p of this.parts.values()) this.waterForce(p)
     for (const b of this.bodies) {
       if (b.fx.lengthSq() > 0) b.rb.addForce(b.fx, true)
       if (b.tx.lengthSq() > 0) b.rb.addTorque(b.tx, true)
@@ -683,6 +944,16 @@ export class Wreck {
           }
         }
         p.ff.set(0, 0, 0)
+        // el agua cuenta como un contacto más (cargas y efectos)
+        if (p.fw.lengthSq() > 0) {
+          p.fc.add(p.fw)
+          p.lc.add(_wl.crossVectors(p.fwp, p.fw))
+          p.fw.set(0, 0, 0)
+        }
+        if (p.wimp) {
+          if (!p.best || p.wimp.impulse > p.best.impulse) p.best = p.wimp
+          p.wimp = null
+        }
       }
     }
     // 4) contactos
@@ -727,7 +998,8 @@ export class Wreck {
       const w = v3(rb.angvel(), _d)
       const omega = w.dot(axis)
       let T = 0
-      if (frac > 0.999 && Math.abs(omega) > 12) {
+      // (con el buje en el agua el disco ya no hace de paracaídas)
+      if (frac > 0.999 && Math.abs(omega) > 12 && hubPart.wetFrac < 0.2) {
         // disco entero en autorrotación: empuje ∝ V·(flujo que lo atraviesa de abajo arriba).
         // En descenso vertical da el equilibrio de ~10 m/s del modelo de vuelo.
         const vn = v.dot(axis) * Math.sign(omega)

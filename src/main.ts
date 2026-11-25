@@ -37,6 +37,7 @@ import { gpuHelpHtml } from './hud/gpuHelp.ts'
 import { Sound } from './audio/Sound.ts'
 import { Multiplayer } from './net/Multiplayer.ts'
 import { CrashSystem, type AircraftState, type CrashWorld } from './crash/CrashSystem.ts'
+import { LocalWater } from './world/LocalWater.ts'
 import { CropSprayer } from './fx/SprayFx.ts'
 import type { RoomConditions } from './net/protocol.ts'
 import { WorldMap, type MapPick } from './menu/WorldMap.ts'
@@ -62,9 +63,17 @@ class GroundCache implements GroundProvider {
     const n = this.n
     return this.p0.y - (n.x * (x - this.p0.x) + n.z * (z - this.p0.z)) / n.y
   }
+  /** agua alrededor del aparato (src/world/LocalWater.ts): flotación y fondo (sim/hydro.ts) */
+  readonly water = new LocalWater()
+  waterDepth(x: number, z: number): number {
+    // (la lámina de agua del relieve es llana: en pendiente es la orilla seca de un embalse bajo, que el
+    // mapa sigue dando por agua)
+    return this.n.y < 0.998 ? 0 : this.water.depthAt(x, z)
+  }
   applyMatrix(m: Matrix4): void {
     this.p0.applyMatrix4(m)
     this.n.transformDirection(m)
+    this.water.applyMatrix(m)
   }
 }
 
@@ -300,6 +309,9 @@ class App {
     const ac = this.ac
     const s = this.sample
     const yHint = ac.pos.y + 60
+    // agua alrededor (flotación, fondo, soplado del rotor): solo cerca de la superficie
+    if (ac.agl < 40) this.ground.water.update(ac.pos.x, ac.pos.z, (x, z, d) => w.waterSample(x, ac.pos.y, z, d))
+    else this.ground.water.clear()
     if (ac.agl > 150 && this.ground.valid) {
       // lejos del suelo: una muestra basta
       if (w.sampleGround(ac.pos.x, ac.pos.z, yHint + 2000, s, ac.pos.y)) {
@@ -349,6 +361,7 @@ class App {
     this.gfx.detail.rebase(m)
     this.gfx.water.rebase(m)
     this.spray.rebase(m)
+    this.crashSys.waterFx.rebase(m)
     this.spawnXZ.applyMatrix4(m)
     this.gfx.camera.position.applyMatrix4(m)
     this.gfx.camera.quaternion.premultiply(q)
@@ -430,6 +443,10 @@ class App {
     const sprayGround = this.ground.valid ? this.ground.heightAt(ac.pos.x, ac.pos.z, this.wv2) : null
     const sprayMsg = this.spray.update(dt, ac, this.view.root, this.wv, sprayGround, this.state === 'flying' && !this.menuOpen)
     if (sprayMsg) this.toast(sprayMsg)
+    // agua: chapoteos, estela, rociones y soplado del rotor (src/fx/WaterFx.ts); el ruido del chapoteo
+    // va por el sonido de los accidentes
+    if (ac.onWater && this.sound.output) this.crashSys.attachAudio(this.sound.output.ctx, this.sound.output.node)
+    this.crashSys.updateWater(dt, ac, this.gfx.camera, this.state === 'flying' && !this.menuOpen, this.wv, this.waterDepthFn, this.surfaceFn)
 
     // luces / atmósfera
     if (w) {
@@ -515,6 +532,10 @@ class App {
     }
   }
   private wv2 = new Vector3()
+  /** agua y superficie alrededor del aparato, para los efectos del agua */
+  private readonly waterDepthFn = (x: number, z: number): number => this.ground.water.depthAt(x, z)
+  private readonly surfaceFn = (x: number, z: number): number | null => (this.ground.valid ? this.ground.heightAt(x, z, this.wv3) : null)
+  private wv3 = new Vector3()
 
   private updateLoading(dt: number): void {
     const w = this.world!
@@ -687,6 +708,13 @@ class App {
       wiresNear: w.power ? (p, r, out) => w.power!.wiresNear(p, r, out) : undefined,
       obstacleAt: (p) => w.hitsObstacle(p),
       inFoliage: w.trees ? (p) => w.trees!.collides(p) : undefined,
+      // agua (mar, lagos, ríos): los restos flotan, se llenan y se van al fondo
+      waterAt: (x, z) => {
+        const ws = w.waterSample(x, self.ac.pos.y, z)
+        if (!ws || ws.water < 0.5) return 0
+        // (en pendiente es la orilla seca de un embalse bajo, aunque el mapa la dé por agua)
+        return w.sampleGround(x, z, self.ac.pos.y + 500, s) && s.normal.y < 0.998 ? 0 : ws.depth
+      },
       raycast: google ? (o, d, f) => w.raycast(o, d, f) : undefined,
     }
     this.crashWorldCache = { w, cw }

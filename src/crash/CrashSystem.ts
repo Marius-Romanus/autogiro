@@ -17,6 +17,8 @@ import type { AircraftView } from '../aircraft/AircraftView.ts'
 import { CrashFx } from '../fx/CrashFx.ts'
 import { CrashAudio, type ImpactKind } from '../audio/CrashAudio.ts'
 import { wireStrike, type Pose } from './wireStrike.ts'
+import { WaterFx } from '../fx/WaterFx.ts'
+import type { WetPart } from '../sim/wreck/Wreck.ts'
 
 /** Lo que el sistema necesita saber del escenario. */
 export interface CrashWorld {
@@ -32,6 +34,11 @@ export interface CrashWorld {
   wiresNear?(p: Vector3, r: number, out: number[]): void
   /** ¿está el punto dentro de la copa de un árbol? */
   inFoliage?: (p: Vector3) => boolean
+  /**
+   * Profundidad del agua en (x, z) (m; 0 en tierra). Donde hay agua, `heightAt` es su superficie y el
+   * suelo de los restos es el fondo, la profundidad más abajo.
+   */
+  waterAt?(x: number, z: number): number
   /** rayo contra el escenario (para obstáculos al vuelo) */
   raycast?(origin: Vector3, dir: Vector3, far: number): { point: Vector3; normal: Vector3 | null; distance: number } | null
 }
@@ -75,6 +82,11 @@ export class CrashSystem {
   readonly model = new WreckModel()
   readonly fx = new CrashFx()
   readonly audio = new CrashAudio()
+  /** salpicaduras, espuma, estelas y burbujas (también las del aparato en vuelo: `updateWater`) */
+  readonly waterFx: WaterFx
+  private readonly camPos = new Vector3()
+  private wetList: WetPart[] = []
+  private readonly lastFoam = new Map<string, number>()
   wreck: Wreck | null = null
   /** origen del marco local del accidente (mundo) */
   readonly origin = new Vector3()
@@ -107,6 +119,8 @@ export class CrashSystem {
     this.scene = scene
     this.lights = lights ?? null
     scene.add(this.fx.root)
+    this.waterFx = new WaterFx(scene, lights)
+    this.waterFx.sound = (strength, p) => this.audio.impact('water', strength, this.camPos.distanceTo(p), 'water')
     void loadRapier().catch((e) => console.warn('No se pudo cargar Rapier (física de accidentes):', e))
     // (aspecto en src/style.css, .crash-hint)
     this.hint = document.createElement('div')
@@ -226,15 +240,17 @@ export class CrashSystem {
    */
   begin(ac: Autogyro, view: AircraftView, world: CrashWorld, rho: number, wind: Vector3, from: AircraftState | null, extraBreak: string[] = []): boolean {
     if (!this.ready || !ac.crash) return false
-    this.reset()
+    this.reset(false)
     this.prepare(view)
     this.world = world
     this.info = ac.crash
     const st: AircraftState = from ?? { pos: ac.pos, quat: ac.quat, vel: ac.vel, omega: ac.omega }
     this.origin.copy(st.pos)
+    // (en el agua, el fondo: los restos no se suben por encima de la superficie)
     const local = (x: number, z: number) => {
       const h = world.heightAt(x + this.origin.x, z + this.origin.z)
-      return h === null ? null : h - this.origin.y
+      const d = h === null ? 0 : (world.waterAt?.(x + this.origin.x, z + this.origin.z) ?? 0)
+      return h === null ? null : h - this.origin.y - (d > 0 ? d : 0)
     }
     let shapes = this.model.shapes(view)
     if (!shapes) {
@@ -306,20 +322,21 @@ export class CrashSystem {
       // como red de seguridad medio metro por debajo (por si faltan triángulos)
       const drop = world.mode === 'google' ? 0.5 : 0
       const cache = new Map<string, number | null>()
-      w.setGround(
-        (x, z) => {
-          const k = `${x.toFixed(1)},${z.toFixed(1)}`
-          if (cache.has(k)) return cache.get(k)!
-          const h = world.heightAt(x + this.origin.x, z + this.origin.z)
-          const r = h === null ? null : h - this.origin.y - drop
-          cache.set(k, r)
-          return r
-        },
-        lx,
-        lz,
-        world.mode === 'google' ? 96 : 128,
-        world.mode === 'google' ? 24 : 64,
-      )
+      // (en el agua, el suelo es el fondo; la superficie va aparte)
+      const water = new Map<string, number | null>()
+      const sample = (x: number, z: number): string => {
+        const k = `${x.toFixed(1)},${z.toFixed(1)}`
+        if (cache.has(k)) return k
+        const h = world.heightAt(x + this.origin.x, z + this.origin.z)
+        const d = h === null ? 0 : (world.waterAt?.(x + this.origin.x, z + this.origin.z) ?? 0)
+        cache.set(k, h === null ? null : h - this.origin.y - drop - (d > 0 ? d : 0))
+        water.set(k, h !== null && d > 0 ? h - this.origin.y : null)
+        return k
+      }
+      const size = world.mode === 'google' ? 96 : 128
+      const cells = world.mode === 'google' ? 24 : 64
+      w.setGround((x, z) => cache.get(sample(x, z))!, lx, lz, size, cells)
+      if (world.waterAt) w.setWater((x, z) => water.get(sample(x, z)) ?? null, lx, lz, size, cells)
     }
     const tris = this.collectTriangles(world, c, 55, 45)
     w.setObstacles(tris, lx, lz)
@@ -450,9 +467,11 @@ export class CrashSystem {
       if (Math.hypot(pod.x - oc.x, pod.z - oc.z) > 25) this.w_obstacles(pod)
     }
 
+    this.camPos.copy(camera.position)
     this.mainHit(camera)
     this.effects(camera)
     this.fuelFire(dt, camera)
+    this.waterEffects(dt)
 
     // piezas
     this.model.update(dt, (id, pos, quat) => {
@@ -541,6 +560,23 @@ export class CrashSystem {
       const ground = im.surface === 'ground' || (im.surface === 'obstacle' && im.normal.y > 0.75)
       const wall = im.surface === 'obstacle' && !ground
       const isBlade = /^blade|^prop\d/.test(a.part)
+      if (im.surface === 'water') {
+        const key = `w-${a.part}`
+        const last = this.lastDust.get(key) ?? -1
+        const vel = _v2.copy(im.tangent).multiplyScalar(a.slide)
+        vel.y = -a.approach
+        const size = isBlade ? 0.35 : Math.min(2.2, 0.35 + Math.cbrt(d.mass / 60))
+        if (a.approach > 1.2 && now - last > 0.6) {
+          // golpe: corona, nube y anillo de espuma (y su ruido)
+          this.lastDust.set(key, now)
+          this.waterFx.splash(pW, vel, size, isBlade ? 0.6 : 1)
+        } else if (a.slide > 3) {
+          // corre por el agua: rociones y estela
+          this.waterFx.spray(pW, vel, Math.min(2, a.slide / 8) * size, 1 / 20)
+          this.waterFx.wake(key, pW, vel, size)
+        }
+        continue
+      }
       if (im.surface === 'foliage') {
         // hojas y ramitas
         const last = this.lastDust.get(`f-${a.part}`) ?? -1
@@ -611,7 +647,8 @@ export class CrashSystem {
       const d = DEFS.get(b.id)
       const metal = !d || d.material === 'metal'
       this.audio.snap(Math.min(2, b.ratio), camera.position.distanceTo(pW), metal)
-      this.fx.dustBurst(pW, new Vector3(0, 1, 0), 0.2, CONCRETE, new Vector3())
+      // (sobre el agua no hay polvo que levantar)
+      if (w.waterSurface(b.point.x, b.point.z) === null) this.fx.dustBurst(pW, new Vector3(0, 1, 0), 0.2, CONCRETE, new Vector3())
     }
     w.breaks.length = 0
   }
@@ -636,12 +673,13 @@ export class CrashSystem {
     }
     if (!this.exploded && this.explodeAt < 0 && this.elapsed < 8) {
       const p = Math.min(1, Math.max(0, (w.peakSeatG - FIRE_G0) / (FIRE_G1 - FIRE_G0)))
-      if (p > this.fireRoll) this.explodeAt = this.elapsed + 0.15 + Math.random() * 0.35
+      if (p > this.fireRoll && w.partWet('pod') < 0.3) this.explodeAt = this.elapsed + 0.15 + Math.random() * 0.35
     }
   }
 
   /** Explosión del depósito y fuego que queda ardiendo sobre los restos. */
   private fuelFire(dt: number, camera: Camera): void {
+    if (this.explodeAt >= 0 && this.elapsed >= this.explodeAt && this.wreck!.partWet('pod') >= 0.3) this.explodeAt = -1
     if (this.explodeAt >= 0 && this.elapsed >= this.explodeAt) {
       this.explodeAt = -1
       this.exploded = true
@@ -659,6 +697,42 @@ export class CrashSystem {
     this.wreck!.partVelocity('pod', _pv)
     this.fx.burn(p, this.fire, dt, _pv)
     this.audio.setFire(this.fire, camera.position.distanceTo(p))
+  }
+
+  /** Lo que flota o se hunde: burbujas que suben, espuma alrededor y estela si aún se mueve. */
+  private waterEffects(dt: number): void {
+    const w = this.wreck!
+    const now = this.elapsed
+    for (const p of w.wetParts(this.wetList)) {
+      const x = p.point.x + this.origin.x
+      const z = p.point.z + this.origin.z
+      const sy = p.surface + this.origin.y
+      _v.set(x, sy, z)
+      const depth = p.surface - p.point.y
+      // hundiéndose: burbujas (más cuanto más rápido baja y más grande es)
+      if (depth > 0.15 && p.vel.y < -0.03) this.waterFx.bubbles(_v, Math.min(1, -p.vel.y * 0.8) * Math.min(1, p.size / 1.5), dt)
+      else if (depth > -0.3 && depth < 0.6 && p.size > 0.3) {
+        // a flote: de vez en cuando un cerco de espuma alrededor (el agua que lo lame)
+        const k = `f-${p.id}`
+        if (now - (this.lastFoam.get(k) ?? -10) > 0.9 + Math.random()) {
+          this.lastFoam.set(k, now)
+          this.waterFx.foam(_v, p.size * 0.4, p.size * 0.6 + 0.6, 3.5, 0.35, 0.6)
+        }
+      }
+      const vh = Math.hypot(p.vel.x, p.vel.z)
+      if (vh > 1 && depth > -0.3 && depth < 0.8) this.waterFx.wake(`k-${p.id}`, _v, p.vel, Math.max(0.3, p.size * 0.6))
+    }
+  }
+
+  /**
+   * Agua del aparato en vuelo, cada fotograma (también durante el accidente, para que las gotas y la
+   * espuma sigan su curso): chapoteos, estela, rociones y el soplado del rotor sobre el agua.
+   * `waterAt`: profundidad (0 en tierra); `surfaceAt`: altura de la superficie.
+   */
+  updateWater(dt: number, ac: Autogyro, camera: Camera, flying: boolean, wind: Vector3, waterAt: ((x: number, z: number) => number) | null, surfaceAt: (x: number, z: number) => number | null): void {
+    this.camPos.copy(camera.position)
+    if (flying) this.waterFx.aircraft(dt, ac, waterAt, surfaceAt)
+    this.waterFx.update(dt, wind)
   }
 
   // ---------------------------------------------------------------------------
@@ -690,8 +764,13 @@ export class CrashSystem {
     this.hint.textContent = this.timeScale < 1 ? t('crash.slowmo', { s: this.timeScale }) : t('crash.hint')
   }
 
-  /** Quita los restos y vuelve a mostrar el aparato entero. */
-  reset(): void {
+  /**
+   * Quita los restos y vuelve a mostrar el aparato entero. `full`: también la espuma y las gotas
+   * (al volver a salir; al empezar un accidente se quedan las del golpe).
+   */
+  reset(full = true): void {
+    if (full) this.waterFx.clear()
+    this.lastFoam.clear()
     if (this.wreck) {
       this.wreck.dispose()
       this.wreck = null

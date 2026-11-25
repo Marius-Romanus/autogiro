@@ -11,6 +11,7 @@ import { DEFAULT_ROTOR, Rotor } from './rotor.ts'
 import { DEFAULT_PREROTATOR, GENERIC, PASSENGER_MASS, PILOT_MASS, propCoeffs, type Airframe } from './airframes.ts'
 import { partLabel, t } from '../i18n.ts'
 import { Compound } from './compound.ts'
+import { Hydro, waterCrashInfo, waterFlipInfo } from './hydro.ts'
 
 const DEG = Math.PI / 180
 const G = 9.80665
@@ -22,6 +23,10 @@ const G = 9.80665
  * puede llevar el suyo (`brakeMu` en la ficha: el Cierva, con frenos de tambor, 0.55).
  */
 const BRAKE_MU = 0.725
+/** segundos que tarda el tren anfibio en subir o bajar (cilindros de aire comprimido) */
+const GEAR_TIME = 6
+/** velocidad (m/s) hacia la quilla de un flotador que rompe sus montantes al tocar suelo o agua */
+const KEEL_BREAK = 4.5
 
 export interface Controls {
   /** palanca cabeceo −1 (adelante) .. +1 (atrás) */
@@ -47,6 +52,11 @@ export function defaultControls(): Controls {
 export interface GroundProvider {
   /** altura del terreno (Y del mundo) bajo (x, z) y su normal */
   heightAt(x: number, z: number, outNormal: Vector3): number
+  /**
+   * Profundidad del agua bajo (x, z) (m); 0 o falta: tierra. Donde hay agua, `heightAt` es su
+   * superficie y el fondo queda esa profundidad más abajo (sim/hydro.ts).
+   */
+  waterDepth?(x: number, z: number): number
 }
 
 export interface Environment {
@@ -56,11 +66,14 @@ export interface Environment {
   ground: GroundProvider
 }
 
-type ContactKind = 'wheel' | 'nose' | 'tailwheel' | 'skid' | 'crash'
+/** `keel`: quilla de un flotador (en tierra patina; un golpe fuerte rompe los montantes) */
+type ContactKind = 'wheel' | 'nose' | 'tailwheel' | 'skid' | 'crash' | 'keel'
 interface Contact {
   name: string
   kind: ContactKind
   r: Vector3 // respecto al CG
+  /** rueda anfibia: lo que sube al recoger el tren (m); 0: fija */
+  retract: number
   k: number
   c: number
   wasInContact: boolean
@@ -97,7 +110,7 @@ const X = new Vector3(1, 0, 0)
 const Y = new Vector3(0, 1, 0)
 const Z = new Vector3(0, 0, 1)
 
-export type CrashCause = 'gear' | 'nose' | 'tail' | 'structure' | 'rotor' | 'prop' | 'flapping' | 'rpm' | 'obstacle'
+export type CrashCause = 'gear' | 'nose' | 'tail' | 'structure' | 'rotor' | 'prop' | 'flapping' | 'rpm' | 'obstacle' | 'water'
 
 export interface CrashInfo {
   title: string
@@ -157,6 +170,17 @@ export class Autogyro {
   /** parámetros de ajuste fino */
   readonly tune = { stabArea: 0.9, stabSlip: 0.6, stabIncidence: -1.5, headBase: 7.2, headFwd: 8.2, headAft: 8.8, rollTrim: 0.35, swirl: 0.04, sideCPy: 0.3, finArea: 0.82, finDy: 0, dihedral: 0, cdA: 0.6, propEta: 1, brakeMu: BRAKE_MU }
 
+  /** el agua: flotación, resistencia y planeo de la góndola, las ruedas, la cola y los flotadores */
+  readonly hydro = new Hydro()
+  /** algo del aparato está metido en el agua */
+  onWater = false
+  /**
+   * Tren anfibio (`af.amphib`): lo que pide el piloto (abajo/arriba) y dónde está (1 abajo, 0 recogido
+   * dentro de los flotadores). Lo mueve el aire comprimido en unos segundos.
+   */
+  gearDown = true
+  gearPos = 1
+
   private contacts: Contact[] = []
   /** puntos de contacto (respecto al origen del modelo) de `contacts`, en el mismo orden */
   private contactPts: Vector3[] = []
@@ -199,12 +223,14 @@ export class Autogyro {
     this.contacts = []
     this.setLoad(this.passenger)
     this.restHeight = this.restAttitude().height
+    this.hydro.setAirframe(af)
     // buje del aparato nuevo, con la cabeza en reposo (hasta el primer paso o la colocación)
     this.computeHub(0, 0)
-    const c =(name: string, kind: ContactKind, p: Vector3, k: number, cDamp: number): Contact => ({
+    const c =(name: string, kind: ContactKind, p: Vector3, k: number, cDamp: number, retract = 0): Contact => ({
       name,
       kind,
       r: p.clone().sub(this.cg),
+      retract,
       k,
       c: cDamp,
       wasInContact: false,
@@ -214,12 +240,20 @@ export class Autogyro {
     })
     // rigidez y amortiguación del tren (las cifras son las de un aparato de ~480 kg)
     const kg = af.gearScale ?? 1
+    // hidroautogiro: las quillas de los flotadores en vez de ruedas; anfibio: ruedas que se recogen
+    const keel = af.keelGear === true
+    const up = af.amphib?.retract ?? 0
+    const side = (p: Vector3) => (p.z < 0 ? 'flotador izquierdo' : 'flotador derecho')
+    const keels = af.keels ?? []
     this.contacts = [
-      ...(af.noseWheel ? [c('rueda de morro', 'nose', af.noseWheel, 38000 * (af.noseGearScale ?? 1), 2600 * (af.noseGearScale ?? 1))] : []),
+      ...(af.noseWheel
+        ? [keel ? c('flotadores', 'keel', af.noseWheel, 60000 * kg, 4200 * kg) : c('rueda de morro', 'nose', af.noseWheel, 38000 * (af.noseGearScale ?? 1), 2600 * (af.noseGearScale ?? 1), up)]
+        : []),
       ...(af.tailWheel ? [c('rueda de cola', 'tailwheel', af.tailWheel, 30000 * kg, 2400 * kg)] : []),
-      c('rueda principal izquierda', 'wheel', af.mainL, 60000 * kg, 4200 * kg),
-      c('rueda principal derecha', 'wheel', af.mainR, 60000 * kg, 4200 * kg),
+      keel ? c(side(af.mainL), 'keel', af.mainL, 60000 * kg, 4200 * kg) : c('rueda principal izquierda', 'wheel', af.mainL, 60000 * kg, 4200 * kg, up),
+      keel ? c(side(af.mainR), 'keel', af.mainR, 60000 * kg, 4200 * kg) : c('rueda principal derecha', 'wheel', af.mainR, 60000 * kg, 4200 * kg, up),
       c('patín de cola', 'skid', af.tail, 45000 * kg, 3000 * kg),
+      ...keels.map((p) => c(side(p), 'keel', p, 60000 * kg, 4200 * kg)),
       ...af.crashPoints.map((cp) => {
         const tailPart = cp.name === 'estabilizador' || cp.name === 'deriva'
         return c(cp.name, 'crash', cp.p, tailPart ? 60000 : 80000, tailPart ? 4000 : 5000)
@@ -231,6 +265,7 @@ export class Autogyro {
       af.mainL,
       af.mainR,
       af.tail,
+      ...keels,
       ...af.crashPoints.map((cp) => cp.p),
     ]
   }
@@ -262,6 +297,15 @@ export class Autogyro {
     this.mass += m - this.payload
     this.payload = m
     this.scaleInertia()
+  }
+
+  /**
+   * Tren anfibio: lo pide abajo o arriba (lo mueve el aire comprimido en `GEAR_TIME` s); `instant`
+   * lo deja ya ahí (al salir: abajo en tierra, arriba en el agua). Sin tren anfibio no hace nada.
+   */
+  setGear(down: boolean, instant = false): void {
+    this.gearDown = down
+    if (instant || !this.af.amphib) this.gearPos = down ? 1 : 0
   }
 
   private scaleInertia(): void {
@@ -308,6 +352,9 @@ export class Autogyro {
   placeOnGround(x: number, z: number, groundY: number, headingDeg: number): void {
     this.crash = null
     this.teeterHits = 0
+    // (si sale en el agua, ya está metido en ella: sin chapoteo ni golpe de entrada)
+    this.hydro.reset()
+    this.hydro.settleWet()
     const h = headingDeg * DEG
     // rumbo 0 = norte (−Z); yaw positivo = morro a la izquierda
     this.quat.setFromAxisAngle(Y, -h + Math.PI / 2)
@@ -340,6 +387,7 @@ export class Autogyro {
   placeInAir(x: number, y: number, z: number, headingDeg: number, speed: number): void {
     this.crash = null
     this.teeterHits = 0
+    this.hydro.reset()
     const h = headingDeg * DEG
     this.quat.setFromAxisAngle(Y, -h + Math.PI / 2)
     this.pos.set(x, y, z)
@@ -611,12 +659,27 @@ export class Autogyro {
     this.onGround = false
     this.hardness = 0
     this.wheelRolling = 0
+    // tren anfibio: el aire comprimido lo sube o lo baja en ~6 s
+    if (this.af.amphib) this.gearPos = Math.max(0, Math.min(1, this.gearPos + (this.gearDown ? dt : -dt) / GEAR_TIME))
     for (const c of this.contacts) {
-      const rw = _r.copy(c.r).applyQuaternion(q)
+      _r.copy(c.r)
+      // (rueda anfibia a medio recoger: más arriba; recogida del todo, dentro del flotador)
+      if (c.retract > 0) {
+        if (this.gearPos < 0.05) {
+          c.wasInContact = false
+          c.force = 0
+          c.sf = c.sl = 0
+          continue
+        }
+        _r.y += c.retract * (1 - this.gearPos)
+      }
+      const rw = _r.applyQuaternion(q)
       const px = this.pos.x + rw.x
       const py = this.pos.y + rw.y
       const pz = this.pos.z + rw.z
-      const gy = env.ground.heightAt(px, pz, _n)
+      // (en el agua se apoya en el fondo, la profundidad por debajo de la superficie)
+      const wd = env.ground.waterDepth ? env.ground.waterDepth(px, pz) : 0
+      const gy = env.ground.heightAt(px, pz, _n) - (wd > 0 ? wd : 0)
       // penetración a lo largo de la normal
       const depth = (gy - py) * _n.y
       if (depth <= 0) {
@@ -665,14 +728,28 @@ export class Autogyro {
         // patín / estructura: fricción isotrópica
         const tang = _v3.copy(pv).addScaledVector(_n, -vn)
         const vt = tang.length()
-        if (vt > 1e-4) fx.addScaledVector(tang, (-(c.kind === 'skid' ? 0.45 : 0.6) * Fn * Math.tanh(vt / 0.2)) / vt)
-        if (c.kind === 'skid') this.onGround = true
+        // (quilla de aluminio de un flotador sobre el suelo: patina como un trineo)
+        const mu = c.kind === 'skid' ? 0.45 : c.kind === 'keel' ? 0.4 : 0.6
+        if (vt > 1e-4) fx.addScaledVector(tang, (-mu * Fn * Math.tanh(vt / 0.2)) / vt)
+        if (c.kind === 'skid' || c.kind === 'keel') this.onGround = true
       }
       fx.addScaledVector(_n, Fn)
       _f.add(fx)
       _v3.copy(fx).applyMatrix3(_matT)
       _m.add(_v4.crossVectors(c.r, _v3))
     }
+
+    // ---------------- Agua: flotación, resistencia, planeo (sim/hydro.ts) ----------------
+    if (env.ground.waterDepth) {
+      this.hydro.step(this, env.ground, dt, _f, _m)
+      this.onWater = this.hydro.wet
+      // flotando cuenta como posado (avisos de vueltas, ayudas al pilotaje, prerrotador)
+      if (this.hydro.buoyancy > 0.25 * this.mass * G) this.onGround = true
+      if (this.hydro.failure) {
+        this.crash = waterCrashInfo(this.hydro.failure)
+        return
+      }
+    } else this.onWater = false
 
     // ---------------- Golpe de palas contra el suelo ----------------
     this.checkRotorStrike(env, hubWorldOff)
@@ -725,10 +802,18 @@ export class Autogyro {
       this.warnings.push(t('warn.flapping'))
     // prerrotador contra el freno del rotor: el freno se come el par y el rotor no arranca
     if (ctl.prerotator && ctl.rotorBrake) this.warnings.push(t('warn.prerotBrake'))
+    // tren anfibio en la aproximación (como el aviso de voz de los anfibios): abajo sobre el agua el
+    // aparato vuelca al tocar; arriba sobre tierra toma sobre las quillas
+    if (this.af.amphib && !this.onGround && this.agl < 40 && this.vs < -0.3 && env.ground.waterDepth) {
+      const water = env.ground.waterDepth(this.pos.x, this.pos.z) > 0
+      if (water && this.gearPos > 0.05) this.warnings.push(t('warn.gearWater'))
+      else if (!water && this.gearPos < 0.95) this.warnings.push(t('warn.gearLand'))
+    }
 
     // Fallos estructurales / pérdidas de control irrecuperables
     if (this.teeterHits > 3.5) {
-      this.crash = {
+      // (en el agua: el tren se ha clavado y ha volcado hacia delante)
+      this.crash = this.onWater ? waterFlipInfo(this.groundSpeed) : {
         cause: 'flapping',
         title: t('crash.flapping.title'),
         detail: this.onGround
@@ -771,6 +856,14 @@ export class Autogyro {
         title: t('crash.gear.title'),
         detail: t('crash.gear.detail', { fpm: (impact * 196.85).toFixed(0), ms: impact.toFixed(1) }),
       }
+    } else if (c.kind === 'keel' && impact > KEEL_BREAK) {
+      // (el mismo límite que al entrar en el agua: lo que se rompe son los montantes)
+      this.crash = {
+        cause: 'gear',
+        part: c.name,
+        title: t('crash.keel.title'),
+        detail: t('crash.keel.detail', { part: partLabel(c.name), ms: impact.toFixed(1), fpm: (impact * 196.85).toFixed(0) }),
+      }
     } else if (c.kind === 'skid' && impact > 3) {
       this.crash = {
         cause: 'tail',
@@ -783,7 +876,11 @@ export class Autogyro {
 
   private checkRotorStrike(env: Environment, hubWorldOff: Vector3): void {
     const n = this.rotor.normal
-    if (this.rotor.omega < 3) return
+    if (this.rotor.omega < 3) {
+      // (con el rotor parado solo cuenta la hélice, y solo en el agua: en tierra, como siempre)
+      if (this.onWater) this.checkPropStrike(env)
+      return
+    }
     // punto más bajo del disco: dirección en el plano del disco más hacia abajo
     const down = _v3.set(0, -1, 0).addScaledVector(n, n.y)
     const len = down.length()
@@ -797,8 +894,12 @@ export class Autogyro {
       // Si las palas ya venían golpeando los topes del balancín, el vuelco es la
       // consecuencia del batimiento (un aparato ligero y potente vuelca antes de que
       // el batimiento rompa nada): se diagnostica como tal.
-      this.crash =
-        this.teeterHits > 1
+      const water = (env.ground.waterDepth?.(tipX, tipZ) ?? 0) > 0
+      this.crash = water
+        ? this.teeterHits > 1
+          ? waterFlipInfo(this.groundSpeed)
+          : { cause: 'rotor', title: t('crash.rotor.water.title'), detail: t('crash.rotor.water') }
+        : this.teeterHits > 1
           ? {
               cause: 'flapping',
               title: t('crash.flapping.title'),
@@ -810,16 +911,22 @@ export class Autogyro {
               detail: t('crash.rotor.detail'),
             }
     }
+    this.checkPropStrike(env)
+  }
+
+  /** Hélice contra el suelo o el agua. */
+  private checkPropStrike(env: Environment): void {
     // hélice: punto inferior del disco de la hélice
     const pr = _v4.copy(this.af.prop).sub(this.cg)
     pr.y -= this.af.propRadius
     pr.applyQuaternion(this.quat).add(this.pos)
     const gp = env.ground.heightAt(pr.x, pr.z, _n)
     if (pr.y < gp && this.engineRpm > 1000) {
+      const water = (env.ground.waterDepth?.(pr.x, pr.z) ?? 0) > 0
       this.crash = {
         cause: 'prop',
-        title: t('crash.prop.title'),
-        detail: t('crash.prop.detail'),
+        title: t(water ? 'crash.prop.water.title' : 'crash.prop.title'),
+        detail: t(water ? 'crash.prop.water' : 'crash.prop.detail'),
       }
     }
   }

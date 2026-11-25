@@ -44,7 +44,7 @@ import { Traffic } from '../traffic/Traffic.ts'
 import { Runways } from './Runways.ts'
 import { GridRunways } from './gridRunways.ts'
 import { TerrainNormals } from './terrainNormals.ts'
-import { WaterMask } from './WaterMask.ts'
+import { WaterMask, type WaterSample } from './WaterMask.ts'
 import { flattenSea } from './seaLevel.ts'
 import { skipEsriPlaceholders } from './esriImagery.ts'
 import { fixIgnAvailability, hasIgnTerrain, QMHeightSource, TerrariumHeightSource, type HeightSource } from './HeightSource.ts'
@@ -61,6 +61,7 @@ const _ray = new Raycaster()
 const _o = new Vector3()
 const _d = new Vector3()
 const _p = new Vector3()
+const _wp = new Vector3()
 const _hits: any[] = []
 const _deck = { y: 0, normal: new Vector3() }
 
@@ -517,6 +518,16 @@ export class World {
     else out.normal.set(0, 1, 0)
     if (out.normal.y < 0) out.normal.negate()
     return true
+  }
+
+  /**
+   * Agua bajo el punto (mundo) para la física: cuánta (0,5 = la orilla), de qué clase y qué profundidad
+   * (WaterMask.sample); null si aún no se sabe o si el escenario no tiene máscara de agua (Google).
+   */
+  waterSample(x: number, y: number, z: number, withDepth = true): WaterSample | null {
+    if (!this.water) return null
+    const g = this.frame.worldToGeo(_wp.set(x, y, z))
+    return this.water.sample(g.lat, g.lon, withDepth)
   }
 
   /** ¿El punto (mundo) está dentro de un edificio de OpenStreetMap? */

@@ -20,6 +20,7 @@
     "fdm-test:cierva": "node --experimental-strip-types tools/fdm-validate.ts af=cierva && node --experimental-strip-types tools/fdm-scenarios.ts af=cierva",
     "fdm-test:all": "node tools/fdm-all.mjs",
     "crash-test": "node --experimental-strip-types tools/crash-test.ts && node --experimental-strip-types tools/crash-test-3blade.ts",
+    "water-test": "node --experimental-strip-types tools/water-test.ts",
     "mp-test": "node --experimental-strip-types tools/mp-test.ts",
     "mp-bot": "node --experimental-strip-types tools/mp-bot.ts"
   },

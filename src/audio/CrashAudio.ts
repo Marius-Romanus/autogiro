@@ -14,7 +14,7 @@
 // Todo pasa por una reverberación corta de exterior (se oye el sitio, no un
 // estudio) y por un compresor propio que evita que la acumulación sature.
 
-export type ImpactKind = 'ground' | 'metal' | 'composite' | 'glass' | 'masonry' | 'rubber' | 'foliage'
+export type ImpactKind = 'ground' | 'metal' | 'composite' | 'glass' | 'masonry' | 'rubber' | 'foliage' | 'water'
 
 const SOUND_SPEED = 343
 
@@ -384,6 +384,17 @@ export class CrashAudio {
         this.burst({ t0, freq: 2200 * v(), q: 0.6, type: 'highpass', dur: 0.3, gain: g * 0.3, noise: 2, pan })
         for (let i = 0; i < 3; i++) this.burst({ t0: t0 + Math.random() * 0.25, freq: 1500 + Math.random() * 2000, q: 4, dur: 0.03, gain: g * 0.35, noise: 2, pan })
         break
+      case 'water': {
+        // chapoteo: golpe sordo del agua que se aparta, el agua que se rompe (ruido que se abre a
+        // agudo), siseo de la rociada y gotas que vuelven a caer
+        this.thump(t0, (55 + Math.random() * 30) * v(), 0.16 + 0.14 * s, g * 0.55, 0.55)
+        this.burst({ t0, freq: 700 * v(), sweepTo: 2200, q: 0.6, dur: 0.22 + 0.3 * s, gain: g * 0.75, noise: 1, pan })
+        this.burst({ t0: t0 + 0.02, freq: 3200 * v(), q: 0.7, type: 'highpass', dur: 0.35 + 0.45 * s, gain: g * 0.22, attack: 0.04, noise: 2, pan })
+        const drops = Math.round(2 + 4 * s)
+        for (let i = 0; i < drops; i++)
+          this.burst({ t0: t0 + 0.2 + Math.random() * (0.4 + 0.6 * s), freq: 1300 + Math.random() * 2600, q: 3, dur: 0.035, gain: g * 0.12, noise: 2, pan: (Math.random() - 0.5) * 1.2 })
+        break
+      }
       case 'rubber':
         this.thump(t0, 50 * v(), 0.2, g * 0.6, 0.6)
         this.burst({ t0, freq: 280 * v(), q: 0.7, type: 'lowpass', dur: 0.1, gain: g * 0.25, noise: 0, pan })

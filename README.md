@@ -305,6 +305,12 @@ destellos; y el oleaje sale del **viento que pongas en el menú**. En calma un l
 el agua se riza a rachas; desde unos 12 nudos el mar saca borreguillos. Un piloto lee el viento en el agua,
 y aquí también se puede.
 
+Y se comporta como agua: si acabas en ella, el autogiro no se posa encima como en el suelo. Las ruedas se
+clavan y lo vuelcan hacia delante si llegas con velocidad, las palas se parten al tocarla y la góndola flota
+unos segundos mientras se llena antes de irse al fondo. Todo salpica: la corona de gotas del golpe, la
+rociada, el cerco de espuma que se abre, la estela de lo que corre por el agua y las burbujas de lo que se
+hunde. Volando bajo sobre el agua, el soplado del rotor levanta agua pulverizada.
+
 ### Tendidos eléctricos
 
 Las líneas eléctricas de todo el mundo están en 3D: torres de celosía de alta tensión, apoyos de media
@@ -695,6 +701,12 @@ like water: they reflect the sky, the more the flatter you look; the sun leaves 
 the waves come from the **wind you set in the menu**. In calm air a lake is a mirror; at 10 knots the
 water ripples in gusts; from about 12 knots the sea shows whitecaps. A pilot reads the wind on the
 water, and you can do it here too.
+
+And it behaves like water: if you end up in it, the gyroplane doesn't sit on top as on solid ground. The
+wheels dig in and flip it forward if you arrive with speed, the blades break when they touch it, and the
+pod floats for a few seconds while it fills before going to the bottom. Everything splashes: the crown of
+droplets of the impact, the spray, the ring of foam that spreads, the wake of anything moving through the
+water and the bubbles of what sinks. Flying low over water, the rotor downwash raises a ring of spray.
 
 ### Power lines
 

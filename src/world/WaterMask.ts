@@ -72,6 +72,38 @@ interface Level {
 
 const mod3 = (v: number): number => ((v % 3) + 3) % 3
 
+/** Agua en un punto, para la física (ver `WaterMask.sample`). */
+export interface WaterSample {
+  /** 0..1 (0,5 = la orilla) */
+  water: number
+  /** clase del agua: mar 1, lago 0,55, río y dársena 0,3, estanque 0,2, piscina 0,1 */
+  energy: number
+  /** profundidad estimada (m); 0 en tierra (o sin calcular: `shore` < 0) */
+  depth: number
+  /** distancia a la orilla (m) con que se ha estimado; −1 si no se ha buscado */
+  shore: number
+}
+
+/** nivel de la máscara que usa la física */
+const FINE_Z = WATER_ZOOMS[0]
+/** radios (texeles, ≈ 4 m) a los que se busca la orilla: hasta ~1,5 km */
+const SHORE_RINGS = [1, 2, 3, 4, 6, 8, 11, 16, 22, 32, 45, 64, 90, 128, 180, 256, 360]
+
+/**
+ * Profundidad (m) a `shore` metros de la orilla: la pendiente típica del fondo de cada clase de agua
+ * y un tope. Mar: playa de ~1:25 (a 100 m, 4 m de agua); lago y embalse: laderas de ~1:7 hasta 40 m;
+ * río y dársena: hasta 8 m; estanque, 3 m; piscina, 1,8 m.
+ */
+export function depthFor(energy: number, shore: number): number {
+  const [slope, max] = bottomOf(energy)
+  return Math.min(max, 0.3 + shore * slope)
+}
+/** pendiente del fondo y profundidad máxima de cada clase de agua */
+function bottomOf(energy: number): [number, number] {
+  return energy > 0.8 ? [0.04, 80] : energy > 0.45 ? [0.15, 40] : energy > 0.25 ? [0.1, 8] : energy > 0.15 ? [0.1, 3] : [0.2, 1.8]
+}
+const DIRS = Array.from({ length: 16 }, (_, k) => [Math.cos((k / 16) * Math.PI * 2), Math.sin((k / 16) * Math.PI * 2)])
+
 export class WaterMask {
   private readonly frame: GeoFrame
   private readonly levels: Level[] = WATER_ZOOMS.map((z) => ({ z, cx: NaN, cy: NaN, slots: new Array<string | null>(WATER_SLOTS).fill(null) }))
@@ -151,6 +183,106 @@ export class WaterMask {
     }
     if (this.cache.size > 56) this.prune()
   }
+
+  /**
+   * Lo que hay en un punto según el nivel fino (z14, ≈ 4 m por texel), para la física: cuánta agua
+   * (0..1, la orilla en 0,5), qué clase de agua (`energy`, la del oleaje: mar 1, lago 0,55, río 0,3,
+   * estanque 0,2, piscina 0,1) y una profundidad estimada. null si esa tesela aún no ha llegado.
+   *
+   * No hay batimetría (el relieve del mar se aplana a 0 en seaLevel.ts y el de los embalses es su
+   * lámina de agua), así que la profundidad sale de la distancia a la orilla con la pendiente típica
+   * del fondo de cada clase: una playa baja despacio, un embalse cae enseguida.
+   */
+  sample(lat: number, lon: number, withDepth = true): WaterSample | null {
+    const n = 2 ** FINE_Z
+    const fx = lonToX(lon, n)
+    const fy = latToY(Math.max(-85, Math.min(85, lat)), n)
+    const tx = Math.floor(fx)
+    const ty = Math.floor(fy)
+    const r = this.fineRaster(tx, ty)
+    if (!r) return null
+    // texel 0 sobre el borde de la tesela y SIZE−1 sobre el opuesto
+    const u = (fx - tx) * (SIZE - 1)
+    const v = (fy - ty) * (SIZE - 1)
+    let water: number
+    let energy: number
+    if (!r.data) {
+      water = r.fill[0] / 255
+      energy = r.fill[0] > 0 ? r.fill[1] / r.fill[0] : 0
+    } else {
+      const i0 = Math.min(SIZE - 2, Math.floor(u))
+      const j0 = Math.min(SIZE - 2, Math.floor(v))
+      const a = u - i0
+      const b = v - j0
+      const d = r.data
+      const k00 = (j0 * SIZE + i0) * 2
+      const k10 = k00 + 2
+      const k01 = k00 + SIZE * 2
+      const k11 = k01 + 2
+      const R = (d[k00] * (1 - a) + d[k10] * a) * (1 - b) + (d[k01] * (1 - a) + d[k11] * a) * b
+      const G = (d[k00 + 1] * (1 - a) + d[k10 + 1] * a) * (1 - b) + (d[k01 + 1] * (1 - a) + d[k11 + 1] * a) * b
+      water = R / 255
+      // (el canal G va multiplicado por el agua: el suavizado mezcla los dos igual)
+      energy = R > 2 ? Math.min(1, G / R) : 0
+    }
+    if (water < 0.5) return { water, energy, depth: 0, shore: 0 }
+    if (!withDepth) return { water, energy, depth: 0, shore: -1 }
+    const lat0 = yToLat(ty + 0.5, n)
+    const mpp = (2 * Math.PI * WGS_A * Math.cos(lat0 * DEG)) / n / (SIZE - 1)
+    // (más allá de donde el fondo ya llega a su tope, no hace falta buscar la orilla)
+    const [slope, max] = bottomOf(energy)
+    const shore = this.shoreTexels(tx * (SIZE - 1) + u, ty * (SIZE - 1) + v, (max - 0.3) / slope / mpp) * mpp
+    return { water, energy, depth: depthFor(energy, shore), shore }
+  }
+
+  /** Raster del nivel fino de la tesela (x, y) si ya está en la caché. */
+  private fineRaster(x: number, y: number): Raster | null {
+    const n = 2 ** FINE_Z
+    // (las claves de la ventana pueden ir sin envolver junto al antimeridiano)
+    for (const xx of [x, x - n, x + n]) {
+      const e = this.cache.get(`${FINE_Z}/${xx}/${y}`)
+      if (e && e.state === 'ready' && e.raster) return e.raster
+    }
+    return null
+  }
+
+  /** Agua (0–255) del texel global (gx, gy) del nivel fino; −1 si su tesela no está. */
+  private texel(gx: number, gy: number): number {
+    const tx = Math.floor(gx / (SIZE - 1))
+    const ty = Math.floor(gy / (SIZE - 1))
+    // (casi todas las lecturas seguidas caen en la misma tesela)
+    if (tx !== this.lastTx || ty !== this.lastTy || this.clock !== this.lastClock) {
+      this.lastTx = tx
+      this.lastTy = ty
+      this.lastClock = this.clock
+      this.lastRaster = this.fineRaster(tx, ty)
+    }
+    const r = this.lastRaster
+    if (!r) return -1
+    if (!r.data) return r.fill[0]
+    const i = Math.round(gx - tx * (SIZE - 1))
+    const j = Math.round(gy - ty * (SIZE - 1))
+    return r.data[(Math.min(SIZE - 1, j) * SIZE + Math.min(SIZE - 1, i)) * 2]
+  }
+
+  /**
+   * Distancia (texeles) a la tierra más cercana desde (gu, gv): anillos crecientes en 16 direcciones
+   * (basta para la profundidad; un espigón fino puede escaparse). Donde se acaba lo cargado, se para.
+   */
+  private shoreTexels(gu: number, gv: number, limit: number): number {
+    for (const rad of SHORE_RINGS) {
+      if (rad > limit) return limit
+      for (const [c, s] of DIRS) {
+        const t = this.texel(gu + c * rad, gv + s * rad)
+        if (t < 128) return rad
+      }
+    }
+    return SHORE_RINGS[SHORE_RINGS.length - 1]
+  }
+  private lastTx = NaN
+  private lastTy = NaN
+  private lastClock = -1
+  private lastRaster: Raster | null = null
 
   dispose(): void {
     this.disposed = true

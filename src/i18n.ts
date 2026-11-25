@@ -324,6 +324,8 @@ const es: Dict = {
   'warn.flapping': '¡RIESGO DE FLAPPING!',
   'warn.attitude': 'ACTITUD ANORMAL',
   'warn.prerotBrake': '¡FRENO DE ROTOR PUESTO! (B)',
+  'warn.gearWater': '¡TREN ABAJO SOBRE EL AGUA! (Y)',
+  'warn.gearLand': '¡TREN ARRIBA SOBRE TIERRA! (Y)',
 
   // accidentes
   'obj.tree': 'un árbol',
@@ -993,6 +995,8 @@ const en: Dict = {
   'warn.flapping': 'BLADE FLAPPING RISK!',
   'warn.attitude': 'UNUSUAL ATTITUDE',
   'warn.prerotBrake': 'ROTOR BRAKE ON! (B)',
+  'warn.gearWater': 'GEAR DOWN OVER WATER! (Y)',
+  'warn.gearLand': 'GEAR UP OVER LAND! (Y)',
 
   'obj.tree': 'a tree',
   'obj.building': 'a building',
@@ -1622,6 +1626,7 @@ const ES_PART_ARTICLE: Record<string, string> = {
   'pata izquierda': 'la',
   'pata derecha': 'la',
   'deriva ventral': 'la',
+  flotadores: 'los',
 }
 
 const DICTS: Record<Lang, Dict> = { es, en }

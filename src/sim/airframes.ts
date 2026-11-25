@@ -15,6 +15,7 @@ import { GENET_MAJOR, LYCOMING_IO540, MCCULLOCH_4318A, ROTAX_503, ROTAX_912ULS, 
 import { DEFAULT_ROTOR, type RotorParams } from './rotor.ts'
 import type { WreckZones } from './wreck/parts.ts'
 import type { CspPropSpec, SlowedRotorSpec, WingSpec } from './compound.ts'
+import type { FloatSpec, HullElement } from './hydro.ts'
 
 /** masa del piloto y del pasajero, equipados (kg) */
 export const PILOT_MASS = 85
@@ -173,6 +174,26 @@ export interface Airframe {
    * modelo; la tecla U abre y cierra el paso (src/fx/SprayFx.ts) y el producto que sale aligera el aparato.
    */
   sprayer?: SprayerSpec
+  /**
+   * Flotadores (hidroautogiro): cascos estancos que flotan, planean a velocidad y llevan timón de agua
+   * en la popa (sim/hydro.ts). Sin ellos, en el agua solo flotan un rato la góndola y los neumáticos.
+   */
+  floats?: FloatSpec[]
+  /** casco para el agua hecho a mano (si falta, `hullFor` lo saca de los puntos de la célula) */
+  hull?: HullElement[]
+  /**
+   * Hidroautogiro sin ruedas: los apoyos de la ficha (`mainL`, `mainR`, `noseWheel`) son las quillas de
+   * los flotadores. En tierra no ruedan: patinan (y en el agua ni tocan el fondo).
+   */
+  keelGear?: boolean
+  /** más quillas (proas y popas de los flotadores) que apoyan si el tren no lo hace */
+  keels?: Vector3[]
+  /**
+   * Tren anfibio (flotadores con ruedas, `floatKit.ts`): los apoyos de la ficha son las ruedas bajadas;
+   * al recogerlas suben `retract` metros dentro del flotador. `wheels`: apoyo de cada rueda (para el
+   * agua, si se amariza con ellas fuera) y su radio.
+   */
+  amphib?: { retract: number; wheels: Vector3[]; radius: number }
 
   // ---- Autogiro compuesto de rotor frenado (Carter PAV): `compound.ts` ----
   /** ala con alerones (fuerzas en el centro aerodinámico de cada franja) */
