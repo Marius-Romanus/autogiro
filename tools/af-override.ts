@@ -8,12 +8,28 @@
 import type { Autogyro } from '../src/sim/autogyro.ts'
 import { airframeById, AIRFRAMES, type Airframe } from '../src/sim/airframes.ts'
 
+//   af=<id>+flot                     el aparato con su juego de flotadores (src/sim/floatKit.ts)
 export function pickAirframe(id: string): Airframe {
-  if (!(id in AIRFRAMES)) throw new Error(`aparato desconocido: ${id} (${Object.keys(AIRFRAMES).join(', ')})`)
-  const base = airframeById(id)
-  const { STAB, FIN, AF } = process.env
-  if (!STAB && !FIN && !AF) return base
+  const [baseId, kit] = id.split('+')
+  if (!(baseId in AIRFRAMES)) throw new Error(`aparato desconocido: ${id} (${Object.keys(AIRFRAMES).join(', ')})`)
+  const base = airframeById(baseId, kit === 'flot')
+  const { STAB, FIN, AF, AFJ } = process.env
+  if (!STAB && !FIN && !AF && !AFJ) return base
   const af: Airframe = { ...base, stab: base.stab.clone(), fin: base.fin.clone() }
+  // AFJ='{"wing":{"rotorWash":0},"body":null}': campos anidados (null quita el campo)
+  if (AFJ) {
+    const merge = (dst: Record<string, unknown>, src: Record<string, unknown>) => {
+      for (const [k, v] of Object.entries(src)) {
+        if (v === null) delete dst[k]
+        else if (typeof v === 'object' && !Array.isArray(v) && dst[k] && typeof dst[k] === 'object') {
+          const d = { ...(dst[k] as Record<string, unknown>) }
+          merge(d, v as Record<string, unknown>)
+          dst[k] = d
+        } else dst[k] = v
+      }
+    }
+    merge(af as unknown as Record<string, unknown>, JSON.parse(AFJ))
+  }
   for (const kv of AF ? AF.split(',') : []) {
     const [k, v] = kv.split('=')
     ;(af as unknown as Record<string, number>)[k] = Number(v)

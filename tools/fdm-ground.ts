@@ -5,8 +5,11 @@
 //   node --experimental-strip-types tools/fdm-ground.ts
 import { Vector3 } from 'three'
 import { Autogyro, defaultControls, type Environment } from '../src/sim/autogyro.ts'
-import { AIRFRAMES } from '../src/sim/airframes.ts'
+import { SURFACE_GRIP } from '../src/sim/weather.ts'
+import { AIRFRAMES, airframeById } from '../src/sim/airframes.ts'
+import { FLOAT_KITS } from '../src/sim/floatKit.ts'
 import { isaDensity, WindModel } from '../src/sim/atmosphere.ts'
+import { PilotAssist } from '../src/sim/assist.ts'
 
 const DT = 1 / 240
 const flat = { heightAt: (_x: number, _z: number, n: Vector3) => (n.set(0, 1, 0), 0) }
@@ -22,10 +25,22 @@ const GROUND_AF: Record<string, { runRpm: number; runStick: number; preThrottle:
   // con el 915 iS (un 20 % más de par que el 914) las ~3400 rpm de motor de la guía salen con un tercio de gas
   vencejo: { runRpm: 176, runStick: 1, preThrottle: 0.33, stopAgl: 8 },
   tractor: { runRpm: 215, runStick: 1, preThrottle: 0.33, stopAgl: 8 },
+  // (el impulsor de plasma de ficción: 220 kW; prerrota con poco más de un quinto de gas)
+  sigilo: { runRpm: 176, runStick: 1, preThrottle: 0.22, stopAgl: 8 },
+  // el C.6 corre desde las ~53 rpm de la cuerda con la palanca neutra (con ella atrás el disco, fijo, frena tanto
+  // que no pasa de ~47 km/h); sin frenos ni prerrotador
+  cierva_c6: { runRpm: 53, runStick: 0, preThrottle: 0, stopAgl: 1 },
+  // el C.19 suelta el embrague a ~175 rpm y corre con la palanca a medias atrás (toda atrás, el disco fijo frena
+  // tanto que no pasa de ~45 km/h); prerrota con algo más de medio gas
+  cierva_c19: { runRpm: 175, runStick: 0.3, preThrottle: 0.5, stopAgl: 1 },
 }
 
+// Aparatos con ruedas: los del catálogo menos los hidroautogiros sin ellas (el Wilford, en tools/water-test.ts)
+// y, con el tren abajo, los anfibios de los juegos de flotadores (floatKit.ts)
+const WHEELED = [...Object.values(AIRFRAMES).filter((af) => !af.keelGear), ...Object.keys(FLOAT_KITS).map((id) => airframeById(id, true))]
+
 let fails = 0
-for (const af of Object.values(AIRFRAMES)) {
+for (const af of WHEELED) {
   // --- asiento estático ---
   const ac = new Autogyro(af)
   ac.setLoad(false)
@@ -48,7 +63,8 @@ for (const af of Object.values(AIRFRAMES)) {
   // (propulsora: morro arriba; tractora: morro abajo)
   const propClear = af.prop.y - af.propRadius - gy
   const propAngle = Math.atan2(propClear, Math.abs(af.mainL.x - af.prop.x)) * 57.2958
-  const okStatic = !ac.crash && Math.abs(pitchOf(ac) - rest) < 1.5 && noseShare > 0.08 && noseShare < 0.45
+  // (anfibios: las ruedas de proa van en los flotadores, más cerca del CG adelantado del simulador)
+  const okStatic = !ac.crash && Math.abs(pitchOf(ac) - rest) < 1.5 && noseShare > 0.08 && noseShare < (af.amphib ? 0.52 : 0.45)
 
   // --- carrera de despegue con palanca toda atrás: ¿levanta el morro?, ¿toca cola? ---
   const b = new Autogyro(af)
@@ -65,7 +81,14 @@ for (const af of Object.values(AIRFRAMES)) {
   let noseUpV = -1
   let liftV = -1
   let tailTouched = false
+  // (vía estrecha sin rueda gobernable, el C.6: la ayuda lleva alas y rumbo en tierra, como en el juego)
+  const ga = af.groundAssist ? new PilotAssist() : null
   for (let i = 0; i < 240 * 45 && !b.crash; i++) {
+    if (ga) {
+      c2.pitch = GROUND_AF[af.id]?.runStick ?? 1
+      c2.roll = c2.yaw = 0
+      ga.apply(DT, b, c2, { pitchActive: true, rollActive: false, yawActive: false, analog: false })
+    }
     b.step(DT, c2, env)
     const p = pitchOf(b)
     maxPitch = Math.max(maxPitch, p)
@@ -80,7 +103,7 @@ for (const af of Object.values(AIRFRAMES)) {
   const okRun = !b.crash && liftV > 0
   if (!okStatic || !okRun) fails++
   console.log(
-    `${af.id.padEnd(8)} | batalla ${wheelbase.toFixed(2)} m | ${tw ? 'cola' : 'morro'} carga ${(noseShare * 100).toFixed(0)} % | asiento ${pitchOf(ac).toFixed(1)}° | golpe de cola a ${tailAngle.toFixed(1)}° | hélice toca a ${propAngle.toFixed(1)}°${tw ? ' morro abajo' : ''} | palanca atrás sin corregir: morro arriba a ${noseUpV.toFixed(0)} km/h, despega a ${liftV.toFixed(0)} km/h, cabeceo máx ${maxPitch.toFixed(1)}°${tailTouched ? ', ROZA COLA' : ''}${b.crash ? ` → ${b.crash.title}` : ''} ${okStatic && okRun ? 'OK' : 'FALLA'}`,
+    `${(af.floats ? af.id + '+flot' : af.id).padEnd(8)} | batalla ${wheelbase.toFixed(2)} m | ${tw ? 'cola' : 'morro'} carga ${(noseShare * 100).toFixed(0)} % | asiento ${pitchOf(ac).toFixed(1)}° | golpe de cola a ${tailAngle.toFixed(1)}° | hélice toca a ${propAngle.toFixed(1)}°${tw ? ' morro abajo' : ''} | palanca atrás sin corregir: morro arriba a ${noseUpV.toFixed(0)} km/h, despega a ${liftV.toFixed(0)} km/h, cabeceo máx ${maxPitch.toFixed(1)}°${tailTouched ? ', ROZA COLA' : ''}${b.crash ? ` → ${b.crash.title}` : ''} ${okStatic && okRun ? 'OK' : 'FALLA'}`,
   )
 }
 // --- frenos y agarre parado ---
@@ -97,7 +120,7 @@ const headingOf = (ac: Autogyro) => {
   return Math.atan2(f.x, -f.z) * 57.2958
 }
 const turned = (a: number, b: number) => Math.abs(((b - a + 540) % 360) - 180)
-for (const af of Object.values(AIRFRAMES)) {
+for (const af of WHEELED) {
   const notes: string[] = []
   let bad = false
   // 1) aparcado con viento
@@ -123,12 +146,14 @@ for (const af of Object.values(AIRFRAMES)) {
     worstTurn = Math.max(worstTurn, turned(h0, headingOf(ac)))
     worstMove = Math.max(worstMove, ac.pos.distanceTo(p0))
   }
-  if (worstTurn > 0.5 || worstMove > 0.1) bad = true
-  notes.push(`aparcado con viento: gira ${worstTurn.toFixed(1)}°, se mueve ${(worstMove * 100).toFixed(0)} cm`)
-  // 2) prerrotado frenado
+  // (sin frenos, el C.6: aparcado iría calzado; solo se informa)
+  if ((worstTurn > 0.5 || worstMove > 0.1) && af.brakeMu !== 0) bad = true
+  notes.push(`aparcado con viento${af.brakeMu === 0 ? ' (sin frenos ni calzos)' : ''}: gira ${worstTurn.toFixed(1)}°, se mueve ${(worstMove * 100).toFixed(0)} cm`)
+  // 2) prerrotado frenado (sin prerrotador, el C.6: el rotor se lanza con cuerda y no hay nada que sujetar)
+  if (af.ropeStart) notes.push('sin prerrotador (arranque con cuerda)')
   const release = Math.min(220, (af.prerotator?.maxRpm ?? 320) - 15)
   const pre: string[] = []
-  for (const [pax, windy] of [[false, false], [true, false], [false, true], [true, true]] as const) {
+  for (const [pax, windy] of af.ropeStart ? [] : ([[false, false], [true, false], [false, true], [true, true]] as const)) {
     const ac = new Autogyro(af)
     ac.setLoad(pax)
     ac.placeOnGround(0, 0, 0, 80)
@@ -155,25 +180,53 @@ for (const af of Object.values(AIRFRAMES)) {
       pre.push(`${label}: sujeta${still ? ` también a ${ac.rotor.rpm.toFixed(0)} rpm` : `; pasadas, a ${ac.rotor.rpm.toFixed(0)} rpm, se arrastra`}`)
     }
   }
-  notes.push(`prerrotado al 40 % hasta ${release} rpm: ${pre.join(', ')}`)
-  // 3) frenada a fondo a 60 km/h
+  if (!af.ropeStart) notes.push(`prerrotado al 40 % hasta ${release} rpm: ${pre.join(', ')}`)
+  // 3) frenada a fondo a 60 km/h: en seco (como siempre), con la pista mojada y con nieve
+  //    (`Environment.grip`, sim/weather.ts). Mojada debe alargarse entre un 25 y un 70 % (μ 0,75 → 0,50
+  //    da ×1,5 solo con frenos; la resistencia del aire y del rotor ayudan igual en los dos casos) y
+  //    con nieve más aún, sin capotar ni irse de lado más de 2 m.
   {
-    const ac = new Autogyro(af)
-    ac.setLoad(false)
-    ac.placeOnGround(0, 0, 0, 90)
-    const ctl = defaultControls()
-    ctl.rotorBrake = true
-    for (let i = 0; i < 240 * 2; i++) ac.step(DT, ctl, env)
-    ac.vel.copy(new Vector3(1, 0, 0).applyQuaternion(ac.quat).setY(0).normalize()).multiplyScalar(60 / 3.6)
-    for (let i = 0; i < 240; i++) ac.step(DT, ctl, env)
-    const p0 = ac.pos.clone()
-    ctl.wheelBrake = 1
-    for (let i = 0; i < 240 * 20 && !ac.crash && ac.groundSpeed > 0.05; i++) ac.step(DT, ctl, env)
-    if (ac.crash) bad = true
-    notes.push(`frenada a fondo desde 60 km/h: ${ac.crash ? ac.crash.title : `para en ${ac.pos.distanceTo(p0).toFixed(0)} m`}`)
+    const stop = (grip?: number): { d: number; side: number; crash: string | null } => {
+      const e: Environment = grip === undefined ? env : { ...env, grip }
+      const ac = new Autogyro(af)
+      ac.setLoad(false)
+      ac.placeOnGround(0, 0, 0, 90)
+      const ctl = defaultControls()
+      ctl.rotorBrake = true
+      const ga = af.groundAssist ? new PilotAssist() : null
+      const step = () => {
+        if (ga) {
+          ctl.pitch = ctl.roll = ctl.yaw = 0
+          ga.apply(DT, ac, ctl, { pitchActive: true, rollActive: false, yawActive: false, analog: false })
+        }
+        ac.step(DT, ctl, e)
+      }
+      for (let i = 0; i < 240 * 2; i++) step()
+      const fwd = new Vector3(1, 0, 0).applyQuaternion(ac.quat).setY(0).normalize()
+      // (sin frenos, el C.6, rueda desde su velocidad de toma: a 45 km/h y al ralentí el timón ya no lo sujeta)
+      ac.vel.copy(fwd).multiplyScalar((af.brakeMu === 0 ? 35 : 60) / 3.6)
+      for (let i = 0; i < 240; i++) step()
+      const p0 = ac.pos.clone()
+      ctl.wheelBrake = 1
+      for (let i = 0; i < 240 * 30 && !ac.crash && ac.groundSpeed > 0.05; i++) step()
+      const dp = ac.pos.clone().sub(p0)
+      return { d: dp.length(), side: Math.abs(dp.x * fwd.z - dp.z * fwd.x), crash: ac.crash ? ac.crash.title : null }
+    }
+    const dry = stop()
+    if (dry.crash) bad = true
+    // (sin frenos, el 504K del C.6: solo se mira que ruede hasta pararse sin volcar; el patín de cola frena)
+    const noBrakes = af.brakeMu === 0
+    notes.push(`${noBrakes ? 'sin frenos, rodando desde 35' : 'frenada a fondo desde 60'} km/h: ${dry.crash ?? `para en ${dry.d.toFixed(0)} m`}`)
+    const wet = stop(SURFACE_GRIP.wet)
+    const snow = stop(SURFACE_GRIP.snow)
+    const rw = wet.d / dry.d
+    // (sin frenos no hay frenada que comparar: solo cuenta la carrera en seco)
+    const okWet = noBrakes ? !dry.crash : !dry.crash && !wet.crash && !snow.crash && rw > 1.25 && rw < 1.7 && snow.d > wet.d * 1.2 && wet.side < 2 && snow.side < 2
+    if (!okWet) bad = true
+    notes.push(`mojada ${wet.crash ?? `${wet.d.toFixed(0)} m (×${rw.toFixed(2)})`}, con nieve ${snow.crash ?? `${snow.d.toFixed(0)} m (×${(snow.d / dry.d).toFixed(2)})`}${okWet ? '' : ' MAL'}`)
   }
   if (bad) fails++
-  console.log(`${af.id.padEnd(8)} | ${notes.join(' | ')} ${bad ? 'FALLA' : 'OK'}`)
+  console.log(`${(af.floats ? af.id + '+flot' : af.id).padEnd(8)} | ${notes.join(' | ')} ${bad ? 'FALLA' : 'OK'}`)
 }
 
 console.log(fails ? `\n${fails} comprobación(es) con problemas en tierra.` : '\nTodos los aparatos se comportan bien en tierra.')

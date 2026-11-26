@@ -1,11 +1,12 @@
 // Prueba del servidor de salas sin navegador:  npm run mp-test
 // Crea una sala, une a dos pilotos más, reenvía estado/chat/condiciones,
-// comprueba los errores (código inexistente, sala llena) y el traspaso de anfitrión.
+// comprueba los errores (código inexistente, sala llena) y el traspaso de anfitrión,
+// y la voz de la radio (mensajes binarios: solo a la sala y a quien tiene la radio, límites).
 
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { attachMultiplayer } from '../server/rooms.ts'
-import { MAX_PLAYERS } from '../src/net/protocol.ts'
+import { BIN_VOICE, MAX_PLAYERS, VOICE_BURST, VOICE_MAX } from '../src/net/protocol.ts'
 
 const server = createServer()
 const mp = attachMultiplayer(server)
@@ -22,11 +23,18 @@ const check = (ok: boolean, what: string) => {
 class Bot {
   ws: WebSocket
   inbox: any[] = []
+  /** mensajes binarios (voz) recibidos */
+  bins: Uint8Array[] = []
   private waiters: { pred: (m: any) => boolean; res: (m: any) => void }[] = []
   constructor() {
     this.ws = new WebSocket(url)
+    this.ws.binaryType = 'arraybuffer'
     this.ws.onmessage = (e) => {
-      const m = JSON.parse(String(e.data))
+      if (typeof e.data !== 'string') {
+        this.bins.push(new Uint8Array(e.data as ArrayBuffer))
+        return
+      }
+      const m = JSON.parse(e.data)
       const w = this.waiters.findIndex((x) => x.pred(m))
       if (w >= 0) this.waiters.splice(w, 1)[0].res(m)
       else this.inbox.push(m)
@@ -88,6 +96,21 @@ try {
   } catch {}
   check(!stolen, 'un invitado no puede cambiar las condiciones')
 
+  // aire del día: sin él (anfitriones anteriores), atmósfera estándar; con él, llega acotado
+  check(wb.c?.isa === true && wb.c.oatC === 15 && wb.c.qnh === 1013.25, 'sin aire del día → atmósfera estándar')
+  // viento del terreno: sin él (anfitriones anteriores), viento uniforme
+  check(wb.c?.terrainWind === false, 'sin viento del terreno → viento uniforme')
+  a.send({
+    t: 'cond',
+    c: { locationId: 'lemt26', hour: 14, dayOfYear: 220, windFrom: 250, windSpeed: 6, turbulence: 0.2, clouds: 'fair', simTime: 1.7e12, collisions: true, isa: false, oatC: 38, qnh: 1009.4, dewPointC: 9, visibility: 999999, precip: 1.5, weatherCode: 61, windGustKt: 18, terrainWind: true },
+  })
+  const cw = (await b.next('cond')).c
+  check(
+    cw.isa === false && cw.oatC === 38 && cw.qnh === 1009.4 && cw.dewPointC === 9 && cw.visibility === 100000 && cw.precip === 1.5 && cw.weatherCode === 61 && cw.windGustKt === 18,
+    'temperatura, QNH y datos del tiempo real llegan a los invitados (acotados)',
+  )
+  check(cw.terrainWind === true, 'el viento del terreno llega a los invitados')
+
   const x = new Bot()
   await x.open()
   x.send({ t: 'join', code: 'ZZZZ', ...profile('X') })
@@ -128,6 +151,73 @@ try {
     check((await y.next('error')).code === 'noroom', 'la sala se borra al quedarse vacía')
     y.ws.close()
   } else check(mp.rooms.size === 0, 'la sala se borra al quedarse vacía')
+
+  // --- radio de voz ---
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const voice = (body: number[] | Uint8Array, kind = BIN_VOICE) => Uint8Array.from([kind, ...body])
+  const va = new Bot()
+  const vb = new Bot()
+  const vc = new Bot()
+  const vd = new Bot()
+  await Promise.all([va.open(), vb.open(), vc.open(), vd.open()])
+  va.send({ t: 'create', ...profile('Radio A'), radio: 3 })
+  const wva = await va.next('welcome')
+  vb.send({ t: 'join', code: wva.code, ...profile('Radio B'), radio: 1 })
+  const wvb = await vb.next('welcome')
+  check(wvb.peers[0]?.radio === 3, 'la radio va en el perfil (bits 1 = escucha, 2 = Opus)')
+  vc.send({ t: 'join', code: wva.code, ...profile('Sin radio'), radio: 7 }) // valor raro: radio apagada
+  await vc.next('welcome')
+  let jc = await va.next('join')
+  if (jc.peer.name !== 'Sin radio') jc = await va.next('join') // (antes llega la de Radio B)
+  check(jc.peer.name === 'Sin radio' && jc.peer.radio === 0, 'un valor de radio no válido cuenta como apagada')
+  vd.send({ t: 'create', ...profile('Otra sala'), radio: 1 })
+  await vd.next('welcome')
+  await sleep(100)
+
+  va.ws.send(voice([0, 1, 0, 7, 0xaa, 0xbb]))
+  await sleep(300)
+  const got = vb.bins[0]
+  const idBytes = [(wva.id >>> 24) & 255, (wva.id >>> 16) & 255, (wva.id >>> 8) & 255, wva.id & 255]
+  check(
+    vb.bins.length === 1 && got !== undefined && [...got].join() === [BIN_VOICE, ...idBytes, 0, 1, 0, 7, 0xaa, 0xbb].join(),
+    'la voz llega a la sala con el id del emisor delante',
+  )
+  check(va.bins.length === 0 && vc.bins.length === 0 && vd.bins.length === 0, 'ni al emisor, ni a quien no tiene la radio, ni a otra sala')
+
+  vb.bins.length = 0
+  vc.ws.send(voice([0, 1, 0, 1, 1, 2]))
+  va.ws.send(voice([0, 1, 0]))
+  va.ws.send(voice(new Uint8Array(VOICE_MAX + 1)))
+  va.ws.send(voice([0, 1, 0, 7, 1], 2))
+  await sleep(300)
+  check(vb.bins.length === 0 && va.bins.length === 0, 'sin radio no se emite; tamaño o tipo malos se tiran')
+  va.ws.send(voice(new Uint8Array(VOICE_MAX)))
+  await sleep(200)
+  check(vb.bins.length === 1 && vb.bins[0].length === 1 + 4 + VOICE_MAX, `un paquete del tamaño máximo (${VOICE_MAX} bytes) pasa y la conexión sigue`)
+
+  // el oyente sin radio la enciende: ya le llega
+  vc.send({ t: 'profile', ...profile('Sin radio'), radio: 1 })
+  const pc = await va.next('profile')
+  check(pc.radio === 1, 'el cambio de radio se avisa a la sala')
+  vb.bins.length = 0
+  va.ws.send(voice([0, 0, 0, 8, 9]))
+  await sleep(300)
+  check(vc.bins.length === 1 && vb.bins.length === 1, 'al encenderla, le llega la voz')
+
+  // ritmo: una ráfaga de 150 paquetes de 40 ms en μ-law (325 bytes) → pasan como mucho los de la ráfaga
+  vb.bins.length = 0
+  await sleep(2100) // (cubos llenos otra vez)
+  const frame = voice(new Uint8Array(324))
+  for (let i = 0; i < 150; i++) va.ws.send(frame)
+  await sleep(500)
+  const passed = vb.bins.length
+  check(passed >= VOICE_BURST - 5 && passed <= VOICE_BURST + 5, `límite de ritmo de la voz: de 150 seguidos pasan ${passed} (ráfaga ${VOICE_BURST})`)
+  // y el JSON del mismo cliente sigue pasando (cubos aparte)
+  va.send({ t: 'chat', text: 'radio y chat' })
+  check((await vb.next('chat')).text === 'radio y chat', 'el chat sigue pasando tras la ráfaga de voz')
+
+  for (const bot of [va, vb, vc, vd]) bot.ws.close()
+  await sleep(200)
 } catch (err) {
   failures++
   console.error('✘', err)

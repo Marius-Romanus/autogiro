@@ -21,9 +21,9 @@ const sections = new Set<string>()
 let airframeId = 'generic'
 for (const a of process.argv.slice(2)) {
   const m = a.match(/^(\w+)=(-?[\d.]+)$/)
-  const f = a.match(/^af=(\w+)$/)
+  const f = a.match(/^af=(\w+(?:\+flot)?)$/)
   if (f) {
-    if (!(f[1] in AIRFRAMES)) throw new Error(`aparato desconocido: ${f[1]} (${Object.keys(AIRFRAMES).join(', ')})`)
+    if (!(f[1].split('+')[0] in AIRFRAMES)) throw new Error(`aparato desconocido: ${f[1]} (${Object.keys(AIRFRAMES).join(', ')})`)
     airframeId = f[1]
   } else if (m) overrides[m[1]] = Number(m[2])
   else sections.add(a)
@@ -198,10 +198,14 @@ interface Ref {
   rpmCruise?: Range
   rpmDual?: Range
   cruiseIas?: Range
+  /** palanca atrás al ralentí: velocidad de equilibrio (10–45 km/h si falta; los de cabeza fija bajan más deprisa) */
+  vertIas?: Range
 }
 const REFS: Record<string, Ref> = {
   generic: { vmax: [145, 185], climbSolo: [4.0, 6.5], climbDual: [2.3, 4.5], glide: [3.5, 4.8] },
-  ela07: { vmax: [160, 185], climbSolo: [5.5, 8.5], climbDual: [3.5, 6.0], glide: [3.5, 4.8] },
+  // ELA 07 Cougar con su 912 ULS de serie: ELA solo publica crucero 140 km/h y VNE 175; el ascenso, el
+  // del MT-03 con el mismo motor y pesos parecidos (6 m/s con 360 kg, 4 m/s con 450 kg)
+  ela07: { vmax: [145, 185], climbSolo: [4.5, 6.8], climbDual: [2.8, 4.5], glide: [3.5, 4.8] },
   ela10: { vmax: [175, 200], climbSolo: [5.5, 8.5], climbDual: [3.8, 6.0], glide: [4.0, 5.6] },
   // MT-03 con el 912 ULS (manual del MTOsport y hoja BG01 de la CAA): VNE 185 km/h, ascenso 6 m/s con
   // 360 kg y 4 m/s con 450 kg, planeo 1:3 (el del manual, conservador)
@@ -227,6 +231,14 @@ const REFS: Record<string, Ref> = {
   // Cavalon con el 914 (manual de vuelo): VNE 160-195 km/h según el rotor, crucero 145, ascenso
   // 3,8 m/s con 500 kg, planeo 1:3
   cavalon: { vmax: [155, 185], climbSolo: [4.5, 7.0], climbDual: [3.0, 4.8], glide: [3.3, 4.8], vmin: [35, 60] },
+  // BellComm C-44 MEDEVAC (Xenon IV CA-22, 912 ULS turbo de 107 kW): hoja de tipo DAeC 61208.1, VNE 210 km/h
+  // y 180 km/h a potencia continua; BellComm: crucero 160, máxima 185, 800 ft/min; FlyArgo: 200 km/h y
+  // 1200 ft/min (6,1 m/s); ninguno dice con qué peso: con 107 kW salen ~7,3 m/s solo (455 kg) y ~5 con el
+  // herido (538 kg). Mínima 30-50 km/h. Cabina con contenedores, dos vigas y una cola muy grande: más
+  // potencia mínima que un biplaza abierto
+  c44: {
+    vmax: [175, 205], climbSolo: [4.5, 7.8], climbDual: [3.0, 5.2], glide: [3.3, 4.9], vmin: [30, 60], pmin: [25, 45],
+  },
   // Vencejo X1 (inventado): casco limpio, hélice carenada y 141 CV; algo más rápido que un Calidus
   // Wallis WA-116 (monoplaza de 72 CV, ~230 kg en vuelo): máxima ~160 km/h, ascenso ~5,4 m/s
   // (1000+ ft/min); rotor pequeño de 6,20 m muy cargado; «con pasajero» = el mismo vuelo
@@ -241,10 +253,34 @@ const REFS: Record<string, Ref> = {
     vmax: [130, 170], climbSolo: [3.8, 7.5], climbDual: [2.0, 3.8], glide: [2.8, 4.4], pmin: [30, 55],
     cruiseIas: [95, 120], rpmCruise: [330, 395], rpmDual: [380, 460],
   },
+  // Sigilo SX-1 (inventado): 220 kW de ficción, cabina facetada limpia, alitas y un rotor rígido: el
+  // más rápido (~285 km/h con la palanca toda adelante; la prueba de nivelado, hasta -0,74, se queda
+  // en ~240 sostenidos) y sube mucho; el estabilizador pequeño le sube algo la velocidad mínima
+  sigilo: {
+    vmax: [230, 300], climbSolo: [9.0, 15.0], climbDual: [7.0, 12.0], glide: [4.0, 7.6], minSink: [3.2, 6.0],
+    vmin: [35, 72], pmin: [22, 45],
+    rpmGlide: [250, 305], rpmCruise: [255, 310], rpmDual: [275, 335],
+  },
   // rotor tripala de 8,80 m: gira a ~0,82 de las vueltas de los bipala y, grande y ligero, cae despacio
   vencejo: {
     vmax: [185, 215], climbSolo: [5.5, 9.0], climbDual: [3.8, 6.5], glide: [4.0, 6.4], minSink: [3.3, 6.0],
     rpmGlide: [260, 305], rpmCruise: [265, 310], rpmDual: [285, 335],
+  },
+  // Con los juegos de flotadores (src/sim/floatKit.ts): el suplemento sueco del manual del MTOsport con
+  // flotadores da 1,5 m/s de subida con dos a bordo (500 kg), mejor subida a 90 km/h y pérdida a 50 km/h;
+  // el Cavalon Amphib pesa 75 kg más que el de ruedas (hasta 583 kg con dos): el rotor gira más deprisa
+  'mt03+flot': { vmax: [120, 170], climbSolo: [2.5, 5.0], climbDual: [1.2, 2.6], glide: [3.3, 4.8], vmin: [35, 60] },
+  'cavalon+flot': {
+    vmax: [130, 175], climbSolo: [2.5, 5.5], climbDual: [1.2, 3.0], glide: [3.3, 4.8], vmin: [35, 70], pmin: [30, 55],
+    rpmGlide: [340, 410], rpmCruise: [355, 425], rpmDual: [380, 460], cruiseIas: [95, 135],
+  },
+  // Wilford XOZ-1 sobre flotadores (Aero Digest, como avión de tierra: máxima 172 km/h, crucero 145, toma a
+  // 48 km/h, 155 CV para 900 kg): los flotadores Edo le quitan velocidad y subida; rotor grande de cuatro palas
+  // con mucha cuerda (solidez 0,085): gira despacio, ~0,67 de las vueltas de los actuales
+  wilford: {
+    // (el barrido de palanca va a saltos: entre 0 y 0,4 pasa de 100 a 46 km/h y de 132 a 167 entre −0,2 y −0,35)
+    vmax: [130, 170], climbSolo: [2.2, 4.5], climbDual: [1.3, 3.2], glide: [3.5, 5.6], minSink: [3.5, 6.5],
+    vmin: [35, 85], pmin: [35, 75], rpmGlide: [215, 265], rpmCruise: [215, 265], rpmDual: [225, 280], cruiseIas: [90, 135],
   },
   cierva: {
     vmax: [142, 165],
@@ -259,8 +295,29 @@ const REFS: Record<string, Ref> = {
     rpmDual: [215, 255],
     cruiseIas: [90, 130],
   },
+  // Cierva C.6bis (1925): máxima 68 mph (109 km/h; Brancker en Flight, 29-10-1925) o 100 km/h (Wikipedia), con
+  // 110 CV y ~840 kg; rotor a ~140 rpm en vuelo (Flight, 22-10-1925: 264 ft/s en la punta). Sin cifras de subida
+  // ni de planeo: lo que dan un rotor de solidez 0,14 y disco muy poco cargado (8,8 kg/m²) y un fuselaje de 504K
+  // (estimado). La palanca solo mueve la profundidad (cabeza fija) y el barrido salta de ~77 km/h (neutra) a ~50
+  // (0,2), que ya no se sostiene nivelado. Monoplaza: «con pasajero» es el mismo vuelo, pero su barrido de subida
+  // empieza en 0,15 de palanca (56 km/h), por debajo de la velocidad de mejor subida
+  cierva_c6: {
+    vmax: [95, 120], climbSolo: [0.6, 2.2], climbDual: [-0.3, 2.2], glide: [3.0, 6.0], minSink: [3.0, 7.5],
+    vmin: [35, 80], pmin: [40, 72], rpmGlide: [120, 165], rpmCruise: [125, 160], rpmDual: [125, 160], cruiseIas: [65, 100],
+  },
+  // Cierva C.19 Mk IV (Flight 20-11-1931 y 17-11-1932, Revista de Aeronáutica 5-1932; a nivel del mar con 1450 lb):
+  // máxima 102 mph (164 km/h), crucero 90 mph (145 km/h), mínima nivelada 25 mph (40 km/h), subida 630 ft/min
+  // (3,2 m/s), bajada a 40° a 13 ft/s (3,96 m/s); rotor ~180 rpm (las del arrancador, Revista). Aquí a 650 m.
+  // Sin cifra de planeo: el ala (~1/5 de la carga a la máxima, Bennett 1961) lo deja planear mejor que el C.30A.
+  // Con la cabeza fija, la profundidad sola no lo baja de ~55 km/h (ni lo nivela por debajo de ~60 con 100 CV)
+  cierva_c19: {
+    vmax: [145, 170], climbSolo: [2.6, 3.8], climbDual: [1.3, 2.8], glide: [5.0, 7.5], minSink: [3.2, 5.5],
+    vmin: [35, 70], pmin: [25, 45], rpmGlide: [160, 210], rpmCruise: [160, 210], rpmDual: [170, 220], cruiseIas: [95, 130],
+    vertIas: [35, 62],
+  },
 }
-const REF = REFS[airframe.id] ?? REFS.generic
+// (con flotadores, «<id>+flot»: sus propias referencias si las hay)
+const REF = REFS[airframeId] ?? REFS[airframe.id] ?? REFS.generic
 const R_ = (r: Range | undefined, d: Range): Range => r ?? d
 const W = massSolo * 9.80665
 const A = Math.PI * airframe.rotor.radius ** 2
@@ -312,7 +369,7 @@ if (want('vert')) {
   if (r.ias < 12) check('Descenso vertical / v_h (teoría y ensayos NACA: 1.6–2.0)', -r.vs / vh, 1.55, 2.1, '', 2)
   check('Palanca atrás sin motor: sin deslizar hacia atrás, estable', r.crash ? -1 : r.osc, 0, 6, 'km/h de oscilación', 1)
   check('Palanca atrás sin motor, con pasajero: estable', r3.crash ? -1 : r3.osc, 0, 6, 'km/h de oscilación', 1)
-  check('Palanca atrás al ralentí: velocidad de equilibrio', r2.ias, 10, 45, 'km/h')
+  check('Palanca atrás al ralentí: velocidad de equilibrio', r2.ias, ...R_(REF.vertIas, [10, 45]), 'km/h')
 }
 
 // ---------------------------------------------------------------------------

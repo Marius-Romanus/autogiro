@@ -5,18 +5,21 @@
 //   npm run mp-bot -- K7QX         se une a la sala K7QX
 //   npm run mp-bot -- K7QX suelo   parado en la cabecera 26
 //   npm run mp-bot -- K7QX luces   con las luces exteriores encendidas (se combina con suelo)
+//   npm run mp-bot -- K7QX radio   con la radio encendida: cada 15 s «habla» 3 s (voz sintética)
 //   npm run mp-bot -- --server ws://192.168.1.20:8080/mp
 //
 // Por defecto se conecta al servidor de Vite (npm run dev, puerto 5173).
 
 import { Matrix4, Quaternion, Vector3 } from 'three'
-import type { RoomConditions, ServerMsg, StateMsg } from '../src/net/protocol.ts'
+import { RADIO_ON, type RoomConditions, type ServerMsg, type StateMsg } from '../src/net/protocol.ts'
+import { CODEC_ULAW, F_END, F_START, FRAME, RATE, packVoice, ulawEncode } from '../src/net/radio/codec.ts'
 
 const args = process.argv.slice(2)
 const serverIdx = args.indexOf('--server')
 const server = serverIdx >= 0 ? args.splice(serverIdx, 2)[1] : 'ws://localhost:5173/mp'
 const parked = args.includes('suelo')
 const lights = args.includes('luces')
+const radio = args.includes('radio')
 const code = args.find((a) => /^[a-z0-9]{4}$/i.test(a))?.toUpperCase()
 
 const DEG = Math.PI / 180
@@ -139,8 +142,60 @@ function logConditions(c: RoomConditions): void {
   lastCond = txt
 }
 
+// --- radio: voz sintética (vocales con formantes, sílabas a ~4 Hz) en μ-law, como un cliente ---
+let talkSeq = 0
+function voiceFrames(seconds: number): Float32Array[] {
+  const out: Float32Array[] = []
+  const vowels = [
+    [700, 1220, 2600],
+    [300, 2300, 3000],
+    [500, 900, 2400],
+    [400, 2000, 2550],
+  ]
+  const st = [0, 0, 0, 0, 0, 0]
+  let phase = 0
+  const n = Math.round((seconds * RATE) / FRAME) * FRAME
+  let f = new Float32Array(FRAME)
+  for (let i = 0; i < n; i++) {
+    const t = i / RATE
+    phase += (118 + 18 * Math.sin(2 * Math.PI * 0.6 * t)) / RATE
+    const src = phase % 1 < 0.08 ? 1 : -0.087
+    const v = vowels[Math.floor(t * 4) % vowels.length]
+    const env = Math.max(0, Math.sin(Math.PI * ((t * 4) % 1))) ** 0.6
+    let y = 0
+    for (let k = 0; k < 3; k++) {
+      const r = Math.exp((-Math.PI * (80 + 40 * k)) / RATE)
+      const c = 2 * r * Math.cos((2 * Math.PI * v[k]) / RATE)
+      const o = src + c * st[2 * k] - r * r * st[2 * k + 1]
+      st[2 * k + 1] = st[2 * k]
+      st[2 * k] = o
+      y += o * (1 - r) * [1, 0.6, 0.3][k]
+    }
+    f[i % FRAME] = Math.max(-1, Math.min(1, y * env * 0.3))
+    if (i % FRAME === FRAME - 1) {
+      out.push(f)
+      f = new Float32Array(FRAME)
+    }
+  }
+  return out
+}
+function talk(seconds: number): void {
+  const frames = voiceFrames(seconds)
+  let i = 0
+  const timer = setInterval(() => {
+    if (ws.readyState !== WebSocket.OPEN) return clearInterval(timer)
+    if (i < frames.length) ws.send(packVoice(CODEC_ULAW, i === 0 ? F_START : 0, talkSeq++ & 0xffff, ulawEncode(frames[i++])))
+    else {
+      ws.send(packVoice(CODEC_ULAW, F_END, talkSeq++ & 0xffff, new Uint8Array(0)))
+      clearInterval(timer)
+    }
+  }, (FRAME / RATE) * 1000)
+}
+
 const ws = new WebSocket(server)
-const profile = { name: parked ? 'Bot (en pista)' : 'Bot', aircraft: 'ela10', passenger: false }
+ws.binaryType = 'arraybuffer'
+// (con la radio, el bot escucha —le llega la voz de los demás— pero no descodifica Opus: se le habla en μ-law)
+const profile = { name: parked ? 'Bot (en pista)' : 'Bot', aircraft: 'ela10', passenger: false, ...(radio ? { radio: RADIO_ON } : {}) }
 let host = false
 let myId = 0
 const names = new Map<number, string>()
@@ -149,7 +204,8 @@ ws.onopen = () => {
   ws.send(JSON.stringify(code ? { t: 'join', code, ...profile } : { t: 'create', ...profile }))
 }
 ws.onmessage = (e) => {
-  const m = JSON.parse(String(e.data)) as ServerMsg
+  if (typeof e.data !== 'string') return // voz de la radio de los demás
+  const m = JSON.parse(e.data) as ServerMsg
   switch (m.t) {
     case 'welcome':
       myId = m.id
@@ -160,6 +216,11 @@ ws.onmessage = (e) => {
       if (host) ws.send(JSON.stringify({ t: 'cond', c: conditions() }))
       setInterval(() => ws.send(JSON.stringify(state())), 1000 / 15)
       if (host) setInterval(() => ws.send(JSON.stringify({ t: 'cond', c: conditions() })), 10000)
+      if (radio) {
+        console.log('Radio: habla 3 s cada 15 s')
+        setTimeout(() => talk(3), 4000)
+        setInterval(() => talk(3), 15000)
+      }
       break
     case 'error':
       console.error(`Error: ${m.msg}`)

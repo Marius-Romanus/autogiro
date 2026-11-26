@@ -10,11 +10,15 @@ import { applyTune, pickAirframe } from './af-override.ts'
 
 const DT = 1 / 240
 const flat = { heightAt: (_x: number, _z: number, n: Vector3) => (n.set(0, 1, 0), 0) }
-const env: Environment = { rho: isaDensity(650), wind: new Vector3(), ground: flat }
+// (un hidroautogiro sin ruedas, el Wilford, despega y toma en un lago de 6 m de fondo en vez de en la pista)
+const lake = { ...flat, waterDepth: () => 6 }
+const afId = process.argv.slice(2).find((a) => a.startsWith('af='))?.slice(3) ?? 'generic'
+const WATER = AIRFRAMES[afId]?.keelGear === true
+const env: Environment = { rho: isaDensity(650), wind: new Vector3(), ground: WATER ? lake : flat }
 const verbose = process.argv.includes('-v')
 const STEP = Number(process.env.STEP ?? 2)
 const afArg = process.argv.slice(2).find((a) => a.startsWith('af='))?.slice(3) ?? 'generic'
-if (!(afArg in AIRFRAMES)) throw new Error(`aparato desconocido: ${afArg} (${Object.keys(AIRFRAMES).join(', ')})`)
+if (!(afArg.split('+')[0] in AIRFRAMES)) throw new Error(`aparato desconocido: ${afArg} (${Object.keys(AIRFRAMES).join(', ')})`)
 console.log(`Aparato: ${afArg}`)
 const airframe = pickAirframe(afArg)
 // (los argumentos clave=valor, como af=, pull= o runStick=, no son filtros)
@@ -137,13 +141,14 @@ function fly(
       )
     }
     if (ac.crash) {
-      out.impact = ac.hardness
+      out.impact = WATER ? ac.hydro.entrySpeed : ac.hardness
       if (verbose) out.log.push(`   → ${ac.crash.detail.slice(0, 110)}`)
       out.crash = `${ac.crash.title} (t=${t.toFixed(0)} s, ${tel.ias.toFixed(0)} km/h, vs ${tel.vs.toFixed(1)}, cabeceo ${tel.pitch.toFixed(0)}°, alabeo ${tel.roll.toFixed(0)}°)`
       break
     }
     if (ac.onGround && wasAir && !out.touchdown) {
-      out.touchdown = { ias: tel.ias, impact: ac.hardness, t }
+      // (en el agua, la velocidad con que entran los flotadores)
+      out.touchdown = { ias: tel.ias, impact: WATER ? ac.hydro.entrySpeed : ac.hardness, t }
       if (opts.stopOnGround !== false) break
     }
     if (!ac.onGround) wasAir = true
@@ -186,19 +191,25 @@ function engineOut(name: string, stickTarget: number, engineOff: boolean, assist
       ? `llega al suelo en ${o.touchdown.t.toFixed(0)} s a ${o.touchdown.ias.toFixed(0)} km/h y ${o.touchdown.impact.toFixed(1)} m/s`
       : 'sigue volando'
   // un contacto sin recogida rompe el tren: eso no es un fallo de estabilidad
-  const groundHit = /tren roto/.test(o.crash)
+  // (en el agua, lo mismo es que un flotador golpee el agua: el hidro sin ruedas acaba en un lago)
+  const groundHit = /tren roto/.test(o.crash) || (WATER && /Golpe contra el agua|Flotadores rotos/.test(o.crash))
   const txt = `${groundHit ? `planea hasta el suelo (sin recogida: ${o.end.ias.toFixed(0)} km/h, ${o.end.vs.toFixed(1)} m/s)` : end} | IAS mín ${o.minIas.toFixed(0)}, descenso máx ${o.maxSink.toFixed(1)} m/s, vx mín ${o.minVx.toFixed(0)} km/h`
   report(name, (!o.crash || groundHit || !assist) && expect(o), txt, o)
 }
-engineOut('Corte de gas, manos fuera', 0, false, true, 400, (o) => o.minIas > 80 && o.maxSink > -8)
-engineOut('Motor apagado, manos fuera', 0, true, true, 400, (o) => o.minIas > 80 && o.maxSink > -9.5)
+// (un disco más cargado, el del Wilford con 11,4 kg/m², o unos flotadores que frenan planean algo más empinados)
+const SINK_K = ({ wilford: 1.1, 'mt03+flot': 1.1, 'cavalon+flot': 1.1 } as Record<string, number>)[afArg] ?? 1
+// (el C.6 cruza a ~77 km/h y planea a ~80 con la palanca neutra: no baja de 55)
+// (el C.19 planea a ~100 km/h con la palanca neutra, pero tras el corte, con la cabeza fija, se frena hasta ~78)
+const HANDS_OFF_IAS = ({ cierva_c6: 55, cierva_c19: 70 } as Record<string, number>)[airframe.id] ?? 80
+engineOut('Corte de gas, manos fuera', 0, false, true, 400, (o) => o.minIas > HANDS_OFF_IAS && o.maxSink > -8 * SINK_K)
+engineOut('Motor apagado, manos fuera', 0, true, true, 400, (o) => o.minIas > HANDS_OFF_IAS && o.maxSink > -9.5 * SINK_K)
 engineOut('Corte de gas, palanca media atrás', 0.5, false, true, 400, (o) => o.minIas > 30 && o.maxSink > -8)
 // Descenso vertical: ~1,8 veces la velocidad inducida de referencia v_h. El Carter PAV (1,7 t sobre un disco
 // de 148 m²: v_h ≈ 7 m/s frente a ~5,5 de los biplaza) baja en vertical a unos 12,8 m/s.
-const VERT_SINK = ({ carterpav: 15 } as Record<string, number>)[airframe.id] ?? 13.5
+const VERT_SINK = ({ carterpav: 15, wilford: 15 } as Record<string, number>)[airframe.id] ?? 13.5
 engineOut('Corte de gas, palanca todo atrás', 1, false, true, 700, (o) => o.minVx > -8 && o.maxSink > -VERT_SINK)
 engineOut('Motor apagado, palanca todo atrás', 1, true, true, 700, (o) => o.minVx > -8 && o.maxSink > -VERT_SINK)
-engineOut('Corte de gas, palanca adelante', -0.3, false, true, 500, (o) => o.maxSink > -14)
+engineOut('Corte de gas, palanca adelante', -0.3, false, true, 500, (o) => o.maxSink > -14 * SINK_K)
 engineOut('Corte de gas SIN ayuda y sin tocar nada (espiral lenta esperada)', 0, false, false, 500, (o) => o.end.t > 45)
 
 // ---------------------------------------------------------------------------
@@ -210,7 +221,28 @@ const PRE_AF = pickAirframe(afArg)
 // El Carter PAV prerrota con todo el gas (el prerrotador se lleva casi todo el motor); soltando a 300 rpm,
 // por debajo de las de salto (330), no salta y despega rodando como un autogiro, con la palanca a 0,4 (con
 // más, la profundidad lo encabrita en la carrera)
-const AF_TAKEOFF = ({ carterpav: { preRpm: 300, preThrottle: 1, runStick: 0.4 } } as Record<string, { preRpm: number; preThrottle: number; runStick: number }>)[afArg]
+// El Sigilo (impulsor de ficción de 220 kW) prerrota con poco más de un quinto de gas: con el 40 % empuja
+// más que los frenos y sale rodando
+// El Wilford (en el agua, sin frenos) prerrota con la palanca atrás, como se rueda en un hidro: con ella
+// adelante, la profundidad y la hélice tractora meten las proas en el agua
+const AF_TAKEOFF = ({
+  carterpav: { preRpm: 300, preThrottle: 1, runStick: 0.4 },
+  sigilo: { preRpm: 235, preThrottle: 0.22, runStick: 1 },
+  wilford: { preRpm: 170, preThrottle: 0.4, runStick: 1, preStick: 1, pull: 80, preRunStick: 0.4 },
+  // el Cavalon Amphib con dos (583 kg y los flotadores) sube a ~100 km/h: con la palanca a 0,2 va a 117 sin subir
+  'cavalon+flot': { preRpm: 210, preThrottle: 0.4, runStick: 1, climbStick: 0.4 },
+  // el C.6 no tiene prerrotador ni frenos: al ralentí, el personal de tierra tira de la cuerda (la tecla P, una
+  // vez) y el rotor coge ~53 rpm; luego todo el gas con la palanca algo adelante (la cola se levanta un poco y
+  // el disco, fijo, frena menos mientras se embala) y a 65 km/h palanca a 0,2 para irse al aire. Con la palanca
+  // atrás la cola va en el suelo y el disco frena tanto que se queda corriendo a ~47 km/h; toda adelante, el
+  // morro baja hasta el patín. (En la carrera la ayuda lleva alas y rumbo: `groundAssist`.)
+  cierva_c6: { preRpm: 50, preThrottle: 0, runStick: 0.2, preRunStick: -0.25, pull: 65, climbStick: 0 },
+  // el C.19 Mk IV embraga el rotor al motor hasta ~180 rpm (en 30 s, Revista de Aeronáutica 1932): con algo más
+  // de medio gas, que el embrague se lleva casi toda la potencia; luego todo el gas con la palanca adelante (la cola
+  // se levanta y el disco, fijo, frena menos) y a 55 km/h palanca a medias atrás. (Con ella atrás desde el
+  // principio, el disco frena tanto que se queda corriendo a ~45 km/h)
+  cierva_c19: { preRpm: 172, preThrottle: 0.6, runStick: 0.5, preRunStick: -1, pull: 55, climbStick: 0 },
+} as Record<string, { preRpm: number; preThrottle: number; runStick: number; preStick?: number; pull?: number; preRunStick?: number; climbStick?: number }>)[afArg]
 const PRE_RPM = AF_TAKEOFF?.preRpm ?? (PRE_AF.prerotator ? PRE_AF.prerotator.maxRpm * 0.92 : 210)
 // Carrera. Los actuales (rotor bipala basculante): despegue «de prestaciones» de la guía de la CAA
 // para autogiros (HSL04): al soltar el prerrotador, palanca toda atrás y TODO el gas a la vez.
@@ -221,7 +253,8 @@ const PRE_RPM = AF_TAKEOFF?.preRpm ?? (PRE_AF.prerotator ? PRE_AF.prerotator.max
 // (Correr con la palanca adelante y pocas vueltas haría batir las palas de un bipala basculante.)
 const argNum = (k: string, d: number) => Number(process.argv.find((a) => a.startsWith(`${k}=`))?.slice(k.length + 1) ?? d)
 /** velocidad (km/h) a la que se tira de la palanca; 0 = toda atrás desde el principio */
-const PULL_KMH = argNum('pull', PRE_AF.rotor.blades > 2 ? 60 : 0)
+// (solo el Cierva: los tripala modernos del Vencejo y el Sigilo baten como los bipala)
+const PULL_KMH = argNum('pull', AF_TAKEOFF?.pull ?? (PRE_AF.rotor.blades > 2 && PRE_AF.id === 'cierva' ? 60 : 0))
 /** palanca en la carrera una vez tirada (1 = toda atrás) */
 const RUN_STICK = argNum('runStick', AF_TAKEOFF?.runStick ?? 1)
 function takeoff(name: string, dual: boolean): void {
@@ -234,6 +267,7 @@ function takeoff(name: string, dual: boolean): void {
   let vRun = 0
   let pulled = PULL_KMH <= 0
   let x0 = 0
+  let z0 = 0
   let rpmStart = 0
   const o = fly(
     (ac) => ac.placeOnGround(0, 0, 0, 90),
@@ -241,13 +275,15 @@ function takeoff(name: string, dual: boolean): void {
       if (phase === 0) {
         // prerrotación: frenos, palanca adelante, gas ~50 %, prerrotador
         k.brake = true
-        k.pitch = tel.stick > -0.99 ? -1 : 0
+        const pre = AF_TAKEOFF?.preStick ?? -1
+        k.pitch = pre < 0 ? (tel.stick > -0.99 ? -1 : 0) : tel.stick < pre - 0.01 ? 1 : 0
         k.throttleTarget = AF_TAKEOFF?.preThrottle ?? 0.4
         k.prerot = tel.t > 2
         if (tel.rpm >= PRE_RPM) {
           phase = 1
           rpmStart = tel.rpm
           x0 = ac.pos.x
+          z0 = ac.pos.z
         }
       } else if (phase === 1) {
         // carrera: suelta frenos y prerrotador, todo el gas y palanca (ver arriba)
@@ -255,12 +291,15 @@ function takeoff(name: string, dual: boolean): void {
         k.brake = false
         k.throttleTarget = 1
         if (!pulled) pulled = tel.ias >= PULL_KMH
-        const target = pulled ? RUN_STICK : -1
+        // (en el agua, el Wilford corre sobre el redán con la palanca a medias: adelante clavaría las proas)
+        const target = pulled ? RUN_STICK : (AF_TAKEOFF?.preRunStick ?? -1)
         if (target >= 1) k.pitch = tel.stick < 0.99 ? 1 : 0
         else if (target <= -1) k.pitch = tel.stick > -0.99 ? -1 : 0
         else k.pitch = Math.abs(target - tel.stick) < 0.02 ? 0 : target > tel.stick ? 1 : -1
-        if (ac.onGround) {
-          xRun = ac.pos.x - x0
+        // (en el agua cuenta hasta que despega: planeando, el casco ya no "apoya" aunque siga en ella)
+        if (ac.onGround || WATER) {
+          // (en el agua no hay rueda de morro que sujete el rumbo: distancia, no solo avance en x)
+          xRun = WATER ? Math.hypot(ac.pos.x - x0, ac.pos.z - z0) : ac.pos.x - x0
           vRun = tel.ias
         }
         if (tel.agl > 0.4) {
@@ -270,14 +309,15 @@ function takeoff(name: string, dual: boolean): void {
       } else if (phase === 2) {
         // ya en el aire: ceder palanca para acelerar en efecto suelo y subir a ~95 km/h
         k.throttleTarget = 1
-        const target = 0.2
+        const target = AF_TAKEOFF?.climbStick ?? 0.2
         k.pitch = Math.abs(target - tel.stick) < 0.02 ? 0 : target > tel.stick ? 1 : -1
         if (tel.agl > 40) return true
       }
     },
     { dual, secs: 150, stopOnGround: false },
   )
-  const ok = !o.crash && o.end.agl > 40 && xRun > 50 && xRun < 260
+  // carrera: 50-260 m en pista; en el agua, más (el manual del MTOsport con flotadores da 500 m con dos)
+  const ok = !o.crash && o.end.agl > 40 && xRun > (WATER ? 80 : 50) && xRun < (WATER ? 900 : 260)
   report(
     name,
     ok,
@@ -322,19 +362,24 @@ function landing(name: string, flareAgl: number, approachStick: number, engineOf
 {
   const rows: string[] = []
   let good = 0
-  const heights = [3, 4, 5, 6, 7, 8, 10, 13]
+  const heights = process.env.HEIGHTS ? process.env.HEIGHTS.split(',').map(Number) : [3, 4, 5, 6, 7, 8, 10, 13]
   for (const h of heights) {
     const o = landing('Aterrizaje sin motor', h, 0.25, false)
     if (!o) continue
     const td = o.touchdown
     const ok = !o.crash && td !== null && td.impact < 2.6
     if (ok) good++
+    if (verbose && process.env.HEIGHTS) console.log(o.log.join('\n'))
     rows.push(`recogida a ${h} m → ${o.crash ? `ACCIDENTE (${o.crash.split(' (')[0]}; impacto ${o.impact.toFixed(1)} m/s a ${o.end.ias.toFixed(0)} km/h, cabeceo ${o.end.pitch.toFixed(0)}°)` : `toma a ${td!.ias.toFixed(0)} km/h, ${td!.impact.toFixed(1)} m/s`}`)
   }
   if (rows.length) report('Aterrizaje sin motor (planeo a ~80 km/h, tirar de palanca al llegar a la altura indicada)', good >= 3, `\n        ${rows.join('\n        ')}`)
   // (el Cavalon, más pesado y con menos recorrido de cabeza hacia atrás, recoge un metro antes)
   // (el Gyro Tractor, con las barras, planea empinado: hay que empezar la recogida más arriba)
-  const flareOff = ({ cavalon: 7, sclightning: 8, sclightning_f: 7, tractor: 8, wa116: 8 } as Record<string, number>)[airframe.id] ?? 6
+  // (el Wilford, de 854 kg y mucha carga de disco, planea a más de 6 m/s: con el motor parado recoge desde 10 m)
+  // (con los flotadores anfibios, más peso y más resistencia: planean más empinados y recogen antes)
+  // (el Sigilo, con un estabilizador pequeño, planea con el morro 12° abajo: recogiendo a 6 m rebota)
+  const FLARE_OFF: Record<string, number> = { sigilo: 8, cavalon: 7, sclightning: 8, sclightning_f: 7, tractor: 8, wa116: 8, wilford: 10, 'mt03+flot': 8, 'cavalon+flot': 9 }
+  const flareOff = FLARE_OFF[afArg] ?? FLARE_OFF[airframe.id] ?? 6
   const o2 = landing('Aterrizaje con motor PARADO', flareOff, 0.25, true)
   if (o2) {
     const td = o2.touchdown
@@ -370,14 +415,19 @@ if (run('Baja carga')) {
 // ---------------------------------------------------------------------------
 if (run('Flapping')) {
   let pulled = false
+  // (el C.6 corre con la palanca algo adelante: toda adelante, la profundidad del 504K lo pone de morro sobre el patín)
+  const runStick = ({ cierva_c6: -0.25 } as Record<string, number>)[airframe.id] ?? -0.9
   const o = fly(
     (ac) => ac.placeOnGround(0, 0, 0, 90),
-    (tel, k) => {
+    (tel, k, ac) => {
       // sin prerrotar apenas, palanca adelante y pleno gas; al llegar a 70 km/h, tirar
       // (el rotor ligero del Sport Copter se embala en 5 s: con 2 s queda igual de parado que los otros)
-      k.prerot = tel.t < (({ sclightning: 2, sclightning_f: 2 } as Record<string, number>)[airframe.id] ?? 5)
-      k.throttleTarget = 1
-      if (tel.ias < 70 && !pulled) k.pitch = tel.stick > -0.9 ? -1 : 0
+      // (la cuerda se pide ya posado: en el primer paso aún no ha tocado el suelo)
+      k.prerot = (!airframe.ropeStart || tel.t > 0.5) && tel.t < (({ sclightning: 2, sclightning_f: 2 } as Record<string, number>)[airframe.id] ?? 5)
+      // (el C.6 no tiene prerrotador: el tirón de cuerda, con el motor al ralentí hasta que la sueltan)
+      k.throttleTarget = airframe.ropeStart && (tel.t < 2.5 || ac.ropeLeft > 0) ? 0 : 1
+      // (en el agua, con la palanca adelante y todo el gas un hidro mete las proas: corre con ella a medias)
+      if (tel.ias < 70 && !pulled) k.pitch = WATER ? (Math.abs(tel.stick - 0.4) < 0.02 ? 0 : tel.stick < 0.4 ? 1 : -1) : tel.stick > runStick ? -1 : 0
       else {
         pulled = true
         k.pitch = tel.stick < 0.99 ? 1 : 0
@@ -390,7 +440,9 @@ if (run('Flapping')) {
   // batimiento) no golpea los topes: corriendo se embala y el aparato se va al aire, que es como
   // despegaban los primeros Cierva antes de tener prerrotador. Lo que se comprueba entonces es eso.
   // (el tripala del Vencejo es uno moderno, sin articulaciones: bate como los bipala)
-  const articulated = airframe.rotor.blades > 2 && airframe.id === 'cierva'
+  // El del Wilford XOZ-1 tampoco: sus palas no baten (solo cambian de paso), así que no hay topes que golpear.
+  // (el C.6 de cuatro palas también tenía articulaciones de batimiento: así despegaba)
+  const articulated = (airframe.rotor.blades > 2 && airframe.id === 'cierva') || airframe.id === 'wilford' || airframe.id === 'cierva_c6' || airframe.id === 'cierva_c19'
   // El rotor del Carter PAV, con 34 kg en cada punta, tampoco llega a los topes: el aparato se va al
   // aire con el ala (y, sin nadie al alabeo en esta prueba, acaba tocando con una punta).
   const heavy = Boolean(airframe.slowedRotor)

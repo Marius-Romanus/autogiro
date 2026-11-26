@@ -3,13 +3,17 @@
 //
 // Un lago (superficie a 0 m, fondo a 6 m) y varios casos: un autogiro de ruedas que llega al agua casi
 // parado flota unos segundos y se hunde; rasante a 80 km/h se estrella enseguida; uno con flotadores
-// (el genérico con un par de flotadores de prueba) flota nivelado, navega y despega.
+// (el genérico con un par de flotadores de prueba) flota nivelado, navega y despega. Y los de verdad: el
+// Wilford XOZ-1 y los aparatos con juego de flotadores (src/sim/floatKit.ts): en reposo, viraje con los
+// pedales (y hacia dónde), despegue, toque suave y toque que rompe los montantes; los anfibios, además,
+// amaraje con el tren abajo (vuelca) y en tierra con el tren abajo y arriba.
 
 import { Quaternion, Vector3 } from 'three'
 import { Autogyro, defaultControls, type Controls, type Environment } from '../src/sim/autogyro.ts'
 import { isaDensity } from '../src/sim/atmosphere.ts'
 import { AIRFRAMES, GENERIC, airframeById, type Airframe } from '../src/sim/airframes.ts'
 import { elementVolume } from '../src/sim/hydro.ts'
+import { FLOAT_KITS } from '../src/sim/floatKit.ts'
 import { CG } from '../src/sim/autogyro.ts'
 import { loadRapier, Wreck, WRECK_DT } from '../src/sim/wreck/Wreck.ts'
 import { fallbackShapes } from '../src/sim/wreck/shapes.ts'
@@ -56,13 +60,13 @@ function pitchRoll(q: Quaternion): { pitch: number; roll: number } {
 }
 
 /** Simula `seconds` con los mandos que da `pilot` en cada instante. */
-function run(ac: Autogyro, env: Environment, seconds: number, pilot: (t: number, c: Controls, ac: Autogyro) => void): Run {
+function run(ac: Autogyro, env: Environment, seconds: number, pilot: (t: number, c: Controls, ac: Autogyro) => boolean | void): Run {
   const c = defaultControls()
   const r: Run = { ac, t: 0, crash: '', crashT: -1, maxDepth: -Infinity, log: [] }
   let nextLog = 0
   for (let i = 0; i < seconds / DT; i++) {
     r.t = i * DT
-    pilot(r.t, c, ac)
+    if (pilot(r.t, c, ac) === true) break
     ac.step(DT, c, env)
     r.maxDepth = Math.max(r.maxDepth, ac.hydro.cgDepth)
     if (r.t >= nextLog) {
@@ -232,6 +236,221 @@ const cases: Case[] = [
     },
   },
 ]
+
+// ---------------------------------------------------------------------------
+// Aparatos de verdad con flotadores: el Wilford XOZ-1 (de serie) y los juegos de floatKit.ts
+// ---------------------------------------------------------------------------
+const REAL: { id: string; af: () => Airframe | null; maxTakeoff: number }[] = [
+  { id: 'wilford', af: () => AIRFRAMES.wilford ?? null, maxTakeoff: 60 },
+  ...Object.keys(FLOAT_KITS).map((id) => ({ id: `${id}+flotadores`, af: () => airframeById(id, true), maxTakeoff: 60 })),
+]
+
+/** Calado: la quilla (punto más bajo de los flotadores) bajo la superficie (m). */
+function draft(ac: Autogyro): number {
+  return -Math.min(...ac.hydro.elements.filter((x) => x.kind === 'float').map((x) => new Vector3(x.p.x, x.p.y - x.r, x.p.z).sub(ac.cg).applyQuaternion(ac.quat).add(ac.pos).y))
+}
+
+/** Rumbo (rad) en el plano horizontal. */
+const yawOf = (q: Quaternion) => {
+  const f = new Vector3(1, 0, 0).applyQuaternion(q)
+  return Math.atan2(-f.z, f.x)
+}
+
+/**
+ * Despegue del agua (manual del MTOsport con flotadores y banco de escenarios del Wilford): prerrota a la
+ * deriva, corre sobre el redán con la palanca a medias, tira al llegar a ~80 km/h y, en el aire, sube a
+ * ~85 km/h sujetando el rumbo con los pedales.
+ */
+function waterTakeoff(ac: Autogyro, seconds: number) {
+  let lift = -1
+  let maxKmh = 0
+  let hdg: Vector3 | null = null
+  let pulled = false
+  const r = run(ac, envFor(), seconds, (t, c, a) => {
+    if (t < 20) {
+      // prerrota con el motor a medio gas, a la deriva
+      c.throttle = 0.42
+      c.prerotator = true
+      c.rotorBrake = false
+      c.pitch = 0.3
+      return
+    }
+    if (hdg === null) hdg = new Vector3(1, 0, 0).applyQuaternion(a.quat).setY(0).normalize()
+    const f = new Vector3(1, 0, 0).applyQuaternion(a.quat).setY(0).normalize()
+    const err = Math.atan2(f.x * hdg.z - f.z * hdg.x, f.dot(hdg))
+    c.yaw = Math.max(-1, Math.min(1, -err * 4 + a.omega.y * 1.5))
+    c.prerotator = false
+    c.throttle = 1
+    const kmh = a.ias * 3.6
+    if (kmh > 78) pulled = true
+    // en el aire: velocidad de subida (~85 km/h) con la palanca (lento → adelante), amortiguando el cabeceo
+    const pr = pitchRoll(a.quat)
+    c.pitch = a.agl > 1.5 && !a.onWater ? Math.max(-0.5, Math.min(0.8, 0.3 - (85 - kmh) * 0.02 - (pr.pitch - 5) * 0.03 - a.omega.z * 0.5)) : pulled ? 0.6 : 0.4
+    c.roll = Math.max(-1, Math.min(1, -pitchRoll(a.quat).roll * 0.2 - a.omega.x * 1.0))
+    maxKmh = Math.max(maxKmh, kmh)
+    if (lift < 0 && a.agl > 5 && !a.onWater) lift = t - 20
+    // arriba y subiendo: ya está
+    return a.agl > 30
+  })
+  return { r, lift, maxKmh }
+}
+
+for (const real of REAL) {
+  const make = () => {
+    const af = real.af()
+    if (!af) return null
+    const ac = new Autogyro(af)
+    ac.setLoad(false)
+    // en el agua, el tren anfibio arriba
+    ac.setGear(false, true)
+    return ac
+  }
+  cases.push(
+    {
+      name: `${real.id}: en reposo flota nivelado`,
+      go: () => {
+        const ac = make()
+        if (!ac) return ['(sin ficha todavía)', 'falta la ficha']
+        ac.placeOnGround(0, 0, 0, 90)
+        ac.setGear(false, true)
+        ac.engineOn = false
+        ac.engineRpm = 0
+        const r = run(ac, envFor(), 40, (_t, c) => {
+          c.rotorBrake = true
+        })
+        if (verbose) console.log(r.log.join('\n'))
+        const e: string[] = []
+        const pr = pitchRoll(ac.quat)
+        const d = draft(ac)
+        const vol = ac.hydro.elements.filter((x) => x.kind === 'float').reduce((s, x) => s + elementVolume(x), 0)
+        const reserve = (vol * 1000) / ac.mass
+        if (r.crash) e.push(`accidente: ${r.crash}`)
+        if (d < 0.08 || d > 0.4) e.push(`calado raro: ${d.toFixed(2)} m`)
+        if (Math.abs(pr.pitch) > 5 || Math.abs(pr.roll) > 2) e.push(`no queda nivelado: cabeceo ${pr.pitch.toFixed(1)}°, alabeo ${pr.roll.toFixed(1)}°`)
+        // (las normas de aviones piden 1,8 veces el peso; los juegos de ultraligero se quedan en ~1,4-1,6)
+        if (reserve < 1.4) e.push(`flotadores escasos: ${reserve.toFixed(1)} veces el peso`)
+        if (ac.vel.length() > 0.05) e.push(`no se para: ${ac.vel.length().toFixed(2)} m/s`)
+        return [`calado ${d.toFixed(2)} m · cabeceo ${pr.pitch.toFixed(1)}° · alabeo ${pr.roll.toFixed(1)}° · ${ac.mass.toFixed(0)} kg · flotadores ${vol.toFixed(2)} m³ (${reserve.toFixed(1)} veces el peso)`, ...e]
+      },
+    },
+    {
+      name: `${real.id}: con los pedales vira en el agua`,
+      go: () => {
+        const ac = make()
+        if (!ac) return ['(sin ficha todavía)', 'falta la ficha']
+        ac.placeOnGround(0, 0, 0, 90)
+        ac.setGear(false, true)
+        // giro acumulado (+ a la derecha: el rumbo de yawOf crece hacia la izquierda)
+        let prev = yawOf(ac.quat)
+        let turned = 0
+        const r = run(ac, envFor(), 20, (t, c, a) => {
+          // rodando despacio a un tercio de gas, pedal a fondo a la derecha desde los 4 s
+          c.throttle = 0.35
+          c.rotorBrake = false
+          c.pitch = 0.3
+          c.yaw = t > 4 ? 1 : 0
+          const y = yawOf(a.quat)
+          turned -= ((y - prev + 3 * Math.PI) % (2 * Math.PI) - Math.PI) / DEG
+          prev = y
+        })
+        if (verbose) console.log(r.log.join('\n'))
+        const e: string[] = []
+        if (r.crash) e.push(`accidente: ${r.crash}`)
+        if (turned < 0) e.push(`con el pedal derecho gira a la izquierda: ${(-turned).toFixed(0)}°`)
+        else if (turned < 60) e.push(`apenas vira: ${turned.toFixed(0)}° en 16 s`)
+        return [`gira ${turned.toFixed(0)}° a la derecha en 16 s con el pedal derecho a fondo · ${(ac.groundSpeed * 3.6).toFixed(0)} km/h`, ...e]
+      },
+    },
+    {
+      name: `${real.id}: despega del agua`,
+      go: () => {
+        const ac = make()
+        if (!ac) return ['(sin ficha todavía)', 'falta la ficha']
+        ac.placeOnGround(0, 0, 0, 90)
+        ac.setGear(false, true)
+        const x0 = ac.pos.clone()
+        const { r, lift, maxKmh } = waterTakeoff(ac, 20 + real.maxTakeoff + 10)
+        if (verbose) console.log(r.log.join('\n'))
+        const e: string[] = []
+        if (r.crash) e.push(`accidente a los ${r.crashT.toFixed(1)} s: ${r.crash}`)
+        if (lift < 0) e.push(`no despega en ${real.maxTakeoff} s (máx ${maxKmh.toFixed(0)} km/h)`)
+        const run_m = ac.pos.clone().sub(x0).setY(0).length()
+        return [`despega ${lift > 0 ? `a los ${lift.toFixed(1)} s de dar gas` : 'no'} · máx ${maxKmh.toFixed(0)} km/h · ${run_m.toFixed(0)} m recorridos al final`, ...e]
+      },
+    },
+    {
+      name: `${real.id}: tocar el agua a 2,5 m/s aguanta; a 5,5 m/s rompe los flotadores`,
+      go: () => {
+        const out: string[] = []
+        const e: string[] = []
+        for (const vy of [-2.5, -5.5]) {
+          const ac = make()
+          if (!ac) return ['(sin ficha todavía)', 'falta la ficha']
+          placeOver(ac, 0.15, 60 / 3.6, vy, 330 * (ac.af.rpmScale ?? 1), true)
+          // el cabeceo de un amaraje: morro algo arriba
+          ac.quat.multiply(new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), 4 * DEG))
+          const r = run(ac, envFor(), 4, (_t, c) => {
+            c.throttle = 0.15
+            c.pitch = 0.3
+          })
+          const broke = /flotador/.test(r.crash)
+          out.push(`${(-vy).toFixed(1)} m/s → ${r.crash ? r.crash.split(':')[0] : 'sin daños'}`)
+          if (vy > -3 && r.crash) e.push(`a ${-vy} m/s no debería pasar nada: ${r.crash}`)
+          if (vy < -5 && !broke) e.push(`a ${-vy} m/s debería romper los flotadores: ${r.crash || 'sin daños'}`)
+        }
+        return [out.join(' · '), ...e]
+      },
+    },
+  )
+}
+
+// tren anfibio: amarizar con las ruedas fuera vuelca de morro; en tierra rueda con ellas
+for (const id of Object.keys(FLOAT_KITS).filter((k) => FLOAT_KITS[k].amphib)) {
+  cases.push(
+    {
+      name: `${id}+flotadores: amarizar con el tren abajo vuelca`,
+      go: () => {
+        const ac = new Autogyro(airframeById(id, true))
+        ac.setLoad(false)
+        ac.setGear(true, true)
+        placeOver(ac, 0.1, 55 / 3.6, -1.5, 300, true)
+        const r = run(ac, envFor(), 8, (_t, c) => {
+          c.throttle = 0.15
+          c.pitch = 0.5
+        })
+        const e = r.crash ? [] : ['no pasa nada con las ruedas en el agua']
+        return [`${r.crash ? `${r.crash.split(':')[0]} a los ${r.crashT.toFixed(2)} s` : 'sin accidente'}`, ...e]
+      },
+    },
+    {
+      name: `${id}+flotadores: en tierra con el tren abajo rueda; con el tren arriba se apoya en las quillas`,
+      go: () => {
+        const flat = { heightAt: (_x: number, _z: number, n: Vector3) => (n.set(0, 1, 0), 0) }
+        const env: Environment = { rho: isaDensity(300), wind: new Vector3(), ground: flat }
+        const e: string[] = []
+        const out: string[] = []
+        for (const down of [true, false]) {
+          const ac = new Autogyro(airframeById(id, true))
+          ac.setLoad(false)
+          ac.placeOnGround(0, 0, 0, 90)
+          ac.setGear(down, true)
+          const x0 = ac.pos.clone()
+          const r = run(ac, env, 15, (_t, c) => {
+            c.throttle = 0.45
+            c.rotorBrake = false
+            c.wheelBrake = 0
+          })
+          const moved = ac.pos.clone().sub(x0).setY(0).length()
+          out.push(`${down ? 'abajo' : 'arriba'}: ${moved.toFixed(0)} m en 15 s${r.crash ? ` (${r.crash.split(':')[0]})` : ''}`)
+          if (r.crash) e.push(`accidente con el tren ${down ? 'abajo' : 'arriba'}: ${r.crash}`)
+          if (down && moved < 20) e.push(`con el tren abajo apenas rueda: ${moved.toFixed(1)} m`)
+          if (!down && moved > 5) e.push(`sobre las quillas se desliza demasiado: ${moved.toFixed(1)} m`)
+        }
+        return [out.join(' · '), ...e]
+      },
+    },
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Restos (Rapier) en el agua: lago con la superficie a 0 y el fondo a 8 m

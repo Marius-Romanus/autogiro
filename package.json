@@ -21,6 +21,8 @@
     "fdm-test:all": "node tools/fdm-all.mjs",
     "crash-test": "node --experimental-strip-types tools/crash-test.ts && node --experimental-strip-types tools/crash-test-3blade.ts",
     "water-test": "node --experimental-strip-types tools/water-test.ts",
+    "weather-test": "node --experimental-strip-types tools/weather-test.ts",
+    "wind-test": "node --experimental-strip-types tools/wind-test.ts",
     "mp-test": "node --experimental-strip-types tools/mp-test.ts",
     "mp-bot": "node --experimental-strip-types tools/mp-bot.ts"
   },
