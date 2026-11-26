@@ -10,6 +10,8 @@ Traced on Wikimedia Commons side photos (D-MTBI, D-MAWK, D-MMFS, D-MAAU, D-MLGH)
 
   blender -b -P blender/build_mt03.py -- [--previews] [--only VIEW,...] [--overlay yaw,cx,cz,ppm,w,h]
 Outputs: public/models/mt03.glb, blender/mt03.blend, blender/previews/mt03/*.png
+  --floats: MTOamphib-style amphibious floats (see floatkit.py) -> ONLY public/models/mt03_floats.glb
+            + blender/previews/mt03_floats/*.png
 """
 import bpy, bmesh, math, os, sys
 from mathutils import Vector, Euler, Matrix
@@ -19,6 +21,11 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import gyrokit as K  # noqa: E402
 from gyrokit import B, E, V, MB, MATS, TAU, lerp, catmull, airfoil_ring, pilot, controls, PANEL  # noqa: E402
+
+# ---- --floats variant (amphibious floats instead of the land gear) ----
+FLOATS = '--floats' in K.ARGV
+if FLOATS:
+    import floatkit as FK  # noqa: E402
 
 # ---- hub frame -------------------------------------------------------------------------------
 GROUND = -2.706                    # ground under the wheels
@@ -359,7 +366,12 @@ def build_mt03():
     K.build_prop(PROP, R=0.865, blades=3, hub='drum', hub_r=0.066, hub_len=0.15, tip_mat='Carbon')
     tail = build_tail()
     build_rudder()
-    gear, spats, nose = build_gear()
+    if FLOATS:          # --floats: no land gear; floats, struts, amph wheels and water rudders instead
+        gear, spats, nose = None, [], None
+        kit = FK.mt03_kit(R, R.x(2.32))
+    else:
+        gear, spats, nose = build_gear()
+        kit = None
     cockpit = build_cockpit(pod)
 
     ctrl = MB('controls_static')
@@ -398,13 +410,20 @@ def build_mt03():
     make(eye)
     K.clearance(['pilot_front_leg', 'pilot_front_foot'], [bpy.data.objects.get('panel_face'), ctrl, pod], ' (front)')
     K.clearance(['pilot_rear'], [pod, div, cockpit], ' (rear)')
-    K.finalize([pod, rim, fr1, fr2, div, mast, frame, engine, tail, gear, cockpit, ctrl, det] + spats, [ws1, ws2])
+    K.finalize([pod, rim, fr1, fr2, div, mast, frame, engine, tail, gear, cockpit, ctrl, det] + spats
+               + (kit.static if kit else []), [ws1, ws2])
     ax = R(AXLE[0], AXLE[1])
-    K.required({
+    nodes = {
         'rotor': HUB, 'rotor_head': PIVOT, 'prop': PROP, 'rudder': R(HINGE, -1.68), 'stick': stick_base,
         'eye_front': eye, 'nose_wheel': R(NOSE[0], NOSE[1]), 'wheel_L': V(ax.x, MAIN_Y, ax.z),
         'wheel_R': V(ax.x, -MAIN_Y, ax.z), 'pilot_rear': None,
-    })
+    }
+    if kit:             # --floats: amph wheels and water rudders replace the land wheels
+        for k in ('nose_wheel', 'wheel_L', 'wheel_R'):
+            nodes.pop(k)
+        nodes.update(kit.nodes)
+        kit.report()
+    K.required(nodes)
     print('MT03 hub %s pivot %s prop %s ground z %.3f axle x %.3f nose x %.3f eye %s' % (
         tuple(round(c, 3) for c in HUB), tuple(round(c, 3) for c in PIVOT), tuple(round(c, 3) for c in PROP),
         R.z(GROUND), ax.x, R.x(NOSE[0]), tuple(round(c, 3) for c in eye)))
@@ -418,4 +437,7 @@ VIEWS = {
 }
 
 if __name__ == '__main__':
-    K.run('mt03', build_mt03, LIVERY, views=VIEWS, rest_ground=R.z(GROUND))
+    if FLOATS:          # --floats: writes only mt03_floats.glb + previews/mt03_floats
+        FK.run('mt03', build_mt03, LIVERY, VIEWS, FK.mt03_ground(R.x(2.32)))
+    else:
+        K.run('mt03', build_mt03, LIVERY, views=VIEWS, rest_ground=R.z(GROUND))

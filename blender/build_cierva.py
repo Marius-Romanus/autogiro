@@ -472,12 +472,27 @@ def build_cockpits():
         mb.box(hip + V(-0.14, 0, 0.18), (0.06, 0.46, 0.56), 'Seat', bevel=0.03, segs=2,
                rot=Euler((0, math.radians(-back), 0)))
         mb.box(hip + V(0.10, 0, -0.22), (0.38, 0.40, 0.12), 'Interior', bevel=0.02, segs=1)
-    # pilot's instrument board (wood) under the rear windscreen: ASI, altimeter, rev counter, rotor
-    # rev counter, oil pressure; compass below
-    # (compass in the middle of the board, out of the way of the hanging column)
-    panel(mb, V(-0.635, 0, 0.36), 0.50, 0.18, 12, gauges=True, glare=False, center='compass')
-    # passenger's small board (altimeter + rev counter)
-    panel(mb, V(0.11, 0, 0.36), 0.40, 0.14, 12, gauges=True, glare=False, center=None)
+    # pilot's instrument board (wood) under the rear windscreen, drawn live by the sim
+    # (src/aircraft/VintagePanel.ts): the instruments kept with the Science Museum's C.30A (air speed,
+    # altimeter, engine and rotor revolution counters, oil pressure, compass) plus the oil thermometer and
+    # cross level of the C.30 equipment list; compass in the middle, out of the way of the hanging column
+    # (which hides the middle of the board from the pilot: the cross level goes to the left)
+    panel(mb, V(-0.635, 0, 0.36), 0.50, 0.18, 12, glare=False, live=('vintage_board', [
+        {'k': 'asi', 'u': -0.19, 'v': 0.024, 'd': 0.07},
+        {'k': 'alt', 'u': -0.105, 'v': 0.024, 'd': 0.07},
+        {'k': 'compass', 'u': 0.0, 'v': 0.02, 'd': 0.08},
+        {'k': 'rotor', 'u': 0.105, 'v': 0.024, 'd': 0.07},
+        {'k': 'engine', 'u': 0.19, 'v': 0.024, 'd': 0.07},
+        {'k': 'level', 'u': -0.135, 'v': -0.047, 'w': 0.09, 'h': 0.02},
+        {'k': 'oilp', 'u': 0.105, 'v': -0.048, 'd': 0.044},
+        {'k': 'oilt', 'u': 0.17, 'v': -0.048, 'd': 0.044},
+    ]))
+    # passenger's small board: air speed (one per cockpit in the equipment list), altimeter, rev counter
+    panel(mb, V(0.11, 0, 0.36), 0.40, 0.14, 12, glare=False, live=('vintage_board_front', [
+        {'k': 'asi', 'u': -0.1, 'v': 0.0, 'd': 0.07},
+        {'k': 'alt', 'u': 0.0, 'v': 0.0, 'd': 0.07},
+        {'k': 'engine', 'u': 0.1, 'v': 0.0, 'd': 0.07},
+    ]))
     # rotor-starter (red) and wheel-brake levers on the right wall: nodes pivoting at their foot
     for name, x, col in (('starter_lever', -0.92, 'Paint_Accent'), ('brake_lever', -0.98, 'Paint_Dark')):
         p0 = V(x, -0.30, -0.05)
@@ -646,10 +661,70 @@ def body_entry(p, d, step=0.002):
     raise ValueError('leg misses the fuselage')
 
 
+def body_depth(p):
+    """How far p is inside the fuselage (m, > 0 inside), from its cross-section at p.x."""
+    zt, zb = BODY.zt(p.x), BODY.zb(p.x)
+    if not (zb < p.z < zt):
+        return -min(abs(p.z - zt), abs(p.z - zb))
+    return min(BODY.half_width_at(p.x, p.z) - abs(p.y), p.z - zb, zt - p.z)
+
+
+def into_body(p, d, r, margin=0.02, max_ext=0.2):
+    """Inner end for a strut aimed at the fuselage: slide p on along the strut's own direction d until
+    its whole section (radius r) is `margin` inside the skin. A strut that only skims the belly that
+    way (an outrigger level with the bottom) has its end moved instead towards the middle of the
+    cross-section, i.e. up onto the bottom longeron."""
+    def inside(q):
+        return min(body_depth(q + o) for o in (V(0, r, 0), V(0, -r, 0), V(0, 0, r), V(0, 0, -r))) >= margin
+    s = 0.0
+    while s <= max_ext:
+        if inside(p + d * s):
+            return p + d * s
+        s += 0.002
+    c = V(p.x, 0.0, BODY.zw(p.x))
+    for k in range(501):
+        q = p.lerp(c, k / 500)
+        if inside(q):
+            return q
+    raise ValueError('strut never reaches the fuselage')
+
+
 def body_normal(x, y, e=0.004):
     gx = (body_top_z(x + e, y) - body_top_z(x - e, y)) / (2 * e)
     gy = (body_top_z(x, y + e) - body_top_z(x, y - e)) / (2 * e)
     return V(-gx, -gy, 1.0).normalized()
+
+
+# streamline fairing round the rotor head (side profile: x -> top z, bottom z, half width); its cross
+# section is the superellipse (dz/half)^3 + (y/w)^2.2 = 1 drawn by build_pylon
+FAIR_TOP = [(0.33, 1.66), (0.30, 1.71), (0.27, 1.72), (-0.02, 1.72), (-0.52, 1.47)]
+FAIR_BOT = [(0.33, 1.29), (-0.52, 1.47)]
+FAIR_WID = [(0.335, 0.0), (0.33, 0.07), (0.315, 0.12), (0.29, 0.145), (0.20, 0.155), (0.0, 0.15),
+            (-0.25, 0.10), (-0.45, 0.035), (-0.52, 0.0)]
+
+
+def fairing_depth(p):
+    """Vertical distance of p inside the head fairing (> 0 inside, < 0 outside)."""
+    if not (FAIR_WID[-1][0] < p.x < FAIR_WID[0][0]):
+        return -1.0
+    zt, zb, w = interp(FAIR_TOP, p.x), interp(FAIR_BOT, p.x), interp(FAIR_WID, p.x)
+    t = abs(p.y) / w if w > 1e-4 else 2.0
+    if t >= 1.0:
+        return -(t - 1.0) * w - 1e-3
+    half = (zt - zb) / 2
+    return half * (1 - t ** 2.2) ** (1 / 3) - abs(p.z - (zt + zb) / 2)
+
+
+def into_fairing(top, d, hx, hy, margin=0.035):
+    """Slide a strut's upper end up its own line (-d) until its whole section is `margin` inside the
+    head fairing, so it visibly runs into it instead of stopping short underneath."""
+    s = 0.0
+    while s < 0.5:
+        p = top - d * s
+        if min(fairing_depth(p + V(ax, ay, 0)) for ax in (-hx, hx) for ay in (-hy, hy)) >= margin:
+            return p
+        s += 0.002
+    raise ValueError('strut never enters the head fairing')
 
 
 def build_pylon():
@@ -657,12 +732,16 @@ def build_pylon():
     # four streamlined legs down to the top longerons: each leg runs on until it meets the rounded
     # decking (photos: the feet sit ON the fuselage shoulders, ~0.2 m below the top line) and ends in a
     # faired shoe on a bolted plate. The old feet stopped ~0.2 m above the skin and looked loose.
+    # The upper ends go well up into the head fairing (they used to stop 1-5 cm under its slanted belly,
+    # the rear pair most, and the gap showed from the cockpits).
     for sy in (1, -1):
         for top, fx, sq in ((V(0.28, sy * 0.09, 1.33), 0.38, (0.07, 0.035)),
                             (V(-0.05, sy * 0.09, 1.35), -0.42, (0.06, 0.03))):
             # aim 2 cm under the skin at |y| 0.33 (the legs splay about as steeply as the shoulder curves)
             foot = V(fx, sy * 0.33, body_top_z(fx, 0.33) - 0.02)
             d = (foot - top).normalized()
+            top = into_fairing(top, d, sq[0] / 2, sq[1] / 2)
+            print('  pylon leg top inside the fairing at (%.3f, %.3f, %.3f)' % tuple(top))
             hit = body_entry(top, d)
             mb.tube([top, hit + d * 0.03], 0.0, 'Paint_White', n=14, square=(sq[0], sq[1], 2.2), cap=True)
             n = body_normal(hit.x, hit.y)
@@ -677,12 +756,10 @@ def build_pylon():
                     mb.cyl(hit + ax * bx + n.cross(ax) * by + n * 0.003, hit + ax * bx + n.cross(ax) * by + n * 0.008,
                            0.006, 'Metal_Frame', n=8)
             print('  pylon leg foot on the skin at (%.3f, %.3f, %.3f)' % tuple(hit))
-    mb.cyl(V(0.33, 0.0, 0.50), V(0.20, 0.0, 1.33), 0.018, 'Metal_Frame', n=10)
+    s0, s1 = V(0.33, 0.0, 0.50), V(0.20, 0.0, 1.33)
+    mb.cyl(s0, into_fairing(s1, (s0 - s1).normalized(), 0.018, 0.018), 0.018, 'Metal_Frame', n=10)
     # streamline fairing round the head: blunt rounded front, pointed tail, slanted underside
-    top = [(0.33, 1.66), (0.30, 1.71), (0.27, 1.72), (-0.02, 1.72), (-0.52, 1.47)]
-    bot = [(0.33, 1.29), (-0.52, 1.47)]
-    wid = [(0.335, 0.0), (0.33, 0.07), (0.315, 0.12), (0.29, 0.145), (0.20, 0.155), (0.0, 0.15),
-           (-0.25, 0.10), (-0.45, 0.035), (-0.52, 0.0)]
+    top, bot, wid = FAIR_TOP, FAIR_BOT, FAIR_WID
     rings = []
     xs = [0.335, 0.333, 0.33, 0.32, 0.30, 0.26, 0.2, 0.1, 0.0, -0.1, -0.2, -0.3, -0.4, -0.46, -0.5, -0.52]
     for x in xs:
@@ -712,14 +789,24 @@ def build_main_gear():
         mb.cyl(K + (A - K) * -0.03, mid, 0.048, 'Paint_White', n=16)
         mb.cyl(mid - (A - K) * 0.02, A, 0.032, 'Metal_Frame', n=14)
         mb.cyl(mid - (A - K) * 0.05, mid + (A - K) * 0.04, 0.052, 'Rubber', n=16)
-        # outrigger, upper strut and the two radius rods of the pyramid
-        mb.cyl(K, V(0.99, sy * 0.38, -0.44), 0.028, 'Paint_White', n=12)
-        mb.cyl(K, V(0.92, sy * 0.43, 0.07), 0.022, 'Paint_White', n=12)
-        mb.tube([A, V(0.66, sy * 0.34, -0.45)], 0.0, 'Paint_White', n=12, square=(0.06, 0.03, 2.2), cap=True)
-        mb.tube([A + V(-0.03, 0, 0.02), V(0.00, sy * 0.34, -0.47)], 0.0, 'Paint_White', n=12,
+        # outrigger, upper strut and the two radius rods of the pyramid; each inner end runs on until it
+        # is inside the fuselage (they used to stop ~7 cm short of the bottom longerons, in mid air)
+        def strut(a, b, r):
+            d = (b - a).normalized()
+            end = into_body(b, d, r)
+            print('  gear strut ends in the fuselage at (%.3f, %.3f, %.3f), %.0f mm longer'
+                  % (end.x, end.y, end.z, (end - b).length * 1000))
+            return end
+        mb.cyl(K, strut(K, V(0.99, sy * 0.38, -0.44), 0.028), 0.028, 'Paint_White', n=12)
+        mb.cyl(K, strut(K, V(0.92, sy * 0.43, 0.07), 0.022), 0.022, 'Paint_White', n=12)
+        mb.tube([A, strut(A, V(0.66, sy * 0.34, -0.45), 0.03)], 0.0, 'Paint_White', n=12,
+                square=(0.06, 0.03, 2.2), cap=True)
+        a2 = A + V(-0.03, 0, 0.02)
+        mb.tube([a2, strut(a2, V(0.00, sy * 0.34, -0.47), 0.0375)], 0.0, 'Paint_White', n=12,
                 square=(0.075, 0.035, 2.2), cap=True)
         mb.sphere(K, 0.04, 'Metal_Frame', seg=12, rings=8)
-        mb.cyl(A, V(x0, sy * (yw + 0.09), zw), 0.022, 'Metal_Frame', n=10)        # stub axle
+        # stub axle: ends under the hub cap (it used to stick 3 cm out of the wheel)
+        mb.cyl(A, V(x0, sy * (yw + 0.05), zw), 0.022, 'Metal_Frame', n=10)
         mb.box(A + V(0, sy * 0.03, 0), (0.09, 0.05, 0.09), 'Metal_Frame', bevel=0.01, segs=1)
     gear = mb.finish(sharp_angle=40, wn=True)
     wheels = []
@@ -772,16 +859,31 @@ def decal_disc(target, cx, cz, rings_cols, side, name):
     return mb.finish(sharp_angle=89, recalc=False, merge=1e-5)
 
 
-def decal_poly(target, polys, side, name, mat, y0=2.0):
-    """Flat polygons (lists of (x, z)) projected onto the target from the side."""
+def decal_poly(target, polys, side, name, mat, y0=2.0, n=16):
+    """Quadrilaterals (4 (x, z) corners in order) projected onto the target from the side. Each one is
+    split into an n x n grid and every grid point is projected, so the decal hugs a curved surface: with
+    only the 4 corners projected, the flat quad sank into the bulging fin and just the bar ends of the
+    St Andrew's cross showed, as loose black triangles."""
     mb = MB(name)
-    for poly in polys:
-        pts = []
-        for wx, wz in poly:
-            hit, loc, nrm, _ = target.ray_cast(V(wx, side * y0, wz), V(0, -side, 0))
-            pts.append(loc + nrm * 0.003 if hit else V(wx, side * 0.05, wz))
-        idx = list(range(len(pts)))
-        mb.faces(pts, [idx if side < 0 else idx[::-1]], mat, smooth=False)
+    for a, b, c, d in polys:
+        grid = []
+        for j in range(n + 1):
+            row = []
+            for i in range(n + 1):
+                u, v = i / n, j / n
+                p0 = (lerp(a[0], b[0], u), lerp(a[1], b[1], u))
+                p1 = (lerp(d[0], c[0], u), lerp(d[1], c[1], u))
+                wx, wz = lerp(p0[0], p1[0], v), lerp(p0[1], p1[1], v)
+                hit, loc, nrm, _ = target.ray_cast(V(wx, side * y0, wz), V(0, -side, 0))
+                row.append(loc + nrm * 0.003 if hit else V(wx, side * 0.05, wz))
+            grid.append(row)
+        pts = [p for row in grid for p in row]
+        faces = []
+        for j in range(n):
+            for i in range(n):
+                f = [j * (n + 1) + i, j * (n + 1) + i + 1, (j + 1) * (n + 1) + i + 1, (j + 1) * (n + 1) + i]
+                faces.append(f if side < 0 else f[::-1])
+        mb.faces(pts, faces, mat, smooth=False)
     return mb.finish(sharp_angle=89, recalc=False, merge=1e-5)
 
 

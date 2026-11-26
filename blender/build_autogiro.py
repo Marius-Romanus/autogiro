@@ -774,12 +774,14 @@ def build_frame():
         mb.box((-0.50, sy * 0.044, -0.62), (0.34, 0.008, 0.16), 'Metal_Frame', bevel=0.01, segs=2)
     # engine mount: plate behind mast + struts
     mb.box((-0.462, 0, 0.13), (0.012, 0.24, 0.30), 'Metal_Frame', bevel=0.01, segs=2)
+    # (every strut ends 1.5-2.5 cm inside the crankcase / oil pan of build_engine: they used to stop
+    # 1.5-7 cm short of the engine, in mid air)
     for sy in (1, -1):
-        for z0, z1 in ((0.24, 0.16), (0.02, -0.06)):
-            mb.cyl(V(-0.47, sy * 0.10, z0), V(-0.80, sy * 0.10, z1), 0.012, 'Metal_Frame', n=10)
+        for z0, z1 in ((0.24, 0.075), (0.02, -0.06)):
+            mb.cyl(V(-0.47, sy * 0.10, z0), V(-0.835, sy * 0.085, z1), 0.012, 'Metal_Frame', n=10)
         # lower struts keel -> engine
-        mb.cyl(V(-0.95, sy * 0.02, -0.71), V(-0.86, sy * 0.10, -0.20), 0.012, 'Metal_Frame', n=10)
-        mb.cyl(V(-0.62, sy * 0.02, -0.68), V(-0.80, sy * 0.10, -0.20), 0.011, 'Metal_Frame', n=10)
+        mb.cyl(V(-0.95, sy * 0.02, -0.71), V(-0.88, sy * 0.07, -0.175), 0.012, 'Metal_Frame', n=10)
+        mb.cyl(V(-0.62, sy * 0.02, -0.68), V(-0.87, sy * 0.07, -0.175), 0.011, 'Metal_Frame', n=10)
     return mb.finish(sharp_angle=40, wn=True)
 
 
@@ -1195,7 +1197,8 @@ def build_gear():
     mb.lathe([(0.0, 0.0), (0.012, 0.0), (0.004, 0.02), (0.0025, 0.32), (0.0, 0.322)], V(-2.30, 0, -0.66),
              V(-0.25, 0, 1).normalized(), 'Paint_Dark', n=10)
     for sy in (1, -1):
-        mb.cyl(V(-0.15, sy * 0.30, -0.72), V(-0.15, sy * 0.47, -0.74), 0.012, 'Metal_Frame', n=10)
+        # step arm up into the belly (it used to stop 7.5 cm under the pod)
+        mb.cyl(V(-0.15, sy * 0.25, -0.625), V(-0.15, sy * 0.47, -0.74), 0.012, 'Metal_Frame', n=10)
         mb.box((-0.15, sy * 0.48, -0.742), (0.11, 0.07, 0.012), 'Metal_Frame', bevel=0.004, segs=1)
     gear = mb.finish(sharp_angle=40, wn=True)
     spats = [spat_shell('spat_L', MAIN_Y), spat_shell('spat_R', -MAIN_Y)]

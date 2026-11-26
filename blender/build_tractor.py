@@ -609,9 +609,12 @@ def build_engine(P):
     # ECU / fuse box (white) on the frame at the left
     mb.box(Q(0.35, 0.32, -0.36), (0.12, 0.05, 0.16), 'Bottle_White' if 'Bottle_White' in MATS else 'Paint_White',
            bevel=0.01, segs=1)
+    # each arm runs from inside the crankcase to the mount plate on the bay upright (R(-0.29, -1.72)):
+    # the lower pair used to start 8 cm under the crankcase and the upper pair to end 15 cm above the
+    # plate, both in mid air
     for sy in (1, -1):
-        for dz in (0.03, -0.20):
-            mb.cyl(Q(0.50, sy * 0.10, zc + dz), Q(0.70, sy * 0.15, zc + dz * 0.8), 0.011, 'Metal_Frame', n=8)
+        for c, z in ((Q(0.47, sy * 0.09, zc + 0.03), -1.67), (Q(0.46, sy * 0.08, zc - 0.09), -1.77)):
+            mb.cyl(c, R(-0.29, z, sy * 0.15), 0.011, 'Metal_Frame', n=8)
     return mb.finish(sharp_angle=38, wn=True)
 
 
@@ -796,7 +799,8 @@ def build_gear():
         # khaki tubular leg from the keel fitting out to the axle block; a rear radius rod
         mb.cyl(root, tip, 0.026, 'Leg_Khaki', n=14)
         mb.box(root, (0.08, 0.05, 0.07), 'Metal_Frame', bevel=0.008, segs=1)
-        mb.cyl(R(0.12, -2.37, sy * 0.10), tip + V(0.02, 0, -0.01), 0.014, 'Leg_Khaki', n=10)
+        # (its root is IN the keel tube: it used to start 3 cm under it)
+        mb.cyl(R(0.12, -2.325, sy * 0.015), tip + V(0.02, 0, -0.01), 0.014, 'Leg_Khaki', n=10)
         mb.box(tip + V(0, 0, -0.02), (0.08, 0.05, 0.09), 'Leg_Khaki', bevel=0.01, segs=2)
         mb.cyl(V(ax.x, sy * (MAIN_Y - 0.15), ax.z), V(ax.x, sy * (MAIN_Y + 0.10), ax.z), 0.015, 'Metal_Frame', n=12)
         mb.cyl(V(ax.x, sy * (MAIN_Y - 0.105), ax.z), V(ax.x, sy * (MAIN_Y - 0.097), ax.z), 0.075, 'Metal_Frame',

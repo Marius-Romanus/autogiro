@@ -432,9 +432,12 @@ def build_engine(P):
     for k in range(9):
         mb.box(rc + V(0, 0.036, -0.10 + k * 0.025), (0.21, 0.004, 0.004), 'Alu_Bright')
     # engine mount: four rubber-mounted arms from the crankcase to the bay frame
+    # each arm runs from inside the crankcase to the mount plate on the bay upright (R(-0.29, -1.72)):
+    # the lower pair used to start 8 cm under the crankcase and the upper pair to end 15 cm above the
+    # plate, both in mid air
     for sy in (1, -1):
-        for dz in (0.03, -0.20):
-            mb.cyl(Q(0.50, sy * 0.10, zc + dz), Q(0.70, sy * 0.15, zc + dz * 0.8), 0.011, 'Paint_White', n=8)
+        for c, z in ((Q(0.47, sy * 0.09, zc + 0.03), -1.67), (Q(0.46, sy * 0.08, zc - 0.09), -1.77)):
+            mb.cyl(c, R(-0.29, z, sy * 0.15), 0.011, 'Paint_White', n=8)
     return mb.finish(sharp_angle=38, wn=True)
 
 
@@ -476,6 +479,8 @@ def build_frame():
     for z in (-2.08, -1.70):
         mb.cyl(R(-0.20 if z < -2 else -0.27, z, -0.17), R(-0.20 if z < -2 else -0.27, z, 0.17), 0.016,
                'Paint_White', n=10)
+    # foot cross tube through the keel joining the bottoms of the uprights (they stood loose beside it)
+    mb.cyl(R(-0.08, -2.31, -0.14), R(-0.08, -2.31, 0.14), 0.016, 'Paint_White', n=10)
     mb.cyl(R(-0.93, -1.98, -0.14), R(-0.93, -1.98, 0.14), 0.012, 'Paint_White', n=8)
     # upper strut: flat channel from the bay bottom to the node (wide in plan, Descripcion.jpg)
     a, b = R(-0.25, -2.04), R(NODE[0] + 0.02, NODE[1] + 0.03)
@@ -632,7 +637,8 @@ def build_gear():
         mb.cyl(root, tip, 0.024, 'Leg_Grey', n=14)
         mb.box(root, (0.06, 0.06, 0.06), 'Metal_Frame', bevel=0.008, segs=1)
         # lower radius rod from the keel to the axle block
-        mb.cyl(R(-0.05, -2.43, sy * 0.05), tip + V(0.02, 0, -0.03), 0.013, 'Leg_Grey', n=10)
+        # (its root is IN the keel tube: it used to start 10 cm under it, in mid air)
+        mb.cyl(R(-0.05, -2.32, sy * 0.015), tip + V(0.02, 0, -0.03), 0.013, 'Leg_Grey', n=10)
         # axle block, stub axle, brake disc + calliper (inboard)
         mb.box(tip + V(0, 0, -0.03), (0.08, 0.05, 0.10), 'Leg_Grey', bevel=0.01, segs=2)
         mb.cyl(V(ax.x, sy * (MAIN_Y - 0.16), ax.z), V(ax.x, sy * (MAIN_Y + 0.11), ax.z), 0.015, 'Metal_Frame', n=12)

@@ -311,8 +311,14 @@ def bucket_seat(mb, hip, back_deg, width=0.44, headrest=True, cushion_len=0.42, 
             mb.cyl(hc - u * 0.08 + V(0, sy * 0.07, 0), hc - u * 0.14 + V(0, sy * 0.07, 0), 0.007, 'Metal_Frame', n=8)
 
 
-def panel(mb, pc, width, height, tilt_deg, gauges=True, glare=None, center='efis'):
-    """Instrument panel box with dummy gauges. center: 'efis' screen, 'compass' (1930s board) or None."""
+def panel(mb, pc, width, height, tilt_deg, gauges=True, glare=None, center='efis', live=None):
+    """Instrument panel box with dummy gauges. center: 'efis' screen, 'compass' (1930s board) or None.
+
+    live = (node name, slots): period board whose instruments the sim draws (src/aircraft/VintagePanel.ts)
+    instead of the dummy gauges. An empty with that name goes at the centre of the face, with
+    extras['board'] = JSON {c: face centre (Blender coords), tilt, w, h, slots}; each slot is
+    {k: kind, u: to the pilot's right, v: up the board, d: dial diameter} (m, from the face centre), or
+    w/h instead of d for the cross level. The small knobs at the bottom of the board stay."""
     tilt = math.radians(tilt_deg)
     nrm = V(-math.cos(tilt), 0, math.sin(tilt))
     upv = V(math.sin(tilt), 0, math.cos(tilt))
@@ -322,7 +328,19 @@ def panel(mb, pc, width, height, tilt_deg, gauges=True, glare=None, center='efis
     def on(y, z, d=0.0):
         return face_c + V(0, y, 0) + upv * z + nrm * d
 
-    if gauges:
+    if live:
+        import json
+        name, slots = live
+        ob = bpy.data.objects.new(name, None)
+        ob.empty_display_type = 'PLAIN_AXES'
+        ob.empty_display_size = 0.05
+        ob.location = face_c
+        ob['board'] = json.dumps({'c': [round(x, 5) for x in face_c], 'tilt': tilt_deg, 'w': width, 'h': height,
+                                  'slots': slots}, separators=(',', ':'))
+        link(ob)
+        for k in range(5):
+            mb.cyl(on(-0.06 + k * 0.03, -0.075), on(-0.06 + k * 0.03, -0.075, 0.018), 0.004, 'Metal_Frame', n=6)
+    elif gauges:
         for (gy, gz, gr) in ((0.125, 0.025, 0.034), (0.205, 0.025, 0.031), (-0.125, 0.025, 0.034),
                              (-0.205, 0.025, 0.031), (0.165, -0.05, 0.023), (-0.165, -0.05, 0.023)):
             if abs(gy) + gr > width * 0.5 - 0.01:

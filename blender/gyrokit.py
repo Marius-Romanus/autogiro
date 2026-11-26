@@ -394,14 +394,22 @@ def nose_gear(c, R=0.175, w=0.10, leg_top=None, fork_mat='Metal_Frame', mudguard
               (R * 0.6, hw), (R * 0.55, hw * 0.95), (0.045, hw * 0.75), (0.03, hw), (0.0, hw)], c, V(0, 1, 0),
              'Engine', n=28)
     yf = w * 0.5 + 0.022
-    nb.cyl(c + V(0, -yf - 0.008, 0), c + V(0, yf + 0.008, 0), 0.010, 'Metal_Frame', n=10)
+    # axle: through both fork legs, or with a single (left) leg only out to the hub face on the free side
+    # (it used to stick 3 cm out of the open side of a single-leg fork)
+    y0 = -(hw + 0.004) if single else -yf - 0.008
+    nb.cyl(c + V(0, y0, 0), c + V(0, yf + 0.008, 0), 0.010, 'Metal_Frame', n=10)
     zt = R + 0.045
     sides = (1,) if single else (1, -1)
     for sy in sides:
         nb.tube(catmull([c + V(0.0, sy * yf, 0.0), c + V(rake * 0.4, sy * (yf + 0.002), zt * 0.55),
                          c + V(rake, sy * (yf - 0.004), zt)], 4), 0.0, fork_mat, n=16, square=(0.014, 0.045, 5),
                 cap=True)
-    nb.box(c + V(rake, 0, zt + 0.008), (0.06, 2 * yf + 0.02, 0.028), fork_mat, bevel=0.008, segs=2)
+    if single:
+        # crown from the steering post to the one leg (a full-width crown stuck out over the open side)
+        y0, y1 = -0.03, yf + 0.01
+        nb.box(c + V(rake, (y0 + y1) / 2, zt + 0.008), (0.06, y1 - y0, 0.028), fork_mat, bevel=0.008, segs=2)
+    else:
+        nb.box(c + V(rake, 0, zt + 0.008), (0.06, 2 * yf + 0.02, 0.028), fork_mat, bevel=0.008, segs=2)
     top = (leg_top if leg_top is not None else c.z + zt + 0.14)
     nb.cyl(c + V(rake, 0, zt + 0.01), V(c.x + rake, 0, top), 0.020, 'Metal_Frame', n=14)
     if mudguard:

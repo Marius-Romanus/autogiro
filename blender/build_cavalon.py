@@ -19,6 +19,8 @@ the panel belong to that seat; pilot_rear is the person in the LEFT seat, with a
 
   blender -b -P blender/build_cavalon.py -- [--previews] [--only VIEW,...] [--overlay yaw,cx,cz,ppm,w,h,side]
 Outputs: public/models/cavalon.glb, blender/cavalon.blend, blender/previews/cavalon/*.png
+  --floats: Cavalon Amphib (C-FGYE) on amphibious floats (see floatkit.py) -> ONLY
+            public/models/cavalon_floats.glb + blender/previews/cavalon_floats/*.png
 """
 import bpy, bmesh, math, os, sys
 from mathutils import Vector, Euler, Matrix
@@ -28,6 +30,11 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import gyrokit as K  # noqa: E402
 from gyrokit import B, E, V, MB, MATS, TAU, lerp, catmull, airfoil_ring, pilot, controls, PANEL  # noqa: E402
+
+# ---- --floats variant (amphibious floats instead of the land gear) ----
+FLOATS = '--floats' in K.ARGV
+if FLOATS:
+    import floatkit as FK  # noqa: E402
 
 # ---- three-view (native side image, hub at px 484, 48) -> hub frame -----------------------------
 S_TV = 113.7
@@ -482,6 +489,8 @@ def build_gear():
     mb = MB('main_gear')
     ax = R(AXLE[0], AXLE[1])
     for sy in (1, -1):
+        if FLOATS:      # --floats: the bow is rebuilt by floatkit down to the floats, no axles
+            break
         # composite bow: under the cabin floor, out and down to the axle
         K.leg_blade(mb, [R(-0.40, -2.270, sy * 0.02), R(-0.40, -2.278, sy * 0.28), R(-0.405, -2.305, sy * 0.47),
                          R(-0.42, -2.385, sy * 0.62), R(-0.435, -2.470, sy * 0.70)], chord=0.17, thick=0.038,
@@ -502,6 +511,8 @@ def build_gear():
         mb.tube(catmull([rc + V(-0.03, sy * 0.15, 0.07), rc + V(-0.05, sy * 0.15, 0.16), R(-0.62, -2.10, sy * 0.10)], 5),
                 0.014, 'Rubber', n=8)
     gear = mb.finish(sharp_angle=40, wn=True)
+    if FLOATS:          # --floats: no spats, wheels or nose gear
+        return gear, []
     spats = []
     for name, sy in (('spat_L', 1), ('spat_R', -1)):
         c = V(ax.x, sy * MAIN_Y, ax.z)
@@ -657,14 +668,21 @@ def build_cavalon():
     K.make_eye(eye)
     K.clearance(['pilot_front'], [bpy.data.objects.get('panel_face'), ctrl, pod, cockpit], ' (pilot)')
     K.clearance(['pilot_rear'], [bpy.data.objects.get('panel_face'), ctrl, pod, cockpit, stick_l], ' (passenger)')
+    kit = FK.cavalon_kit(R) if FLOATS else None          # --floats: floats, frame, amph wheels, water rudders
     K.finalize([pod, lines, hood, cframe, cseal, mast, mast_head, keel, tail, gear, cockpit, ctrl, det, stick_l]
-               + spats + script, [canopy])
+               + spats + script + (kit.static if kit else []), [canopy])
     ax = R(AXLE[0], AXLE[1])
-    K.required({
+    nodes = {
         'rotor': HUB, 'rotor_head': PIVOT, 'prop': PROP, 'rudder': R(HINGE, -1.70), 'stick': stick_base,
         'eye_front': eye, 'nose_wheel': R(NOSE[0], NOSE[1]), 'wheel_L': V(ax.x, MAIN_Y, ax.z),
         'wheel_R': V(ax.x, -MAIN_Y, ax.z), 'pilot_rear': None,
-    })
+    }
+    if kit:             # --floats: amph wheels and water rudders replace the land wheels
+        for k in ('nose_wheel', 'wheel_L', 'wheel_R'):
+            nodes.pop(k)
+        nodes.update(kit.nodes)
+        kit.report()
+    K.required(nodes)
 
     def g(p):       # Blender (x, y, z) -> sim (x forward, y up, z right)
         return '(%.3f, %.3f, %.3f)' % (p.x, p.z, -p.y)
@@ -697,4 +715,7 @@ VIEWS = {
 }
 
 if __name__ == '__main__':
-    K.run('cavalon', build_cavalon, LIVERY, views=VIEWS, rest_ground=R.z(GROUND))
+    if FLOATS:          # --floats: writes only cavalon_floats.glb + previews/cavalon_floats
+        FK.run('cavalon', build_cavalon, LIVERY, VIEWS, FK.cavalon_ground())
+    else:
+        K.run('cavalon', build_cavalon, LIVERY, views=VIEWS, rest_ground=R.z(GROUND))

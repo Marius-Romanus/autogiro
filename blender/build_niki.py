@@ -560,6 +560,10 @@ def build_gear():
         # curved carbon strut: out of the lower pod side, out and down to the top of the wheel pod
         pts = [R(-0.24, -2.17, sy * 0.30), R(-0.245, -2.21, sy * 0.45), R(-0.255, -2.29, sy * 0.62),
                R(-0.265, -2.38, sy * 0.74), R(-0.27, -2.45, sy * (MAIN_Y - 0.03))]
+        # the root goes 3 cm into the pod side (it used to stop 2 cm outside it, under the root fairing)
+        loc, nrm = cast_side(bpy.data.objects['pod'], pts[0].x, pts[0].z, sy)
+        if loc is not None:
+            pts[0] = loc - nrm * 0.03
         K.leg_blade(mb, pts, chord=0.072, thick=0.052, mat='Paint_White')
         mb.cyl(V(ax.x, sy * (MAIN_Y - 0.10), ax.z), V(ax.x, sy * (MAIN_Y + 0.06), ax.z), 0.014, 'Metal_Frame', n=12)
         mb.cyl(V(ax.x, sy * (MAIN_Y - 0.072), ax.z), V(ax.x, sy * (MAIN_Y - 0.064), ax.z), 0.085, 'Metal_Frame', n=24)
