@@ -408,7 +408,8 @@ export class TrafficSim {
       }
       // red de seguridad física: la caja en la posición siguiente no puede pisar la de otro (y si la
       // pisaría en ~0,8 s, frena ya); por si la lógica de cruces y carriles falla en un caso raro
-      if (ds > 0.001) {
+      // (también al arrastrarse: de milímetro en milímetro se acaba metiendo en el otro)
+      if (ds > 0) {
         const verdict = this.bodyCheck(v, ds, Math.max(ds, v.v * 0.8))
         if (verdict === 2) {
           ds = 0
@@ -477,18 +478,22 @@ export class TrafficSim {
     const F = _bf
     const R = _br
     const T = VTYPES[v.type]
-    const w = this.where(v)
-    const lvl = w.tunnel ? -1000 : w.bridge ? 100 + w.layer : 0
     const out: Body[] = []
     const mk = (back0: number, back1: number, len: number) => {
-      this.pointOf(v, back0 - ahead, F)
-      this.pointOf(v, back1 - ahead, R)
-      let ux = F.x - R.x
-      let uz = F.z - R.z
-      const l = Math.hypot(ux, uz) || 1
-      ux /= l
-      uz /= l
-      out.push({ v, cx: (F.x + R.x) / 2, cz: (F.z + R.z) / 2, ux, uz, hl: len / 2 - 0.2, hw: v.width / 2 - 0.1, lvl })
+      // partida donde cambia el nivel: cada trozo con el suyo (la tractora ya en la rampa de un puente y
+      // el remolque aún debajo de otro)
+      const ps = this.pieces(v, back0 - ahead, back1 - ahead)
+      for (const [p0, p1, lvl] of ps) {
+        this.pointOf(v, p0, F)
+        this.pointOf(v, p1, R)
+        let ux = F.x - R.x
+        let uz = F.z - R.z
+        const l = Math.hypot(ux, uz) || 1
+        ux /= l
+        uz /= l
+        const L = ps.length === 1 ? len : p1 - p0
+        out.push({ v, cx: (F.x + R.x) / 2, cz: (F.z + R.z) / 2, ux, uz, hl: Math.max(0.05, L / 2 - 0.2), hw: v.width / 2 - 0.1, lvl })
+      }
     }
     if (T.trailer > 0) {
       mk(0, 6, 6)
@@ -627,10 +632,8 @@ export class TrafficSim {
   private bodyCheck(v: Veh, ds: number, look: number): number {
     if (v.dead) return 0
     const now = this.bodyOf.get(v) ?? []
-    if (now.length && now[0].lvl === -1000) return 0
-    // los de su misma fila (carril o movimiento) ya los separa el hueco de seguridad
-    const sameStream = (o: Veh) => (v.lane !== null && o.lane === v.lane) || (v.move !== null && o.move === v.move)
-    // primero, ¿hay alguien más cerca? (casi nunca: entonces no hace falta calcular nada más)
+    // primero, ¿hay alguien cerca? (si no, no hace falta calcular nada más); también los de su misma
+    // fila: en una curva cerrada o con un frenazo el hueco de seguridad no basta para las cajas
     let near = false
     for (const b of now) {
       const cx = Math.floor(b.cx / 16)
@@ -638,7 +641,8 @@ export class TrafficSim {
       for (let dz = -1; dz <= 1 && !near; dz++) {
         for (let dx = -1; dx <= 1 && !near; dx++) {
           for (const o of this.bodies.get((cx + dx) * 100003 + cz + dz) ?? []) {
-            if (o.v === v || !sameLevel(b, o) || o.v.dead || sameStream(o.v)) continue
+            // (de cualquier nivel: al bajar de un puente o salir de un túnel cambia el suyo)
+            if (o.v === v || o.v.dead) continue
             if (Math.hypot(o.cx - b.cx, o.cz - b.cz) < o.hl + b.hl + look + 2) {
               near = true
               break
@@ -655,12 +659,17 @@ export class TrafficSim {
         for (let dz = -1; dz <= 1; dz++) {
           for (let dx = -1; dx <= 1; dx++) {
             for (const o of this.bodies.get((cx + dx) * 100003 + cz + dz) ?? []) {
-              if (o.v === v || !sameLevel(b, o) || o.v.dead || sameStream(o.v)) continue
+              if (o.v === v || !sameLevel(b, o) || o.v.dead) continue
               if (Math.abs(o.cx - b.cx) > o.hl + b.hl + 1 || Math.abs(o.cz - b.cz) > o.hl + b.hl + 1) continue
               if (!obb(b, o)) continue
-              // ya se pisaban (aparecido encima, por ejemplo): no se le bloquea por eso (salvo con un
-              // tren: nunca se sigue metiendo en él)
-              if (o.v !== TRAIN && now.some((n) => obb(n, o))) continue
+              // ya se pisaban (aparecido encima, por ejemplo): puede moverse si así se separan, pero
+              // no meterse más (con un tren, nunca)
+              // (en el mismo nivel: ir por un puente sobre el otro no es pisarlo)
+              if (o.v !== TRAIN && now.some((n) => sameLevel(n, o) && obb(n, o))) {
+                let before = -Infinity
+                for (const n of now) if (sameLevel(n, o)) before = Math.max(before, depth(n, o))
+                if (depth(b, o) <= before + 1e-4) continue
+              }
               return true
             }
           }
@@ -1584,9 +1593,79 @@ export class TrafficSim {
     }
     return { tunnel: tunnel >= 2, bridge, layer }
   }
+
+  /**
+   * Un tramo del vehículo (de `back0` a `back1` m por detrás del frontal) partido donde cambia el nivel
+   * de lo que pisa, siguiendo su camino (carril o cruce actual y los anteriores): [desde, hasta, nivel],
+   * con nivel -1000 en un túnel, 0 a nivel y 100 + capa en un puente. Así la tractora puede ir ya por
+   * la rampa de un puente o salir de la boca de un túnel con el remolque aún debajo de otra calle.
+   */
+  pieces(v: Veh, back0: number, back1: number): Array<[number, number, number]> {
+    const out: Array<[number, number, number]> = []
+    // trozo del camino [from, to] (en metros por detrás del frontal) con nivel lvl
+    const emit = (from: number, to: number, lvl: number) => {
+      const a = Math.max(from, back0)
+      const c = Math.min(to, back1)
+      if (c <= a) return
+      const last = out[out.length - 1]
+      if (last && last[2] === lvl) last[1] = c
+      else out.push([a, c, lvl])
+    }
+    // un enlace recorrido hacia atrás desde sFront (que está a `back` del frontal) hasta sRear
+    const walk = (l: Link, sFront: number, sRear: number, back: number) => {
+      for (let i = segIndex(l, sFront); i >= 0; i--) {
+        const top = Math.min(sFront, l.s[i + 1] ?? Infinity)
+        const bot = i === 0 ? sRear : Math.max(sRear, l.s[i])
+        if (top > bot) emit(back + sFront - top, back + sFront - bot, l.bri[i] === -1 ? -1000 : l.bri[i] === 1 ? 100 + l.layer[i] : 0)
+        if (bot <= sRear || back + sFront - bot >= back1) break
+      }
+    }
+    let back = 0
+    if (v.lane) {
+      const l = v.lane.link
+      const start = v.hist.length ? l.s0 : -Infinity
+      // (comprobando un avance, desde donde estará el frontal)
+      const lead = Math.max(0, -back0)
+      walk(l, v.s + lead, start, -lead)
+      back = v.s - start
+    } else if (v.move) {
+      emit(0, v.hist.length ? v.s : Infinity, moveLevel(v.move))
+      back = v.s
+    }
+    for (let k = 0; k < v.hist.length && back < back1; k++) {
+      const h = v.hist[k]
+      const lastH = k === v.hist.length - 1
+      if (h.move) {
+        const len = lastH ? Infinity : h.end
+        emit(back, back + len, moveLevel(h.move))
+        back += len
+      } else if (h.lane) {
+        const l = h.lane.link
+        const bottom = lastH ? -Infinity : l.s0
+        walk(l, h.end, bottom, back)
+        back += h.end - bottom
+      }
+    }
+    if (out.length === 0) out.push([back0, back1, 0])
+    // lo que cae por delante del final del tramo actual (comprobando un avance) o por detrás de todo
+    // lo recorrido: con el nivel del trozo más cercano
+    out[0][0] = back0
+    out[out.length - 1][1] = back1
+    return out
+  }
 }
 
 // ---------------------------------------------------------------------------
+
+/** nivel de un cruce: el de las calles que une (-1000 si va por dentro de un túnel) */
+function moveLevel(m: Move): number {
+  if (m.hidden) return -1000
+  const a = m.from.bri[m.from.bri.length - 1]
+  const b = m.to.bri[0]
+  if (a === 1) return 100 + m.from.layer[m.from.layer.length - 1]
+  if (b === 1) return 100 + m.to.layer[0]
+  return 0
+}
 
 function segIndex(l: Link, s: number): number {
   const n = l.s.length
@@ -1718,6 +1797,22 @@ function obb(a: Body, b: Body): boolean {
     if (Math.abs(dx * x + dz * z) > ra + rb) return false
   }
   return true
+}
+
+/** cuánto se meten dos cajas una en otra (m; negativo = separadas por esa distancia) */
+function depth(a: Body, b: Body): number {
+  const dx = b.cx - a.cx
+  const dz = b.cz - a.cz
+  const axes = [a.ux, a.uz, -a.uz, a.ux, b.ux, b.uz, -b.uz, b.ux]
+  let d = Infinity
+  for (let i = 0; i < 8; i += 2) {
+    const x = axes[i]
+    const z = axes[i + 1]
+    const ra = a.hl * Math.abs(a.ux * x + a.uz * z) + a.hw * Math.abs(-a.uz * x + a.ux * z)
+    const rb = b.hl * Math.abs(b.ux * x + b.uz * z) + b.hw * Math.abs(-b.uz * x + b.ux * z)
+    d = Math.min(d, ra + rb - Math.abs(dx * x + dz * z))
+  }
+  return d
 }
 
 /** lo que barre de más la cola de un vehículo largo al salir de una curva (m) */

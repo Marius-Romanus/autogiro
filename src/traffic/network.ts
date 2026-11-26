@@ -1867,11 +1867,18 @@ async function buildLaneZones(moves: Move[], links: Link[], side: 1 | -1, pause:
 // Carriles de calles distintas que se tocan
 // ---------------------------------------------------------------------------
 
+/** separación mínima por el camino (m) entre dos tramos de un mismo enlace que se tocan en el mapa */
+const SELF_GAP = 12
+/** margen (m) a los dos lados del lazo de un enlace que vuelve sobre sí mismo */
+const SELF_M = 3
+
 /**
  * Carriles de calles distintas que en el mapa quedan más cerca que un coche de ancho (dos calzadas
  * dibujadas casi encima, una calle que corre pegada a otra) y, en las curvas cerradas de una calle
  * de doble sentido, los dos carriles (ahí un camión invade el contrario). Se apunta el tramo de cada
  * uno: no se entra si el otro tramo está ocupado. Las curvas solo cuentan con vehículos largos.
+ * También un mismo carril que vuelve sobre sí mismo (lazo de giro dibujado pegado a la ida): ahí, de
+ * uno en uno por todo el lazo.
  */
 async function buildLaneLaneZones(links: Link[], side: 1 | -1, pause: Pause): Promise<number> {
   const STEP = 2
@@ -1914,25 +1921,29 @@ async function buildLaneLaneZones(links: Link[], side: 1 | -1, pause: Pause): Pr
           const other = grid.get(key(cx + dx, cz + dz))
           if (!other) continue
           for (const b of other) {
-            if (b.l === a.l || b.l.id < a.l.id || b.lvl !== a.lvl) continue
+            if (b.l.id < a.l.id || b.lvl !== a.lvl) continue
+            // un enlace que vuelve sobre sí mismo (lazo de giro al final de una calle, dibujado pegado a
+            // la ida): dos tramos suyos lejanos por el camino y juntos en el mapa
+            const self = b.l === a.l
+            if (self && b.s - a.s < SELF_GAP) continue
             const sameRoad = b.l.road === a.l.road
             // los dos sentidos de una calle están pegados por diseño: solo cuentan en curvas cerradas
-            if (sameRoad && !(a.tight || b.tight)) continue
+            if (!self && sameRoad && !(a.tight || b.tight)) continue
             const ex = b.x - a.x
             const ez = b.z - a.z
             if (ex * ex + ez * ez > W2) continue
             // calles que se juntan en un cruce: eso ya lo lleva el cruce
-            if (a.l.to && (a.l.to === b.l.to || a.l.to === b.l.from)) {
+            if (!self && a.l.to && (a.l.to === b.l.to || a.l.to === b.l.from)) {
               const nearEnd = a.l.s1 - a.s < 30 || (b.l.to === a.l.to ? b.l.s1 - b.s < 30 : b.s - b.l.s0 < 30)
               if (nearEnd) continue
             }
-            if (a.l.from && (a.l.from === b.l.from || a.l.from === b.l.to)) {
+            if (!self && a.l.from && (a.l.from === b.l.from || a.l.from === b.l.to)) {
               const nearStart = a.s - a.l.s0 < 30 || (b.l.from === a.l.from ? b.s - b.l.s0 < 30 : b.l.s1 - b.s < 30)
               if (nearStart) continue
             }
             const id = `${a.l.id}:${a.lane}:${b.l.id}:${b.lane}`
             const p = pairs.get(id)
-            if (!p) pairs.set(id, { a, b, a0: a.s, a1: a.s, b0: b.s, b1: b.s, wide: sameRoad && !(a.hairpin || b.hairpin) })
+            if (!p) pairs.set(id, { a, b, a0: a.s, a1: a.s, b0: b.s, b1: b.s, wide: !self && sameRoad && !(a.hairpin || b.hairpin) })
             else {
               p.a0 = Math.min(p.a0, a.s)
               p.a1 = Math.max(p.a1, a.s)
@@ -1950,6 +1961,14 @@ async function buildLaneLaneZones(links: Link[], side: 1 | -1, pause: Pause): Pr
     const la = p.a.l.lanes[p.a.lane]
     const lb = p.b.l.lanes[p.b.lane]
     const tok: Token = { stream: null, t: -1e9 }
+    if (la === lb) {
+      // el mismo carril que vuelve sobre sí mismo: todo el lazo, de uno en uno (quien va por la vuelta
+      // pasaría al lado del que aún va por la ida)
+      const z: LaneLane = { tok, other: la, s0: p.a0 - SELF_M, s1: p.b1 + SELF_M, o0: p.a0 - SELF_M, o1: p.b1 + SELF_M, wide: false }
+      la.near.push(z)
+      n++
+      continue
+    }
     // en las curvas cerradas la caja de un camión barre más allá del tramo de curva: medio camión más
     const m = p.a.l.road === p.b.l.road ? (p.wide ? 10 : 5) : 2
     const za: LaneLane = { tok, other: lb, s0: p.a0 - m, s1: p.a1 + m, o0: p.b0 - m, o1: p.b1 + m, wide: p.wide }

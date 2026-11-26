@@ -50,15 +50,25 @@ for (const [name, lat, lon] of targets) {
   const n = 2 ** 14
   const cx = Math.floor(lonToX(lon, n))
   const cy = Math.floor(latToY(lat, n))
-  const tiles: RoadTile[] = []
   const t0 = performance.now()
-  const jobs: Array<Promise<void>> = []
+  const jobs: Array<Promise<RoadTile>> = []
   for (let y = cy - radius; y <= cy + radius; y++) {
     for (let x = cx - radius; x <= cx + radius; x++) {
-      jobs.push(fetchVectorTile(x, y, new AbortController().signal).then((vt) => void tiles.push(parseRoadTile(vt, x, y))))
+      jobs.push(fetchVectorTile(x, y, new AbortController().signal).then((vt) => parseRoadTile(vt, x, y)))
     }
   }
-  await Promise.all(jobs)
+  // en orden fijo (no en el que lleguen las descargas): la red y la simulación salen iguales en cada ejecución
+  const tiles = await Promise.all(jobs)
+  // barajar=N: otro orden de teselas (fijo para cada N), para probar redes con otra numeración
+  const shuffle = Number(opt('barajar', '0'))
+  if (shuffle) {
+    let r = shuffle
+    for (let i = tiles.length - 1; i > 0; i--) {
+      r = (r * 1103515245 + 12345) & 0x7fffffff
+      const j = r % (i + 1)
+      ;[tiles[i], tiles[j]] = [tiles[j], tiles[i]]
+    }
+  }
   const tParse = performance.now() - t0
   const frame = new GeoFrame()
   frame.setOrigin(lat, lon, 0)
@@ -218,27 +228,23 @@ function findOverlaps(sim: TrafficSim): Array<{ a: number; b: number; cat: strin
   const F = { x: 0, z: 0, y: 0 }
   const R = { x: 0, z: 0, y: 0 }
   for (const v of sim.vehs) {
-    sim.pointOf(v, 0, F)
-    sim.pointOf(v, v.len, R)
-    let ux = F.x - R.x
-    let uz = F.z - R.z
-    const l = Math.hypot(ux, uz) || 1
-    ux /= l
-    uz /= l
-    const w = sim.where(v)
-    // en un túnel no se ve: no cuenta
-    if (w.tunnel) continue
-    const lvl = w.bridge ? 100 + w.layer : 0
+    // cada caja partida donde cambia el nivel, cada trozo con el suyo (la tractora puede ir ya por la
+    // rampa de un puente con el remolque aún debajo de otro); en un túnel no se ve: no cuenta
     const T = VTYPES[v.type]
+    const add = (back0: number, back1: number, len: number) => {
+      const ps = sim.pieces(v, back0, back1)
+      for (const [p0, p1, lvl] of ps) {
+        if (lvl === -1000) continue
+        sim.pointOf(v, p0, F)
+        sim.pointOf(v, p1, R)
+        boxes.push(box(v, F, R, ps.length === 1 ? len : p1 - p0, lvl))
+      }
+    }
+    // tractora y semirremolque por separado (el remolque se mete por dentro de las curvas)
     if (T.trailer > 0) {
-      // tractora y semirremolque por separado (el remolque se mete por dentro de las curvas)
-      const H = { x: 0, z: 0, y: 0 }
-      sim.pointOf(v, 6, R)
-      boxes.push(box(v, F, R, 6, lvl))
-      sim.pointOf(v, 4.5, H)
-      sim.pointOf(v, v.len, R)
-      boxes.push(box(v, H, R, T.trailer - 1.5, lvl))
-    } else boxes.push({ v, cx: (F.x + R.x) / 2, cz: (F.z + R.z) / 2, ux, uz, hl: v.len / 2 - 0.25, hw: v.width / 2 - 0.15, lvl })
+      add(0, 6, 6)
+      add(4.5, v.len, T.trailer - 1.5)
+    } else add(0, v.len, v.len)
   }
   const grid = new Map<string, number[]>()
   boxes.forEach((b, i) => {
@@ -341,7 +347,7 @@ function box(v: Veh, F: { x: number; z: number }, R: { x: number; z: number }, l
   const l = Math.hypot(ux, uz) || 1
   ux /= l
   uz /= l
-  return { v, cx: (F.x + R.x) / 2, cz: (F.z + R.z) / 2, ux, uz, hl: len / 2 - 0.25, hw: v.width / 2 - 0.15, lvl }
+  return { v, cx: (F.x + R.x) / 2, cz: (F.z + R.z) / 2, ux, uz, hl: Math.max(0.05, len / 2 - 0.25), hw: v.width / 2 - 0.15, lvl }
 }
 
 function obbOverlap(a: { cx: number; cz: number; ux: number; uz: number; hl: number; hw: number }, b: { cx: number; cz: number; ux: number; uz: number; hl: number; hw: number }): boolean {
