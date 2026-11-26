@@ -349,7 +349,9 @@ export class AirTrafficSim implements Scene {
         }
       } else if (t.phase === 'wreck' && t.tPhase > 180) this.retired.push(...this.aircraft.splice(i, 1))
     }
-    const active = this.aircraft.filter((t) => t.live && t.phase !== 'shutdown' && t.phase !== 'wreck')
+    // (el que se va de viaje deja de contar en cuanto sale del circuito: ya no estorba a nadie y,
+    // si no, tenía a los de la plataforma esperando minutos hasta que se alejaba 6 km)
+    const active = this.aircraft.filter((t) => t.live && t.phase !== 'shutdown' && t.phase !== 'wreck' && !(t.phase === 'depart' && Math.hypot(t.pos.x, t.pos.z) > 2500))
     const circuit = active.filter((t) => t.phase !== 'depart' && t.phase !== 'vacate' && t.phase !== 'taxiIn')
     // con mal tiempo o cambio de pista pendiente, los que vuelan terminan: toma final
     if (!this.flyable || this.wantDir || this.closed) for (const t of active) if (t.airborne && t.phase !== 'depart' && !t.plan.leaving) t.plan.laps = 0
