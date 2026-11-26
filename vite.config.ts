@@ -42,6 +42,6 @@ export default defineConfig({
   server: { port: 5173, host: 'localhost' },
   build: { target: 'es2022', chunkSizeWarningLimit: 4000 },
   // los workers (tejados, Catastro) los importan: así no se descubren a mitad de partida
-  optimizeDeps: { esbuildOptions: { target: 'es2022' }, include: ['straight-skeleton', 'fflate'] },
+  optimizeDeps: { include: ['straight-skeleton', 'fflate'] },
   worker: { format: 'es' },
 })
