@@ -53,6 +53,7 @@ import { skipEsriPlaceholders } from './esriImagery.ts'
 import { fixIgnAvailability, hasIgnTerrain, QMHeightSource, TerrariumHeightSource, type HeightSource } from './HeightSource.ts'
 import type { Quality, Settings } from '../config.ts'
 import { getLang } from '../i18n.ts'
+import { setWeatheringQuality } from '../render/weathering.ts'
 
 // BVH para raycasts rápidos contra la geometría de los tiles
 ;(BufferGeometry.prototype as any).computeBoundsTree = computeBoundsTree
@@ -376,6 +377,8 @@ export class World {
   detailScale = 1
 
   applyQuality(q: Quality): void {
+    // desgaste de edificios, puentes y vehículos (render/weathering.ts): no en calidad Baja
+    setWeatheringQuality(q)
     const t = this.tiles
     if (this.mode === 'google') {
       t.errorTarget = { low: 24, medium: 14, high: 8, ultra: 4 }[q] * this.detailScale

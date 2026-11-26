@@ -27,7 +27,8 @@ class Builder {
     this.pos.push(...a, ...b, ...c)
     for (let i = 0; i < 3; i++) {
       this.col.push(color.r, color.g, color.b)
-      this.paint.push(paint)
+      // las lunas van marcadas (2): el material las hace de cristal (render/weathering.ts)
+      this.paint.push(color === GLASS ? 2 : paint)
     }
   }
   quad(a: number[], b: number[], c: number[], d: number[], color: Color, paint: number): void {

@@ -85,6 +85,7 @@ import {
   SunShadows,
   viewerLight,
 } from './SunShadows.ts'
+import { ContactAOPass } from './ContactAO.ts'
 
 type ShaderMaterialLike = { fragmentShader: string; needsUpdate: boolean }
 
@@ -185,6 +186,8 @@ export class Graphics {
   private cloudsPass: EffectPass
   /** máscara de iluminación (R) y sombra de edificios y árboles sobre el terreno (G) */
   private readonly maskPass: ShadowMaskPass
+  /** oclusión ambiental (sombra de contacto), en Alta y Ultra */
+  readonly aoPass: ContactAOPass
   /** sombras del sol que proyectan edificios y árboles */
   readonly sunShadows = new SunShadows()
   /** sol que llega al aparato (edificios, árboles y nubes), para la luz ambiente del que mira */
@@ -381,6 +384,10 @@ export class Graphics {
     this.maskPass = new ShadowMaskPass(camera)
     composer.addPass(this.maskPass)
     ;(this.aerial as any).lightingMask = { map: this.maskPass.texture, channel: 'r' }
+    // Oclusión ambiental: oscurece el color de la escena en rincones y contactos. Después de la
+    // máscara (que mira el color de la foto para saber dónde hay agua) y antes de la atmósfera.
+    this.aoPass = new ContactAOPass(camera)
+    composer.addPass(this.aoPass)
 
     this.clouds = new CloudsEffect(camera)
     // bases de las nubes gruesas con la luz difusa que las atraviesa (si no, un cubierto es azul marino)
@@ -630,6 +637,7 @@ export class Graphics {
     this.renderer.setPixelRatio(ratio)
     this.sunShadows.setQuality(q)
     this.precip.setQuality(q)
+    this.aoPass.setQuality(q)
     const shadowSize = q === 'low' ? 1024 : q === 'ultra' ? 4096 : 2048
     if (this.sunLight.shadow.mapSize.x !== shadowSize) {
       this.sunLight.shadow.mapSize.setScalar(shadowSize)
@@ -805,6 +813,9 @@ export class Graphics {
     this.updateCloudShadows()
     this.sunProbe.update(dt, this.renderer, this.camera)
     this.updateViewerLight()
+    // la sombra de contacto es de la luz del cielo: se va con ella al anochecer (≈ 4000 → 150 lux)
+    const amb = viewerLight.illuminance
+    this.aoPass.daylight = Number.isFinite(amb) ? Math.min(1, Math.max(0, (amb - 0.002) / 0.05)) : 1
     this.water.update(dt, this.camera.position)
     this.weather.update(dt, this.camHeight, this.sunMu, this.cloudBottom, this.cloudTop)
     perf.labelPasses(this.composer.passes, this.passKey)
@@ -901,6 +912,8 @@ export class Graphics {
         ? 'normals'
         : p === this.maskPass
           ? 'mask'
+          : p === this.aoPass
+            ? 'ao'
           : p === this.cloudsPass
             ? 'atmos'
             : p === this.finalPass

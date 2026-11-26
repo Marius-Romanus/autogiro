@@ -4,8 +4,6 @@
 import {
   AdditiveBlending,
   BoxGeometry,
-  CanvasTexture,
-  CircleGeometry,
   Color,
   CylinderGeometry,
   DoubleSide,
@@ -17,19 +15,19 @@ import {
   MeshStandardMaterial,
   Object3D,
   Quaternion,
-  RingGeometry,
   SphereGeometry,
-  SRGBColorSpace,
   Vector3,
   type Texture,
 } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { CG, GEOM } from '../sim/autogyro.ts'
 import { GENERIC, type Airframe, type RetractGearSpec } from '../sim/airframes.ts'
-import { keepAlpha, LIGHT_LAYER, OVERLAY_LAYER, overlayAlbedoPass, overlayLightPass } from '../render/Graphics.ts'
+import { keepAlpha, LIGHT_LAYER, OVERLAY_LAYER } from '../render/Graphics.ts'
 import { Cockpit } from './Cockpit.ts'
 import { AircraftLights } from './AircraftLights.ts'
 import { PilotRig } from './PilotRig.ts'
+import { BladeDisc } from './BladeDisc.ts'
+import { applyAircraftWear } from './AircraftWear.ts'
 
 export const SHADOW_ONLY_LAYER = 11
 
@@ -121,19 +119,15 @@ export class AircraftView {
   /** modelo desplazado −CG */
   readonly model = new Group()
   parts: Parts = {}
-  private rotorBlur!: Mesh
-  private propBlur!: Mesh
+  /** discos de las palas en giro (rotor y hélice): ver BladeDisc.ts */
+  private rotorDisc!: BladeDisc
+  private propDisc!: BladeDisc
   private rotorAngle = 0
   private propAngle = 0
-  // giro lento propio de los discos de desenfoque (no derivado de rotorAngle/propAngle, que
-  // se reinician en cada vuelta y harían saltar el disco)
-  private rotorBlurAngle = 0
-  private propBlurAngle = 0
   private wheelAngle = 0
   readonly eyeLocal = new Vector3(0.7 - CG.x, 0.47 - CG.y, 0)
   loaded = false
   private rotorRest = new Vector3()
-  private bladesVisible = true
 
   constructor() {
     this.root.add(this.model)
@@ -217,8 +211,8 @@ export class AircraftView {
     this.cockpit.detach()
     this.lights.detach()
     this.glassMeshes.length = 0
-    this.rotorBlur.removeFromParent()
-    this.propBlur.removeFromParent()
+    this.rotorDisc.detach()
+    this.propDisc.detach()
     for (const c of [...this.model.children]) {
       this.model.remove(c)
       c.traverse((o) => {
@@ -237,9 +231,7 @@ export class AircraftView {
     this.rig = null
     this.rotorSpin = null
     this.propSpin = null
-    this.propBladeMeshes = []
     this.glassMaterials.length = 0
-    this.bladesVisible = true
     this.eyeLocal.set(0.7 - CG.x, 0.47 - CG.y, 0)
     this.loaded = false
   }
@@ -328,6 +320,8 @@ export class AircraftView {
 
     this.model.add(scene)
     scene.updateMatrixWorld(true)
+    // polvo, barro de las ruedas, hollín del escape… (antes de mover nada: va por la postura de reposo)
+    applyAircraftWear(scene, this.modelKey)
     this.lights.attach(scene, scene)
     // la maneta de freno va montada en la palanca de gas
     if (this.parts.throttle && this.parts.throttle_brake) this.parts.throttle.attach(this.parts.throttle_brake)
@@ -340,73 +334,45 @@ export class AircraftView {
       this.parts.rotor = pivot
       this.rotorSpin = spin
       this.rotorRest.copy(pivot.position)
-      pivot.add(this.rotorBlur)
-      this.rotorBlur.position.set(0, 0.03, 0)
+      pivot.add(this.rotorDisc.mesh)
+      // el disco, a la altura de las palas del modelo
+      this.rotorDisc.mesh.position.set(0, this.rotorDisc.attach(spin, `${this.modelKey}|rotor`), 0)
     }
     if (this.parts.prop) {
       const { pivot, spin } = wrapPivot(this.parts.prop)
       this.parts.prop = pivot
       this.propSpin = spin
-      // motor rotativo (el Le Rhône del Cierva C.6): cilindros y cárter giran con la hélice en el mismo nodo
-      // (materiales Rotary_*); con el desenfoque solo se ocultan las palas, no el motor
-      this.propBladeMeshes = []
-      let rotary = false
-      spin.traverse((o) => {
-        const m = o as Mesh
-        if (!m.isMesh) return
-        const mats = Array.isArray(m.material) ? m.material : [m.material]
-        if (mats.some((x) => /^Rotary/i.test(x.name))) rotary = true
-        else this.propBladeMeshes.push(m)
-      })
-      if (!rotary) this.propBladeMeshes = []
-      pivot.add(this.propBlur)
+      pivot.add(this.propDisc.mesh)
       // por fuera del disco: detrás de una hélice propulsora, delante de una tractora
-      this.propBlur.position.set(this.vis.tractor ? 0.04 : -0.04, 0, 0)
+      this.propDisc.mesh.position.set(this.vis.tractor ? 0.04 : -0.04, 0, 0)
+      // motor rotativo (el Le Rhône del Cierva C.6): cilindros y cárter giran con la hélice en el mismo nodo
+      // (materiales Rotary_*); el disco solo sustituye a las palas, no al motor
+      this.propDisc.attach(spin, `${this.modelKey}|prop`, (m) =>
+        (Array.isArray(m.material) ? m.material : [m.material]).some((x) => /^Rotary/i.test(x.name)),
+      )
     }
-    this.tintBlurDiscs()
 
     this.cockpit.attach(this.model, this.modelKey, this.glassMeshes, this.eyeLocal.clone().add(CG))
   }
 
   private rotorSpin: Object3D | null = null
   private propSpin: Object3D | null = null
-  /** palas de una hélice que lleva un motor rotativo en su nodo (las que se ocultan con el desenfoque) */
-  private propBladeMeshes: Mesh[] = []
   private rig: PilotRig | null = null
   /** mandos suavizados (el teclado y los frenos van a saltos) */
   private anim = { thr: 0, brake: 0, yaw: 0, pre: 0 }
 
   private disposeBlurDiscs(): void {
-    for (const m of [this.rotorBlur, this.propBlur]) {
-      m.removeFromParent()
-      m.geometry.dispose()
-      for (const mat of discMaterials(m)) {
-        mat.map?.dispose()
-        mat.dispose()
-      }
-    }
+    this.rotorDisc.dispose()
+    this.propDisc.dispose()
   }
 
   private makeBlurDiscs(): void {
     const vis = this.vis
     // el rotor antes que la hélice (en vista de persecución la hélice queda delante)
-    this.rotorBlur = makeLitDisc(new RingGeometry(0.32, vis.rotorR, 96, 1), makeBlurTexture(vis.rotorBlades, 512, true), ROTOR_BLADE, 3)
-    this.rotorBlur.rotation.x = -Math.PI / 2
-    this.rotorBlur.visible = false
-    this.propBlur = makeLitDisc(new CircleGeometry(vis.propR, 64), makeBlurTexture(vis.propBlades, 256, false), PROP_BLADE, 5)
-    this.propBlur.rotation.y = Math.PI / 2
-    this.propBlur.visible = false
-  }
-
-  /** Los discos toman el color de las palas del modelo (material de las palas del rotor y de la hélice). */
-  private tintBlurDiscs(): void {
-    for (const [disc, part, name, fallback] of [
-      [this.rotorBlur, this.parts.rotor, /Rotor_Blade/i, ROTOR_BLADE],
-      [this.propBlur, this.parts.prop, /Carbon|Prop/i, PROP_BLADE],
-    ] as const) {
-      const c = (part && bladeAlbedo(part, name, disc)) ?? fallback
-      for (const m of discMaterials(disc)) m.color.copy(c)
-    }
+    this.rotorDisc = new BladeDisc({ radius: vis.rotorR, blades: vis.rotorBlades, cone: ROTOR_CONE, renderOrder: 3, fallback: ROTOR_BLADE })
+    this.rotorDisc.mesh.rotation.x = -Math.PI / 2
+    this.propDisc = new BladeDisc({ radius: vis.propR, blades: vis.propBlades, cone: 0, renderOrder: 5, fallback: PROP_BLADE })
+    this.propDisc.mesh.rotation.y = Math.PI / 2
   }
 
   private glassMaterials: MeshBasicMaterial[] = []
@@ -454,17 +420,7 @@ export class AircraftView {
       if (this.rotorSpin) this.rotorSpin.quaternion.copy(_q2)
       if (this.feathering) p.rotor.position.copy(this.featherHub).add(this.cgOff)
       else p.rotor.position.copy(ac.hubBody).add(CG).add(this.cgOff)
-      // desenfoque según el paso de palas (con tres palas se emborrona a menos vueltas)
-      const blur = smooth(110, 230, (ac.rotor.rpm * this.vis.rotorBlades) / 2)
-      for (const m of discMaterials(this.rotorBlur)) m.opacity = blur
-      this.rotorBlur.visible = blur > 0
-      this.rotorBlurAngle = (this.rotorBlurAngle + ac.rotor.omega * 0.07 * dt) % (Math.PI * 2)
-      this.rotorBlur.rotation.z = -this.rotorBlurAngle
-      const showBlades = blur < 0.85
-      if (showBlades !== this.bladesVisible && this.rotorSpin) {
-        this.bladesVisible = showBlades
-        this.rotorSpin.visible = showBlades
-      }
+      this.rotorDisc.update(this.rotorAngle, ac.rotor.omega, dt)
     }
 
     // hélice
@@ -473,17 +429,10 @@ export class AircraftView {
     const propOmega = propRpm * (2 * Math.PI) / 60
     this.propAngle = (this.propAngle + propOmega * dt) % (Math.PI * 2)
     if (p.prop && this.propSpin) {
-      const blur = smooth(500, 1100, (propRpm * vis.propBlades) / 3)
-      if (this.propBladeMeshes.length) for (const m of this.propBladeMeshes) m.visible = blur < 0.9
-      else this.propSpin.visible = blur < 0.9
       // Rotax: gira en sentido negativo sobre +X (vista desde atrás antihoraria); el radial
       // del Cierva, al revés (`propSpin` = 1)
       this.propSpin.quaternion.setFromAxisAngle(X, vis.propSpin * this.propAngle)
-      // a 0.9× la velocidad real el disco saltaba casi media vuelta por fotograma: deriva lenta
-      this.propBlurAngle = (this.propBlurAngle + propOmega * 0.03 * dt) % (Math.PI * 2)
-      this.propBlur.rotation.z = -vis.propSpin * this.propBlurAngle
-      for (const m of discMaterials(this.propBlur)) m.opacity = blur
-      this.propBlur.visible = blur > 0
+      this.propDisc.update(vis.propSpin * this.propAngle, vis.propSpin * propOmega, dt)
     }
 
     // timón, rueda de morro, ruedas, palanca
@@ -624,11 +573,6 @@ function wrapPivot(node: Object3D): { pivot: Group; spin: Group } {
   return { pivot, spin }
 }
 
-function smooth(a: number, b: number, x: number): number {
-  const t = Math.min(1, Math.max(0, (x - a) / (b - a)))
-  return t * t * (3 - 2 * t)
-}
-
 /**
  * Tinte del vidrio en el simulador: el oscuro de siempre, salvo que el material del modelo sea un vidrio
  * de color claramente saturado (dorado, ámbar…): entonces su color, oscurecido, y algo más opaco.
@@ -666,109 +610,8 @@ function tuneMaterial(mat: Material): void {
 /** albedo (lineal) de las palas si el modelo no tiene su material: aluminio pintado, hélice de carbono */
 const ROTOR_BLADE = new Color(0.35, 0.37, 0.4)
 const PROP_BLADE = new Color(0.02, 0.02, 0.022)
-
-/**
- * Disco de desenfoque iluminado: malla de la pasada de albedo con una hija (misma
- * geometría) para la de luz; ver `overlayAlbedoPass` en Graphics.ts. La textura solo
- * lleva la cobertura de las palas (alfa); el color sale del material.
- */
-function makeLitDisc(geo: RingGeometry | CircleGeometry, tex: CanvasTexture, color: Color, renderOrder: number): Mesh {
-  const common = { map: tex, color, transparent: true, opacity: 0, depthWrite: false, side: DoubleSide } as const
-  const disc = new Mesh(geo, overlayAlbedoPass(new MeshBasicMaterial(common)))
-  disc.renderOrder = renderOrder
-  disc.layers.set(OVERLAY_LAYER)
-  // las palas pintadas tienen algo de brillo: un reflejo del sol que barre el disco
-  const lit = new Mesh(geo, overlayLightPass(new MeshStandardMaterial({ ...common, roughness: 0.45, metalness: 0 })))
-  lit.renderOrder = renderOrder + 1
-  lit.layers.set(OVERLAY_LAYER)
-  disc.add(lit)
-  return disc
-}
-
-function discMaterials(disc: Mesh): [MeshBasicMaterial, MeshStandardMaterial] {
-  return [disc.material as MeshBasicMaterial, (disc.children[0] as Mesh).material as MeshStandardMaterial]
-}
-
-/** Albedo difuso de las palas de una pieza del modelo (sin contar el propio disco). */
-function bladeAlbedo(part: Object3D, name: RegExp, disc: Mesh): Color | null {
-  let out: Color | null = null
-  part.traverse((o) => {
-    const m = o as Mesh
-    if (out || !m.isMesh || m === disc || m.parent === disc) return
-    for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
-      const s = mat as MeshStandardMaterial
-      if (!s.isMeshStandardMaterial || !name.test(s.name)) continue
-      // lo metálico apenas difunde: para un disco borroso, mitad del albedo por su parte metálica
-      out = s.color.clone().multiplyScalar(1 - 0.5 * s.metalness)
-      return
-    }
-  })
-  return out
-}
-
-/** Textura de desenfoque de palas (vista desde arriba): blanca, la cobertura en el alfa. */
-function makeBlurTexture(blades: number, size: number, rotor: boolean): CanvasTexture {
-  const c = document.createElement('canvas')
-  c.width = c.height = size
-  const g = c.getContext('2d')!
-  const cx = size / 2
-  g.clearRect(0, 0, size, size)
-  // halo general tenue y el aro de las puntas, lo que más deja ver el disco (y su inclinación).
-  // Como el disco va iluminado igual que las palas, más cobertura lo hace visible sin "lavar"
-  // lo de detrás (el gris claro sin iluminar de antes sí lo aclaraba).
-  const rg = g.createRadialGradient(cx, cx, size * 0.08, cx, cx, cx)
-  rg.addColorStop(0, rotor ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.1)')
-  rg.addColorStop(0.92, rotor ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.125)')
-  rg.addColorStop(0.985, rotor ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.2)')
-  rg.addColorStop(1, 'rgba(255,255,255,0)')
-  g.fillStyle = rg
-  g.beginPath()
-  g.arc(cx, cx, cx, 0, Math.PI * 2)
-  g.fill()
-  // estelas de las palas: degradado angular continuo. Con rayas sueltas, el giro del disco
-  // avanzaba más que su separación en cada fotograma y parpadeaban (efecto estroboscópico).
-  const TAU = Math.PI * 2
-  const trail = 26 * 0.035 // largo de la estela (rad)
-  const lead = 0.03 // borde de ataque suavizado (rad)
-  const peak = rotor ? 0.5 : 0.145
-  const [cr, cgr, cb] = [255, 255, 255]
-  const st = document.createElement('canvas')
-  st.width = st.height = size
-  const sg = st.getContext('2d')!
-  const img = sg.createImageData(size, size)
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const dx = x + 0.5 - cx
-      const dy = y + 0.5 - cx
-      const r = Math.hypot(dx, dy) / cx
-      if (r < 0.1 || r > 1) continue
-      // raíz y punta con un borde suave de ~1 píxel
-      let radial = Math.min(1, (r - 0.1) * 40, (0.995 - r) * cx)
-      if (radial <= 0) continue
-      // estelas del rotor más suaves junto al buje: si no, tapan el aparato visto desde arriba
-      if (rotor) radial *= 0.4 + 0.6 * smooth(0.15, 0.6, r)
-      const a = Math.atan2(dy, dx)
-      let alpha = 0
-      for (let b = 0; b < blades; b++) {
-        // la pala está en a0 y la estela queda detrás (ángulos menores)
-        const d = ((((b / blades) * TAU - a) % TAU) + TAU) % TAU
-        const k = d < trail ? (1 - d / trail) ** 2 : d > TAU - lead ? (d - (TAU - lead)) / lead : 0
-        alpha = Math.max(alpha, peak * k)
-      }
-      const o = (y * size + x) * 4
-      img.data[o] = cr
-      img.data[o + 1] = cgr
-      img.data[o + 2] = cb
-      img.data[o + 3] = Math.round(255 * alpha * radial)
-    }
-  }
-  sg.putImageData(img, 0, 0)
-  g.drawImage(st, 0, 0)
-  const t = new CanvasTexture(c)
-  t.colorSpace = SRGBColorSpace
-  t.anisotropy = 8
-  return t
-}
+/** conicidad de las palas del rotor en vuelo */
+const ROTOR_CONE = 2.5 * (Math.PI / 180)
 
 /** Modelo sencillo de respaldo por si el GLB no está disponible. */
 function buildFallbackModel(): Object3D {
