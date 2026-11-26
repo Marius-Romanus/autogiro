@@ -1451,13 +1451,17 @@ async function buildConflicts(ms: Move[], pause: Pause): Promise<number> {
       else grid.set(k, [mi, q])
     }
   })
-  // por pareja: muestras cercanas (con la distancia)
-  const hits = new Map<number, Array<[number, number, number]>>()
+  // por pareja: muestras cercanas (q, qj y la distancia², seguidas). Las parejas de un movimiento
+  // con los que van detrás de él en la lista solo salen al recorrerlo a él: se pasan a zonas en
+  // cuanto se acaba con él, en el mismo orden, y no se guardan todas a la vez (en una región muy
+  // tupida, El Cairo con 85 000 movimientos, pasaban de 10 GB y el worker se quedaba sin memoria)
+  const hits = new Map<number, number[]>() // índice del otro → [q, qj, d2, …]
   const W2 = W_WIDE * W_WIDE
-  const N = ms.length
+  let count = 0
   for (let mi = 0; mi < ms.length; mi++) {
     const m = ms[mi]
     await pause()
+    hits.clear()
     for (let q = 0; q < m.x.length; q++) {
       const cx = Math.floor(m.x[q] / CELLM)
       const cz = Math.floor(m.z[q] / CELLM)
@@ -1476,76 +1480,84 @@ async function buildConflicts(ms: Move[], pause: Pause): Promise<number> {
             const ez = o.z[qj] - m.z[q]
             const d2 = ex * ex + ez * ez
             if (d2 > W2) continue
-            const pk = mi * N + mj
-            const arr = hits.get(pk)
-            if (arr) arr.push([q, qj, d2])
-            else hits.set(pk, [[q, qj, d2]])
+            const arr = hits.get(mj)
+            if (arr) arr.push(q, qj, d2)
+            else hits.set(mj, [q, qj, d2])
           }
         }
       }
     }
+    for (const [mj, all] of hits) {
+      addConflict(m, ms[mj], all)
+      count++
+    }
   }
-  let count = 0
-  const WN2 = W_CONFLICT * W_CONFLICT
-  for (const [pk, all] of hits) {
-    const A = ms[Math.floor(pk / N)]
-    const B = ms[pk % N]
-    const narrow = all.filter((h) => h[2] <= WN2)
-    const wide = narrow.length === 0
-    const list = wide ? all : narrow
-    let a0 = Infinity
-    let a1 = -Infinity
-    let b0 = Infinity
-    let b1 = -Infinity
-    let headSum = 0
-    for (const [qa, qb] of list) {
-      a0 = Math.min(a0, A.s[qa])
-      a1 = Math.max(a1, A.s[qa])
-      b0 = Math.min(b0, B.s[qb])
-      b1 = Math.max(b1, B.s[qb])
-      const da = dirAt(A, qa)
-      const db = dirAt(B, qb)
-      headSum += Math.abs(Math.acos(Math.max(-1, Math.min(1, da[0] * db[0] + da[1] * db[1]))))
-    }
-    const head = headSum / list.length
-    const sameFrom = A.from === B.from && A.lane === B.lane
-    const sameTo = A.to === B.to && A.toLane === B.toLane
-    const cross = !sameFrom && !sameTo && head > 0.6
-    // tabla de correspondencia (para los tramos compartidos)
-    const best = new Map<number, [number, number]>()
-    for (const [qa, qb, d2] of list) {
-      const prev = best.get(qa)
-      if (!prev || d2 < prev[1]) best.set(qa, [qb, d2])
-    }
-    const keys = [...best.keys()].sort((p, q) => p - q)
-    const mapA = new Float32Array(keys.length)
-    const mapB = new Float32Array(keys.length)
-    keys.forEach((qa, i) => {
-      mapA[i] = A.s[qa]
-      mapB[i] = B.s[best.get(qa)![0]]
-    })
-    // los que comparten carril de llegada comparten hasta el final; los que salen del mismo, desde el principio
-    if (sameTo) {
-      a1 = A.len
-      b1 = B.len
-    }
-    if (sameFrom) {
-      a0 = 0
-      b0 = 0
-    }
-    const za: Zone = { other: B, cross, a0, a1, b0, b1, yieldMe: false, wide, mapA, mapB }
-    const zb: Zone = { other: A, cross, a0: b0, a1: b1, b0: a0, b1: a1, yieldMe: false, wide, mapA: mapB, mapB: mapA }
-    if (!cross) {
-      // la tabla de B ordenada por su s
-      const idx = [...mapB.keys()].sort((p, q) => mapB[p] - mapB[q])
-      zb.mapA = Float32Array.from(idx.map((i) => mapB[i]))
-      zb.mapB = Float32Array.from(idx.map((i) => mapA[i]))
-    }
-    A.zones.push(za)
-    B.zones.push(zb)
-    count++
-  }
+  hits.clear()
   return count
+}
+
+/** Zona de conflicto entre A y B con sus muestras cercanas (`all`: q de A, q de B y distancia², seguidas). */
+function addConflict(A: Move, B: Move, all: number[]): void {
+  const WN2 = W_CONFLICT * W_CONFLICT
+  const narrow: number[] = []
+  for (let t = 0; t < all.length; t += 3) if (all[t + 2] <= WN2) narrow.push(all[t], all[t + 1], all[t + 2])
+  const wide = narrow.length === 0
+  const list = wide ? all : narrow
+  const nList = list.length / 3
+  let a0 = Infinity
+  let a1 = -Infinity
+  let b0 = Infinity
+  let b1 = -Infinity
+  let headSum = 0
+  for (let t = 0; t < list.length; t += 3) {
+    const qa = list[t]
+    const qb = list[t + 1]
+    a0 = Math.min(a0, A.s[qa])
+    a1 = Math.max(a1, A.s[qa])
+    b0 = Math.min(b0, B.s[qb])
+    b1 = Math.max(b1, B.s[qb])
+    const da = dirAt(A, qa)
+    const db = dirAt(B, qb)
+    headSum += Math.abs(Math.acos(Math.max(-1, Math.min(1, da[0] * db[0] + da[1] * db[1]))))
+  }
+  const head = headSum / nList
+  const sameFrom = A.from === B.from && A.lane === B.lane
+  const sameTo = A.to === B.to && A.toLane === B.toLane
+  const cross = !sameFrom && !sameTo && head > 0.6
+  // tabla de correspondencia (para los tramos compartidos)
+  const best = new Map<number, [number, number]>()
+  for (let t = 0; t < list.length; t += 3) {
+    const qa = list[t]
+    const d2 = list[t + 2]
+    const prev = best.get(qa)
+    if (!prev || d2 < prev[1]) best.set(qa, [list[t + 1], d2])
+  }
+  const keys = [...best.keys()].sort((p, q) => p - q)
+  const mapA = new Float32Array(keys.length)
+  const mapB = new Float32Array(keys.length)
+  keys.forEach((qa, i) => {
+    mapA[i] = A.s[qa]
+    mapB[i] = B.s[best.get(qa)![0]]
+  })
+  // los que comparten carril de llegada comparten hasta el final; los que salen del mismo, desde el principio
+  if (sameTo) {
+    a1 = A.len
+    b1 = B.len
+  }
+  if (sameFrom) {
+    a0 = 0
+    b0 = 0
+  }
+  const za: Zone = { other: B, cross, a0, a1, b0, b1, yieldMe: false, wide, mapA, mapB }
+  const zb: Zone = { other: A, cross, a0: b0, a1: b1, b0: a0, b1: a1, yieldMe: false, wide, mapA: mapB, mapB: mapA }
+  if (!cross) {
+    // la tabla de B ordenada por su s
+    const idx = [...mapB.keys()].sort((p, q) => mapB[p] - mapB[q])
+    zb.mapA = Float32Array.from(idx.map((i) => mapB[i]))
+    zb.mapB = Float32Array.from(idx.map((i) => mapA[i]))
+  }
+  A.zones.push(za)
+  B.zones.push(zb)
 }
 
 function dirAt(m: Move, q: number): [number, number] {
