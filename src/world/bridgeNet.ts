@@ -13,6 +13,7 @@
 // Sin three.js ni DOM: también lo usa tools/bridge-info.ts desde Node.
 
 import type { VectorTile } from '@mapbox/vector-tile'
+import { deckLines, towerCut, type DeckLine } from './bridgeTowers.ts'
 import { fetchVectorTile, latToY, lonToX, xToLon, yToLat, Z } from './mapTiles.ts'
 
 const N = 2 ** Z
@@ -72,6 +73,20 @@ export interface TallBuilding {
   gy: number
   /** altura sobre el suelo (m) */
   h: number
+  /** si es una torre que atraviesan los tableros y Buildings.ts dibuja como patas (bridgeTowers.ts) */
+  cut?: TowerLegs
+}
+
+/**
+ * Patas de una torre recortada: las caras interiores de las dos de los lados, en la línea lateral
+ * por el centro de la torre (unidades globales), y su grueso a lo largo del puente (m).
+ */
+export interface TowerLegs {
+  ax: number
+  ay: number
+  bx: number
+  by: number
+  thick: number
 }
 
 interface NetTile {
@@ -107,8 +122,8 @@ export function geoToUnit(lat: number, lon: number): [number, number] {
   return [lonToX(lon, N) * E, latToY(lat, N) * E]
 }
 
-/** Ancho del tablero (m) según la clase de vía; 0 = no se dibuja. */
-function widthOf(cls: string, sub: string, oneway: boolean, ramp: boolean): { kind: BridgeKind; width: number } | null {
+/** Ancho del tablero (m) según la clase de vía; null = no se dibuja. (Buildings.ts lo usa para las torres.) */
+export function widthOf(cls: string, sub: string, oneway: boolean, ramp: boolean): { kind: BridgeKind; width: number } | null {
   switch (cls) {
     case 'motorway':
       return { kind: 'road', width: ramp ? 7.5 : oneway ? 11.5 : 22 }
@@ -533,8 +548,11 @@ export class BridgeNet {
   private addTile(t: NetTile, vt: VectorTile): void {
     const layer = vt.layers.transportation
     if (!layer) return
-    // edificios altos (por si son las torres de un puente): centro de su huella y altura
+    // edificios altos (por si son las torres de un puente): centro de su huella y altura, y si los
+    // tableros la atraviesan (Buildings.ts la dibuja como patas), dónde quedan estas
     const bl = vt.layers.building
+    let decks: DeckLine[] | null = null
+    const mPerPx = bl ? (40075016.7 * Math.cos((yToLat(t.y + 0.5, N) * Math.PI) / 180)) / N / bl.extent : 0
     for (let i = 0; bl && i < bl.length; i++) {
       const f = bl.feature(i)
       const h = Number(f.properties.render_height ?? 0)
@@ -548,7 +566,34 @@ export class BridgeNet {
         y += q.y
       }
       const kb = E / bl.extent
-      t.tall.push({ gx: t.x * E + (x / ring.length) * kb, gy: t.y * E + (y / ring.length) * kb, h })
+      const tb: TallBuilding = { gx: t.x * E + (x / ring.length) * kb, gy: t.y * E + (y / ring.length) * kb, h }
+      if (h - (Number(f.properties.render_min_height ?? 0) || 0) >= 20 && !f.properties.hide_3d) {
+        decks ??= deckLines(vt, bl.extent, mPerPx, widthOf)
+        const pts = ring.map((q) => [q.x, q.y] as [number, number])
+        if (pts.length > 1 && pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) pts.pop()
+        const cut = decks.length > 0 ? towerCut(pts, decks, mPerPx) : null
+        if (cut) {
+          const nx = -cut.uy
+          const ny = cut.ux
+          const va = cut.lanes[0][0]
+          const vb = cut.lanes[cut.lanes.length - 1][1]
+          let u0 = Infinity
+          let u1 = -Infinity
+          for (const [px, py] of pts) {
+            const u = (px - cut.cx) * cut.ux + (py - cut.cy) * cut.uy
+            u0 = Math.min(u0, u)
+            u1 = Math.max(u1, u)
+          }
+          tb.cut = {
+            ax: t.x * E + (cut.cx + va * nx) * kb,
+            ay: t.y * E + (cut.cy + va * ny) * kb,
+            bx: t.x * E + (cut.cx + vb * nx) * kb,
+            by: t.y * E + (cut.cy + vb * ny) * kb,
+            thick: (u1 - u0) * mPerPx,
+          }
+        }
+      }
+      t.tall.push(tb)
     }
     const k = E / layer.extent
     type Raw = { pts: Array<[number, number]>; cls: string; kind: BridgeKind; width: number; layer: number; oneway: boolean }

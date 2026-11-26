@@ -28,6 +28,7 @@ import { bridgeReplacedByLandmark } from './Landmarks.ts'
 import { loadOrthoMosaic, latToY, lonToX, Z } from './mapTiles.ts'
 import { asphaltColour, OrthoSampler } from './orthoSample.ts'
 import type { TerrainPatch } from './Runways.ts'
+import { WX_BRIDGE_GLSL, WX_COMMON_GLSL, weatherUniforms } from '../render/weathering.ts'
 import { Slicer, TileLayer, type LayerTile } from './TileLayer.ts'
 
 /** lado de las celdas de la rejilla de choques (m) */
@@ -851,14 +852,17 @@ function section(piece: BridgePiece, hw: number, companion: boolean, solid: Stru
 function createBridgeMaterial(): MeshStandardMaterial {
   const m = new MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 })
   m.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, weatherUniforms)
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec4 rd;\nvarying vec4 vRd;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRd = rd;')
+      .replace('#include <common>', '#include <common>\nattribute vec4 rd;\nvarying vec4 vRd;\nvarying vec3 vWxP;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRd = rd;\nvWxP = position;')
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec4 vRd;')
+      .replace('#include <common>', `#include <common>\nvarying vec4 vRd;\nvarying vec3 vWxP;\n${WX_COMMON_GLSL}\n${WX_BRIDGE_GLSL}`)
       .replace(
         '#include <color_fragment>',
         /* glsl */ `#include <color_fragment>
+        // desgaste (render/weathering.ts): manchas y churretones del hormigón, rodadas y juntas
+        if (wxAmount > 0.0) wxBridge(diffuseColor.rgb, vWxP, vRd);
         if (vRd.z > 0.5) {
           float u = vRd.x;
           float v = vRd.y;
@@ -893,6 +897,6 @@ function createBridgeMaterial(): MeshStandardMaterial {
       )
       .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a = 0.0;')
   }
-  m.customProgramCacheKey = () => 'osm-bridges-v1'
+  m.customProgramCacheKey = () => 'osm-bridges-v2'
   return m
 }

@@ -39,6 +39,7 @@ import type { StreetLightEffect } from '../render/StreetLightEffect.ts'
 import { setNightLights } from '../render/nightLights.ts'
 import { viewerLight } from '../render/SunShadows.ts'
 import { hideWhenEmpty } from '../render/emptyDraws.ts'
+import { WX_COMMON_GLSL, WX_VEHICLE_GLSL, weatherUniforms } from '../render/weathering.ts'
 import { GeoFrame } from '../world/GeoFrame.ts'
 import { BOAT_STRIDE, BOAT_TYPE, FERRY_TYPE, FLAG, STRIDE, TRAIN_TYPE, type FromWorker, type ToWorker } from './protocol.ts'
 import { VTYPES } from './sim.ts'
@@ -61,6 +62,12 @@ export interface GroundSampler {
 const FAR_LOD = 650
 /** cerca de la cámara, altura del suelo de la física (la del worker es más gruesa) */
 const NEAR_GROUND = 500
+/**
+ * hasta cuánto por encima de la altura del worker (la del terreno) se busca el tablero de un
+ * vehículo que va por un puente: los de gálibo alto sobre el agua (Wikidata, bridgeShapes.ts)
+ * pasan de 80 m y los coches caían al mar
+ */
+const DECK_REACH = 300
 /** lux por unidad de iluminancia de la escena (ver AircraftLights) */
 const LUX_PER_UNIT = 75718
 
@@ -137,6 +144,8 @@ export class Traffic {
   private readonly material: MeshStandardMaterial
   /** barcos grandes, turísticos y ferris: con algo de luz propia de noche */
   private readonly shipMaterial: MeshStandardMaterial
+  /** barcos pequeños (sin luz propia): el desgaste del agua, no el de la carretera */
+  private readonly boatMaterial: MeshStandardMaterial
   private readonly meshes: InstancedMesh[]
   private readonly trailerMesh: InstancedMesh
   private readonly farMesh: InstancedMesh
@@ -194,8 +203,9 @@ export class Traffic {
     this.group.userData.worldShadowCaster = true
     // todo ya iluminado (alfa 0) o en la capa de superposiciones: fuera del pase de normales (Graphics.ts)
     this.group.userData.litOnly = true
-    this.material = makeMaterial()
-    this.shipMaterial = makeMaterial(true)
+    this.material = makeMaterial('road')
+    this.shipMaterial = makeMaterial('ship')
+    this.boatMaterial = makeMaterial('boat')
     const geos = vehicleGeometries()
     this.meshes = geos.types.map((g) => this.makeMesh(g, capacity))
     this.trailerMesh = this.makeMesh(geos.trailer, capacity)
@@ -203,7 +213,7 @@ export class Traffic {
     this.trainMeshes = geos.trains.map((g) => this.makeMesh(g, 400))
     this.ferryMeshes = geos.ferries.map((g) => this.makeMesh(g, 60, this.shipMaterial))
     this.boatGeos = boatGeometries()
-    this.boatMeshes = this.boatGeos.map((g, k) => this.makeMesh(g, 150, k === 5 || k >= 7 ? this.shipMaterial : this.material))
+    this.boatMeshes = this.boatGeos.map((g, k) => this.makeMesh(g, 150, k === 5 || k >= 7 ? this.shipMaterial : this.boatMaterial))
     this.staticGroup.name = 'traffic_moored'
     this.staticGroup.matrixAutoUpdate = false
     this.staticGroup.visible = false
@@ -300,7 +310,7 @@ export class Traffic {
 
   /** malla de barcos quietos (en el grupo del marco de la región) */
   private makeStaticMesh(g: BufferGeometry, capacity: number, kind: number): InstancedMesh {
-    const m = hideWhenEmpty(new InstancedMesh(g, kind >= 7 ? this.shipMaterial : this.material, capacity))
+    const m = hideWhenEmpty(new InstancedMesh(g, kind >= 7 ? this.shipMaterial : this.boatMaterial, capacity))
     m.setColorAt(0, new Color(1, 1, 1))
     m.count = 0
     m.frustumCulled = false
@@ -310,7 +320,7 @@ export class Traffic {
   }
 
   setEnvMap(tex: Texture | null): void {
-    for (const m of [this.material, this.shipMaterial]) {
+    for (const m of [this.material, this.shipMaterial, this.boatMaterial]) {
       if ((m.envMap === null) !== (tex === null)) m.needsUpdate = true
       m.envMap = tex
       m.envMapIntensity = 1
@@ -521,8 +531,8 @@ export class Traffic {
         const hx = _f.x - _r.x
         const hz = _f.z - _r.z
         if (ground && (onBridge || dist < NEAR_GROUND)) {
-          if (ground.sampleGround(_f.x, _f.z, _f.y + 60, _gs, onBridge ? _f.y + 80 : undefined, hx, hz)) _f.y = _gs.y
-          if (ground.sampleGround(_r.x, _r.z, _r.y + 60, _gs, onBridge ? _r.y + 80 : undefined, hx, hz)) _r.y = _gs.y
+          if (ground.sampleGround(_f.x, _f.z, _f.y + 60, _gs, onBridge ? _f.y + DECK_REACH : undefined, hx, hz)) _f.y = _gs.y
+          if (ground.sampleGround(_r.x, _r.z, _r.y + 60, _gs, onBridge ? _r.y + DECK_REACH : undefined, hx, hz)) _r.y = _gs.y
           _c.addVectors(_f, _r).multiplyScalar(0.5)
         }
         _fw.subVectors(_f, _r).normalize()
@@ -596,8 +606,8 @@ export class Traffic {
       const hx = _f.x - _r.x
       const hz = _f.z - _r.z
       if (ground && (onBridge || dist < NEAR_GROUND)) {
-        if (ground.sampleGround(_f.x, _f.z, _f.y + 60, _gs, onBridge ? _f.y + 80 : undefined, hx, hz)) _f.y = _gs.y
-        if (ground.sampleGround(_r.x, _r.z, _r.y + 60, _gs, onBridge ? _r.y + 80 : undefined, hx, hz)) _r.y = _gs.y
+        if (ground.sampleGround(_f.x, _f.z, _f.y + 60, _gs, onBridge ? _f.y + DECK_REACH : undefined, hx, hz)) _f.y = _gs.y
+        if (ground.sampleGround(_r.x, _r.z, _r.y + 60, _gs, onBridge ? _r.y + DECK_REACH : undefined, hx, hz)) _r.y = _gs.y
         _c.addVectors(_f, _r).multiplyScalar(0.5)
       }
       const trailer = T.trailer > 0
@@ -647,8 +657,8 @@ export class Traffic {
         _h.set(d[o + 6], d[o + 7], d[o + 8]).applyMatrix4(this.toWorld)
         _t.set(d[o + 9], d[o + 10], d[o + 11]).applyMatrix4(this.toWorld)
         if (ground && (onBridge || dist < NEAR_GROUND)) {
-          if (ground.sampleGround(_h.x, _h.z, _h.y + 60, _gs, onBridge ? _h.y + 80 : undefined, _h.x - _t.x, _h.z - _t.z)) _h.y = _gs.y
-          if (ground.sampleGround(_t.x, _t.z, _t.y + 60, _gs, onBridge ? _t.y + 80 : undefined, _h.x - _t.x, _h.z - _t.z)) _t.y = _gs.y
+          if (ground.sampleGround(_h.x, _h.z, _h.y + 60, _gs, onBridge ? _h.y + DECK_REACH : undefined, _h.x - _t.x, _h.z - _t.z)) _h.y = _gs.y
+          if (ground.sampleGround(_t.x, _t.z, _t.y + 60, _gs, onBridge ? _t.y + DECK_REACH : undefined, _h.x - _t.x, _h.z - _t.z)) _t.y = _gs.y
         }
         const fwx = _h.x - _t.x
         const fwy = _h.y - _t.y
@@ -1123,6 +1133,7 @@ export class Traffic {
     ;(this.staticLights.material as ShaderMaterial).dispose()
     this.material.dispose()
     this.shipMaterial.dispose()
+    this.boatMaterial.dispose()
     this.lights.geometry.dispose()
     this.lightMat.dispose()
     this.lampHeads.geometry.dispose()
@@ -1138,24 +1149,41 @@ function smooth01(t: number): number {
 }
 
 /** Material de las carrocerías: iluminado, alfa 0 (ya iluminado) y color por vehículo donde `paint` = 1. */
-function makeMaterial(lit = false): MeshStandardMaterial {
+function makeMaterial(kind: 'road' | 'boat' | 'ship'): MeshStandardMaterial {
+  const lit = kind === 'ship'
   const m = new MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.25 })
   m.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, weatherUniforms)
     // barcos de noche: la luz de cubierta y de los camarotes, sobre su propio color
     if (lit) shader.fragmentShader = shader.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance *= diffuseColor.rgb;')
-    shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nattribute float paint;').replace(
-      '#include <color_vertex>',
-      /* glsl */ `vColor = vec4(1.0);
+    // paint: 0 color fijo, 1 carrocería (color de cada vehículo), 2 lunas
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float paint;\nvarying vec3 vWxP;\nvarying float vWxPaint;\nvarying float vWxSeed;')
+      .replace(
+        '#include <color_vertex>',
+        /* glsl */ `vColor = vec4(1.0);
       #ifdef USE_COLOR
         vColor.rgb *= color;
       #endif
+      vWxP = position;
+      vWxPaint = paint;
+      vWxSeed = 0.5;
       #ifdef USE_INSTANCING_COLOR
-        vColor.rgb = mix(vColor.rgb, vColor.rgb * instanceColor.rgb, paint);
+        vColor.rgb = mix(vColor.rgb, vColor.rgb * instanceColor.rgb, step(paint, 1.5) * paint);
+        // semilla por vehículo (para el desgaste): la da su color, que no cambia
+        vWxSeed = fract(sin(dot(instanceColor.rgb, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
       #endif`,
-    )
-    shader.fragmentShader = shader.fragmentShader.replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a = 0.0;')
+      )
+    // desgaste (render/weathering.ts): suciedad de la carretera o verdín y óxido del agua
+    const wear = kind === 'road' ? 'wxVehicle(diffuseColor.rgb, wxRough, wxMetal, vWxP, vWxPaint, vWxSeed);' : `wxBoat(diffuseColor.rgb, wxRough, wxMetal, vWxP, vWxPaint, vWxSeed, ${kind === 'ship' ? '0.35 + 0.5 * vWxSeed' : '0.2'});`
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\nvarying vec3 vWxP;\nvarying float vWxPaint;\nvarying float vWxSeed;\n${WX_COMMON_GLSL}\n${WX_VEHICLE_GLSL}`)
+      .replace('#include <color_fragment>', `#include <color_fragment>\n\tfloat wxRough = roughness;\n\tfloat wxMetal = metalness;\n\t${wear}`)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n\troughnessFactor = wxRough;')
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n\tmetalnessFactor = wxMetal;')
+      .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a = 0.0;')
   }
-  m.customProgramCacheKey = () => (lit ? 'traffic-ships-v1' : 'traffic-vehicles-v1')
+  m.customProgramCacheKey = () => `traffic-${kind}-v2`
   return m
 }
 

@@ -3,8 +3,10 @@
 //
 // Las teselas vectoriales traen el trazado de todos los puentes, pero no de qué tipo son. Este
 // fichero dice cuáles son colgantes, atirantados, de arco o de celosía (y, si se sabe, su
-// longitud, su vano mayor y la altura de sus torres); los demás se dibujan como viaducto de
-// vigas sobre pilas.
+// longitud, su vano mayor, la altura de sus torres y su gálibo); los demás se dibujan como
+// viaducto de vigas sobre pilas. También trae los de vigas de los que se sabe el gálibo (el paso
+// libre bajo el tablero): fuera de España la altura del tablero solo se deduce de los estribos, y
+// un puente alto sobre terreno llano quedaba a ras del agua.
 //
 // Cabecera: «BRG1», uint32 número de registros, uint32 fecha (AAAAMMDD).
 // Registros de RECORD bytes (little endian), ordenados por tesela z14:
@@ -16,7 +18,8 @@
 //  14  uint8   tipo (BRIDGE_*)
 //  15  uint8×3 color sRGB de la estructura (0,0,0 = el habitual del tipo)
 //  18  uint8   número de torres o pilonos (0 = lo habitual: dos, o uno si el vano es casi todo el puente)
-//  19  uint8   libre
+//  19  uint8   gálibo en m: del agua o el suelo a la parte de abajo del tablero, en el vano
+//              principal (0 = sin dato; 255 = 255 o más)
 // Todo el fichero va comprimido con zlib (fflate).
 
 export const MAGIC = 'BRG1'
@@ -41,6 +44,8 @@ export const BRIDGE_TRUSS = 7
 export const BRIDGE_CANTILEVER = 8
 /** extradosado: atirantado de torres bajas */
 export const BRIDGE_EXTRADOSED = 9
+/** de vigas (viaducto normal): solo está en el fichero por su gálibo */
+export const BRIDGE_BEAM = 10
 
 export interface BridgeRecord {
   lat: number
@@ -56,6 +61,8 @@ export interface BridgeRecord {
   colour: number
   /** número de torres o pilonos, o 0 */
   towers: number
+  /** gálibo bajo el tablero en el vano principal (m) o 0 */
+  clearance: number
 }
 
 export function readRecord(dv: DataView, i: number): BridgeRecord {
@@ -69,6 +76,7 @@ export function readRecord(dv: DataView, i: number): BridgeRecord {
     type: dv.getUint8(o + 14),
     colour: (dv.getUint8(o + 15) << 16) | (dv.getUint8(o + 16) << 8) | dv.getUint8(o + 17),
     towers: dv.getUint8(o + 18),
+    clearance: dv.getUint8(o + 19),
   }
 }
 
@@ -85,4 +93,5 @@ export function writeRecord(dv: DataView, i: number, r: BridgeRecord): void {
   dv.setUint8(o + 16, (r.colour >> 8) & 255)
   dv.setUint8(o + 17, r.colour & 255)
   dv.setUint8(o + 18, Math.max(0, Math.min(255, r.towers)))
+  dv.setUint8(o + 19, Math.max(0, Math.min(255, Math.round(r.clearance))))
 }

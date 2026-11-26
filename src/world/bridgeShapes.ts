@@ -1,7 +1,8 @@
 // Estructura de los puentes de tipo conocido: torres, cables y péndolas de los colgantes,
 // pilonos y tirantes de los atirantados, arcos (bajo el tablero, sobre él o en fila, de
 // fábrica) y celosías. Las teselas vectoriales solo traen el trazado; el tipo, la longitud,
-// el vano y la altura salen de public/bridges.bin (Wikidata, tools/bridges.ts).
+// el vano, la altura y el gálibo salen de public/bridges.bin (Wikidata, tools/bridges.ts). De los
+// de vigas con gálibo conocido no se dibuja nada aparte: solo se sube su vano principal.
 //
 // Cada registro es un punto: se casa con la cadena (bridgeChains.ts) que pasa más cerca y se
 // parezca en longitud; el vano principal se coloca sobre lo más hondo (el agua o el fondo del
@@ -18,6 +19,7 @@ import {
   BRIDGE_ARCH_DECK,
   BRIDGE_ARCH_STONE,
   BRIDGE_ARCH_THROUGH,
+  BRIDGE_BEAM,
   BRIDGE_CABLE_STAYED,
   BRIDGE_CANTILEVER,
   BRIDGE_EXTRADOSED,
@@ -25,12 +27,12 @@ import {
   BRIDGE_TRUSS,
   type BridgeRecord,
 } from './bridgeFormat.ts'
-import { lateralExtent, profileAt, projectOnChain, stationAt, type Chain, type ChainBuilder } from './bridgeChains.ts'
+import { lateralExtent, profileAt, projectOnChain, smoothAlong, stationAt, type Chain, type ChainBuilder } from './bridgeChains.ts'
 import type { ChainFrame, MeshBuilder, Prim } from './bridgeMesh.ts'
-import { E, geoToUnit, metresPerUnit, unitToGeo, type BridgeNet } from './bridgeNet.ts'
+import { E, geoToUnit, metresPerUnit, unitToGeo, type BridgeNet, type TowerLegs } from './bridgeNet.ts'
 import { bridgeRecordsNear } from './bridgeStructures.ts'
 
-type Shape = 'suspension' | 'stayed' | 'arcade' | 'archDeck' | 'archThrough' | 'truss'
+type Shape = 'suspension' | 'stayed' | 'arcade' | 'archDeck' | 'archThrough' | 'truss' | 'beam'
 
 interface Bay {
   /** ¿cabe un arco? (si no, tablero normal) */
@@ -66,6 +68,8 @@ export interface StructurePlan {
   towerH: number
   /** las torres las dibuja la estructura (false: ya están en OSM como edificios) */
   ownTowers: boolean
+  /** de las torres de OSM que Buildings.ts dibuja como patas, dónde quedan estas (por torre) */
+  legs: Array<TowerLegs | null>
   /** hasta dónde llegan los cables a cada lado de la primera y la última torre (m) */
   back0: number
   back1: number
@@ -102,7 +106,7 @@ const ARCH_CONCRETE = 0xb7b3aa
 const STONE = 0xa99a7e
 const TRUSS_STEEL = 0x5f6d75
 
-const PRIORITY = [BRIDGE_SUSPENSION, BRIDGE_CABLE_STAYED, BRIDGE_EXTRADOSED, BRIDGE_CANTILEVER, BRIDGE_TRUSS, BRIDGE_ARCH_THROUGH, BRIDGE_ARCH_DECK, BRIDGE_ARCH, BRIDGE_ARCH_STONE]
+const PRIORITY = [BRIDGE_SUSPENSION, BRIDGE_CABLE_STAYED, BRIDGE_EXTRADOSED, BRIDGE_CANTILEVER, BRIDGE_TRUSS, BRIDGE_ARCH_THROUGH, BRIDGE_ARCH_DECK, BRIDGE_ARCH, BRIDGE_ARCH_STONE, BRIDGE_BEAM]
 
 const owners = new WeakMap<BridgeRecord, Promise<{ chain: Chain; s: number; d: number } | null>>()
 const plans = new WeakMap<Chain, Promise<StructurePlan | null>>()
@@ -227,7 +231,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
  * Edificios altos plantados sobre el puente entre a y b, agrupados a lo largo: posición s y
  * altura sobre el suelo de cada grupo. Son las torres del puente si OSM las tiene como edificio.
  */
-function towerClusters(c: Chain, net: BridgeNet, a: number, b: number, half: number): Array<{ s: number; top: number }> {
+function towerClusters(c: Chain, net: BridgeNet, a: number, b: number, half: number): Array<{ s: number; top: number; legs: TowerLegs | null }> {
   let gx0 = Infinity
   let gy0 = Infinity
   let gx1 = -Infinity
@@ -242,14 +246,14 @@ function towerClusters(c: Chain, net: BridgeNet, a: number, b: number, half: num
   }
   if (gx0 === Infinity) return []
   const pad = (half + 20) / metresPerUnit((gy0 + gy1) / 2)
-  const hits: Array<{ s: number; h: number }> = []
+  const hits: Array<{ s: number; h: number; legs: TowerLegs | null }> = []
   for (const t of net.tallIn(gx0 - pad, gy0 - pad, gx1 + pad, gy1 + pad)) {
     const [la, lo] = unitToGeo(t.gx, t.gy)
     const pr = projectOnChain(c, la, lo)
-    if (pr.d <= half + 8 && pr.s > a + 1 && pr.s < b - 1) hits.push({ s: pr.s, h: t.h })
+    if (pr.d <= half + 8 && pr.s > a + 1 && pr.s < b - 1) hits.push({ s: pr.s, h: t.h, legs: t.cut ?? null })
   }
   hits.sort((p, q) => p.s - q.s)
-  const out: Array<{ s: number; top: number }> = []
+  const out: Array<{ s: number; top: number; legs: TowerLegs | null }> = []
   for (let i = 0; i < hits.length; ) {
     let j = i
     let top = 0
@@ -263,7 +267,16 @@ function towerClusters(c: Chain, net: BridgeNet, a: number, b: number, half: num
         cnt++
       }
     }
-    out.push({ s: sum / cnt, top })
+    // patas: las de la parte más alta que las tenga (la torre misma)
+    let legs: TowerLegs | null = null
+    let legsH = 0
+    for (let k = i; k < j; k++) {
+      if (hits[k].legs && hits[k].h > legsH) {
+        legs = hits[k].legs
+        legsH = hits[k].h
+      }
+    }
+    out.push({ s: sum / cnt, top, legs })
     i = j
   }
   return out
@@ -275,27 +288,92 @@ const raised = new WeakSet<Chain>()
  * Ajusta la rasante de una cadena a la estructura, una sola vez: la dueña sube lo que pida el
  * vano principal; las que van pegadas a ella (la otra calzada, un carril central, las aceras)
  * toman su misma rasante, porque son un mismo tablero y cada una por su cuenta saldría a una
- * altura algo distinta.
+ * altura algo distinta. Donde empiezan a ir pegadas (el principio del puente, donde se le juntan)
+ * o junto a su propio estribo, la diferencia con la de la dueña se apaga poco a poco, al 5 % como
+ * mucho: de golpe, la calzada del 25 de Abril caía 25 m en 6 m en el acceso de Lisboa, donde se le
+ * junta la vía del tren (la dueña, que allí va mucho más baja), y una del Vasco da Gama subía 20 m
+ * en 30 m desde su estribo. Se sigue la forma de la dueña más esa diferencia que se apaga (y no una
+ * mezcla con la suya): la propia de las aceras del Golden Gate tiene rampas del 30–50 % junto al
+ * acantilado de Fort Point, que la dueña ya no tiene.
  */
 function raiseDeck(c: Chain, plan: StructurePlan): void {
   if (raised.has(c)) return
   raised.add(c)
   const owner = plan.owner
   const near = Math.max(plan.extL, plan.extR) + 6
+  if (c === owner) {
+    for (let i = 0; i < c.n; i++) c.deck[i] += plan.raise(c.s[i])
+  } else {
+    // rasante de la dueña en cada estación de las que van pegadas (NaN en las demás)
+    const target = new Float32Array(c.n).fill(NaN)
+    for (let i = 0; i < c.n; i++) {
+      const pr = projectOnChain(owner, c.lat[i], c.lon[i])
+      // (dentro del puente propiamente dicho o donde la dueña sube por el gálibo)
+      if (pr.d <= near && ((pr.s > plan.a && pr.s < plan.b) || plan.raise(pr.s) > 0)) target[i] = profileAt(owner, owner.deck, pr.s)
+    }
+    /** la diferencia o, a d metros de donde vale eso, lo que quede de ella al 5 % */
+    const fade = (o: number, d: number) => Math.sign(o) * Math.max(0, Math.abs(o) - 0.05 * d)
+    const own = Float32Array.from(c.deck)
+    for (let i = 0; i < c.n; ) {
+      if (Number.isNaN(target[i])) {
+        i++
+        continue
+      }
+      let j = i
+      while (j + 1 < c.n && !Number.isNaN(target[j + 1])) j++
+      // tramo pegado [i, j]: en cada borde, la diferencia que hay allí si es donde se le junta o un
+      // extremo junto a un estribo (en un cruce, la de la dueña sin más, como antes)
+      const oL = i > 0 || c.dTerm[0] < 40 ? own[i] - target[i] : 0
+      const oR = j < c.n - 1 || c.dTerm[c.n - 1] < 40 ? own[j] - target[j] : 0
+      for (let k = i; k <= j; k++) {
+        const fl = fade(oL, c.s[k] - c.s[i])
+        const fr = fade(oR, c.s[j] - c.s[k])
+        c.deck[k] = target[k] + (Math.abs(fl) >= Math.abs(fr) ? fl : fr)
+      }
+      i = j + 1
+    }
+  }
+  let max = 0
+  for (let i = 0; i < c.n; i++) max = Math.max(max, c.deck[i] - c.ground[i])
+  c.maxClear = max
+}
+
+/**
+ * Lo que sube la rasante de la dueña para que el vano principal [m0, m1] quede a la altura top: un
+ * trapecio por encima de la rasante que había, plano sobre el vano y con rampas hacia los estribos.
+ * Las rampas van al 3,5 % (2 % en tren), más empinadas si así no caben hasta el extremo, y nunca a
+ * más del 8 %: si ni así caben (el registro no es de este puente, el terreno de los accesos viene
+ * bajo o el dato es raro: el Zubizuri de Bilbao figura con 80 m de gálibo), el tablero sube lo que
+ * quepa. Antes se sumaba una subida con rampas propias a la rasante, que ya subía hacia los
+ * estribos, y las pendientes se sumaban (12 % en el Grünental del canal de Kiel). Suavizado en
+ * ±30 m, como los acuerdos verticales. Solo entre a y b (las cadenas pegadas copian la rasante de
+ * la dueña donde va pegada dentro del puente o donde esta sube). Null si sube menos de 2 m.
+ */
+function liftProfile(c: Chain, a: number, b: number, m0: number, m1: number, top: number): Float32Array | null {
+  const grade = c.parts[0].piece.kind === 'rail' ? 0.02 : 0.035
+  const base0 = profileAt(c, c.deck, a)
+  const base1 = profileAt(c, c.deck, b)
+  const run0 = Math.max(0, m0 - a)
+  const run1 = Math.max(0, b - m1)
+  const T = Math.min(top, base0 + 0.08 * run0, base1 + 0.08 * run1)
+  const g0 = run0 > 0 ? Math.max(grade, (T - base0) / run0) : grade
+  const g1 = run1 > 0 ? Math.max(grade, (T - base1) / run1) : grade
+  // (se suaviza la rasante que sale, no la subida: sumarle una subida suavizada dejaba entero
+  // cualquier bulto de la de antes, como el del acantilado de Fort Point en el Golden Gate)
+  const want = new Float32Array(c.n)
+  for (let i = 0; i < c.n; i++) {
+    const s = c.s[i]
+    const t = s <= a || s >= b ? -Infinity : s < m0 ? T - g0 * (m0 - s) : s > m1 ? T - g1 * (s - m1) : T
+    want[i] = Math.max(c.deck[i], t)
+  }
+  const smooth = smoothAlong(c, want, 30)
+  const out = new Float32Array(c.n)
   let max = 0
   for (let i = 0; i < c.n; i++) {
-    if (c === owner) c.deck[i] += plan.raise(c.s[i])
-    else {
-      const pr = projectOnChain(owner, c.lat[i], c.lon[i])
-      if (pr.d <= near && pr.s > plan.a && pr.s < plan.b) {
-        // (junto a su propio estribo, la suya: allí manda su terreno)
-        const t = Math.min(1, c.dTerm[i] / 40)
-        c.deck[i] += (profileAt(owner, owner.deck, pr.s) - c.deck[i]) * t * t * (3 - 2 * t)
-      }
-    }
-    max = Math.max(max, c.deck[i] - c.ground[i])
+    out[i] = c.s[i] <= a || c.s[i] >= b ? 0 : Math.max(0, smooth[i] - c.deck[i])
+    max = Math.max(max, out[i])
   }
-  c.maxClear = max
+  return max >= 2 ? out : null
 }
 
 function makePlan(owner: Chain, rec: BridgeRecord, sRec: number, net: BridgeNet): StructurePlan | null {
@@ -342,6 +420,11 @@ function makePlan(owner: Chain, rec: BridgeRecord, sRec: number, net: BridgeNet)
       // un gran arco suele tener su vano en Wikidata; sin él, lo normal es un puente de varios arcos
       shape = span >= 40 ? 'archDeck' : 'arcade'
       break
+    case BRIDGE_BEAM:
+      // de vigas: solo importa dónde va el paso de barcos (sin vano, un tramo sobre lo más hondo)
+      shape = 'beam'
+      if (!span) span = clamp(ext * 0.3, Math.min(ext, 30), 200)
+      break
     default:
       shape = 'arcade'
   }
@@ -375,6 +458,7 @@ function makePlan(owner: Chain, rec: BridgeRecord, sRec: number, net: BridgeNet)
   // los cables.
   let osmTowers = false
   let osmTop = 0
+  let osmLegs: Array<TowerLegs | null> = []
   if (shape === 'suspension' || shape === 'stayed') {
     const found = towerClusters(owner, net, a, b, Math.max(extL, extR)).filter((t) => t.top - clearAt(t.s) >= Math.max(10, 0.03 * span))
     let best: [number, number] | null = null
@@ -398,31 +482,29 @@ function makePlan(owner: Chain, rec: BridgeRecord, sRec: number, net: BridgeNet)
       centre = (m0 + m1) / 2
       osmTowers = true
       osmTop = (t0.top - clearAt(t0.s) + t1.top - clearAt(t1.s)) / 2
+      osmLegs = [t0.legs, t1.legs]
     }
   }
 
-  // grandes vanos sobre el agua: la rasante sube para dejar paso a los barcos aunque el puente
-  // arranque a ras de costa (y el tablero deducido de los estribos se quede bajo)
-  let lift = 0
-  let ramp0 = 1
-  let ramp1 = 1
-  if ((shape === 'suspension' || shape === 'stayed') && span >= 250) {
-    const want = Math.min(62, 0.11 * span)
-    const have = clearAt(centre)
-    if (have < want - 3) {
-      lift = want - have
-      // rampas del 3,5 %, o lo que quepa hasta el estribo
-      ramp0 = Math.max(20, Math.min(lift / 0.035, m0))
-      ramp1 = Math.max(20, Math.min(lift / 0.035, len - m1))
-    }
-  }
-  const raise = (so: number): number => {
-    if (lift === 0) return 0
-    const t = so < m0 ? 1 - (m0 - so) / ramp0 : so > m1 ? 1 - (so - m1) / ramp1 : 1
-    return t <= 0 ? 0 : lift * t * t * (3 - 2 * t)
-  }
+  // Gálibo: fuera de España (y en los puentes que el MDT del IGN no trae) la rasante solo se deduce
+  // de los estribos y un puente alto sobre terreno llano queda a ras del agua. Si Wikidata da el
+  // gálibo, el vano principal sube para dejarlo bajo el tablero (más su canto); sin él, los grandes
+  // vanos colgados o atirantados sobre el agua suben lo típico de su vano (un 11 %, 62 m como mucho)
+  // aunque el puente arranque a ras de costa. Donde la rasante pasa por alturas medidas (el LiDAR
+  // del IGN) el gálibo no la toca: esa es la de verdad.
+  let wantClear = 0
+  let slack = 3
+  if (rec.clearance > 0) {
+    if (!owner.measured) wantClear = rec.clearance + (shape === 'suspension' ? clamp(span / 150, 1.4, 8) : shape === 'stayed' ? clamp(span / 110, 1.4, 4.5) : owner.depth)
+    slack = 2
+  } else if ((shape === 'suspension' || shape === 'stayed') && span >= 250) wantClear = Math.min(62, 0.11 * span)
+  // (las rampas, por toda la cadena: la longitud de Wikidata suele ser solo la de la estructura, y los
+  // viaductos de acceso, donde están las rampas de verdad, también van en la cadena: en Rügen, 583 m
+  // atirantados de 2842)
+  const lift = wantClear > 0 && clearAt(centre) < wantClear - slack ? liftProfile(owner, 0, len, m0, m1, profileAt(owner, owner.ground, centre) + wantClear) : null
+  const raise = (so: number): number => (lift ? profileAt(owner, lift, so) : 0)
 
-  const defaults: Record<Shape, number> = { suspension: STEEL, stayed: PYLON, arcade: STONE, archDeck: ARCH_CONCRETE, archThrough: ARCH_STEEL, truss: TRUSS_STEEL }
+  const defaults: Record<Shape, number> = { suspension: STEEL, stayed: PYLON, arcade: STONE, archDeck: ARCH_CONCRETE, archThrough: ARCH_STEEL, truss: TRUSS_STEEL, beam: STEEL }
   const plan: StructurePlan = {
     owner,
     rec,
@@ -441,6 +523,7 @@ function makePlan(owner: Chain, rec: BridgeRecord, sRec: number, net: BridgeNet)
     towers: [],
     towerH: 0,
     ownTowers: true,
+    legs: osmLegs,
     back0: 0,
     back1: 0,
     bays: [],
@@ -533,6 +616,11 @@ function makePlan(owner: Chain, rec: BridgeRecord, sRec: number, net: BridgeNet)
   } else if (shape === 'archThrough') {
     plan.rise = heightAbove(centre, span / 9, clamp(span / 5.5, 5, 95))
     plan.piers = [m0, m1]
+  } else if (shape === 'beam') {
+    // con su vano mayor, sin pilas en él y con el canto de una viga cajón (≈ 1/40 del vano); sin
+    // él, las pilas de siempre
+    if (rec.span > 0) plan.girder = clamp(span / 40, owner.depth, 8)
+    else plan.clear = [0, -1]
   } else {
     // celosía: sobre todo el puente si se conoce su longitud; si no, sobre el vano y sus vecinos
     if (!(rec.length > 0)) {
@@ -563,6 +651,7 @@ function makePlan(owner: Chain, rec: BridgeRecord, sRec: number, net: BridgeNet)
       return bay.crown + bay.rise * (1 - Math.sqrt(1 - (x / half) ** 2))
     }
     if ((shape === 'suspension' || shape === 'stayed') && so >= plan.clear[0] && so <= plan.clear[1]) return c.companion ? c.depth : plan.girder
+    if (shape === 'beam' && rec.span > 0 && so >= m0 - 15 && so <= m1 + 15) return c.companion ? c.depth : plan.girder
     return c.depth
   }
   plan.pierAllowed = (c, s) => {
@@ -612,7 +701,35 @@ export function buildStructure(mb: MeshBuilder, prims: Prim[], fr: ChainFrame, p
     prims.push({ k: 3, x0: p.x, z0: p.z, x1: q.x, z1: q.z, b0: p.y, b1: q.y, t0: p.y + t0, t1: q.y + t1, hw: 0.45 })
   }
   const dark = col.clone().multiplyScalar(0.55)
+  /**
+   * Riostra bajo el tablero entre las patas de una torre de OSM que Buildings.ts dibuja recortada
+   * (bridgeTowers.ts): de cara interior a cara interior (más lo que se mete en cada pata), con el
+   * grueso de la torre a lo largo del puente y justo bajo el canto del tablero. Buildings.ts no sabe
+   * a qué altura va el tablero; sin ella, visto desde el agua el tablero parecía flotar entre las patas.
+   */
+  const brace = (s: number, legs: TowerLegs | null | undefined) => {
+    if (!legs) return
+    const [la, lo] = unitToGeo(legs.ax, legs.ay)
+    const [lb, lob] = unitToGeo(legs.bx, legs.by)
+    let oa = projectOnChain(c, la, lo).off
+    let ob = projectOnChain(c, lb, lob).off
+    if (oa > ob) [oa, ob] = [ob, oa]
+    if (ob - oa < 3 || ob - oa > 90) return
+    // (las patas de los lados tienen 1,5 m o más)
+    oa -= 0.7
+    ob += 0.7
+    const depth = clamp(plan.towerH / 40, 1.5, 5)
+    const half = clamp(0.4 * legs.thick, 0.75, 4)
+    // (barra cerrada: se ve desde abajo; y su choque, una caja: la cápsula de `bar` asomaría por
+    // encima de un tablero de poco canto)
+    bar(P(s, oa, -plan.girder - depth / 2), P(s, ob, -plan.girder - depth / 2), 2 * half, depth, col, false)
+    const m = P(s, (oa + ob) / 2, 0)
+    const [ux, uz] = fr.dirAt(s)
+    prims.push({ k: 1, cx: m.x, cz: m.z, ux, uz, ha: half, hb: (ob - oa) / 2, y0: m.y - plan.girder - depth, y1: m.y - plan.girder - 0.05 })
+  }
 
+  // (de vigas: el tablero y las pilas son los de siempre)
+  if (plan.shape === 'beam') return
   if (plan.shape === 'suspension') {
     const S = plan.span
     const H = plan.towerH
@@ -628,6 +745,7 @@ export function buildStructure(mb: MeshBuilder, prims: Prim[], fr: ChainFrame, p
       // riostras: bajo el tablero, a media altura y en lo alto
       for (const dy of [-plan.girder - hb, H * 0.5, H - hb * 1.5]) bar(P(s, lo, dy), P(s, ro, dy), ha * 1.6, hb * 1.8, col)
     }
+    if (!plan.ownTowers) plan.towers.forEach((s, k) => brace(s, plan.legs[k]))
     const sag = Math.max(1.6, 0.012 * S)
     const cableY = (s: number): number => {
       if (s >= t0 && s <= t1) return sag + (H - sag) * ((s - (t0 + t1) / 2) / (S / 2)) ** 2
@@ -670,7 +788,7 @@ export function buildStructure(mb: MeshBuilder, prims: Prim[], fr: ChainFrame, p
         post(s, ro, ha, hb, base, H, col)
         bar(P(s, lo, -plan.girder - hb), P(s, ro, -plan.girder - hb), ha * 1.6, hb * 1.8, col)
         if (H > 12) bar(P(s, lo, H * 0.82), P(s, ro, H * 0.82), ha * 1.2, hb * 1.4, col)
-      }
+      } else brace(s, plan.legs[k])
       // tirantes a los dos lados, en los dos planos
       const reach = [k === 0 ? plan.back0 : (s - plan.towers[k - 1]) * 0.48, k === n - 1 ? plan.back1 : (plan.towers[k + 1] - s) * 0.48]
       for (const dir of [-1, 1]) {

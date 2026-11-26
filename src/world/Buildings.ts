@@ -32,11 +32,16 @@ import {
   Vector2,
   Vector3,
 } from 'three'
+import { BRIDGE_CABLE_STAYED, BRIDGE_EXTRADOSED, BRIDGE_SUSPENSION, type BridgeRecord } from './bridgeFormat.ts'
+import { widthOf } from './bridgeNet.ts'
+import { deckLines, towerCut, type TowerCut } from './bridgeTowers.ts'
+import { bridgeRecordsIn } from './bridgeStructures.ts'
 import { catastro, type BBox, type CatTile, type Circle } from './catastro/Catastro.ts'
 import type { GeoFrame } from './GeoFrame.ts'
 import type { HeightSource } from './HeightSource.ts'
 import { classifyRings, fetchVectorTile, latToY, loadOrthoMosaic, lonToX, xToLon, yToLat, Z, type Ring } from './mapTiles.ts'
 import { facadeColour, parseOsmColour, roofColour } from './osmColour.ts'
+import { WX_BUILDING_GLSL, WX_COMMON_GLSL, weatherUniforms } from '../render/weathering.ts'
 import { lampGridUniforms, nightUniforms, streetLampGLSL } from '../render/nightLights.ts'
 import { ROOF_CONE, ROOF_DOME, ROOF_FLAT, ROOF_GABLED, ROOF_HIPPED, ROOF_ONION, ROOF_PYRAMIDAL, ROOF_ROUND, ROOF_SKILLION } from './osmRoofFormat.ts'
 import { osmRoofsTile, type OsmRoof } from './osmRoofs.ts'
@@ -389,6 +394,10 @@ export class Buildings extends TileLayer<BuildingTile> {
     // puentes de la tesela: hay contornos de puente etiquetados como edificio (building=bridge),
     // que saldrían como un bloque macizo de orilla a orilla; el puente lo dibuja Bridges.ts
     const bridgeLines = bridgeSamples(vt, E, mPerPx)
+    // y las torres de algunos colgantes y atirantados, que OSM trae como un edificio macizo que
+    // atraviesan los tableros (25 de Abril, Brooklyn, Verrazzano…): van como patas (towerCut)
+    const decks = bridgeLines.length > 0 ? deckLines(vt, E, mPerPx, widthOf) : []
+    const towersDone: Array<[number, number, number]> = []
 
     for (let i = 0; layer && i < layer.length; i++) {
       const f = layer.feature(i)
@@ -430,6 +439,21 @@ export class Buildings extends TileLayer<BuildingTile> {
           // aquí solo asoma: se omite si la vecina lo dibuja entero (si no, recortado, como siempre)
           else if (own !== 'clip' && (await neighbourDrawsWhole(t.x, t.y, own, rings[0].pts, E))) continue
           if (signal.aborted) return null
+        }
+        if (decks.length > 0 && height >= 25 && height - minHeight >= 20 && !draw[0].cut.some(Boolean)) {
+          const cut = towerCut(draw[0].pts, decks, mPerPx)
+          if (cut) {
+            // (Brooklyn y Manhattan traen la huella dos veces, casi igual: una sola torre)
+            const [tx, ty, ta] = ringCentroidArea(draw[0].pts)
+            const twin = towersDone.some(([x, y, a]) => Math.hypot(x - tx, y - ty) * mPerPx < 3 && ta < 1.4 * a && a < 1.4 * ta)
+            if (!twin) {
+              towersDone.push([tx, ty, ta])
+              const look = await this.towerLook(draw[0].pts, toGeo, colour)
+              if (signal.aborted) return null
+              if (look && this.addBridgeTower(builder, t.frame, prisms, deferred, draw[0].pts, cut, toGeo, height, minHeight, look, E, t.x * E, t.y * E, mPerPx)) buildings++
+            }
+            continue
+          }
         }
         const hangar = aerodromes.length > 0 && inAnyPolygon(aerodromes, draw[0].pts)
         // forma del tejado mapeada en OSM (solo huellas enteras: las recortadas no casan)
@@ -520,6 +544,7 @@ export class Buildings extends TileLayer<BuildingTile> {
     ox: number,
     oy: number,
     osm: OsmRoof | null = null,
+    tower: TowerLook | null = null,
   ): boolean {
     // a coordenadas locales (curvatura incluida) y alturas del suelo
     const local: Vector3[][] = []
@@ -559,6 +584,9 @@ export class Buildings extends TileLayer<BuildingTile> {
       gMax = Math.max(gMax, hc)
     }
     if (!isFinite(gMin)) return false
+    // pieza de una torre de puente: todas con el mismo suelo, para que patas y travesaños casen
+    const gOwn = gMin
+    if (tower) gMin = tower.ground
 
     // área de la huella
     let area = 0
@@ -571,7 +599,7 @@ export class Buildings extends TileLayer<BuildingTile> {
     // base hundida en el terreno (tapa los errores de la malla en pendiente);
     // tejado a su altura sobre el punto más bajo, y siempre algo por encima del más alto
     const parted = minHeight > 0.5
-    const base = parted ? gMin + minHeight : gMin - 1.5
+    const base = parted ? gMin + minHeight : Math.min(gMin, gOwn) - 1.5
     let top = gMin + height
     if (!parted) top = Math.max(top, gMax + Math.min(2.5, height))
     if (top - base < 1) return false
@@ -602,6 +630,10 @@ export class Buildings extends TileLayer<BuildingTile> {
       const c: [number, number, number] = [osm.rgb[0] / 255, osm.rgb[1] / 255, osm.rgb[2] / 255]
       roof.setRGB(...(osm.fromMaterial ? c : roofColour(c)), SRGBColorSpace)
     }
+    if (tower) {
+      wall.copy(tower.colour)
+      roof.copy(tower.colour)
+    }
     // un tejado en sombra en la foto no debe quedar negro (ni azulado: la sombra lo es)
     const lum = 0.2126 * roof.r + 0.7152 * roof.g + 0.0722 * roof.b
     if (lum < 0.05) roof.multiplyScalar(0.05 / Math.max(lum, 0.005)).lerp(_grey.setScalar(0.05), 0.5)
@@ -612,7 +644,7 @@ export class Buildings extends TileLayer<BuildingTile> {
     // (ni en torres y cúpulas de OSM ni en las partes que empiezan en alto: campanarios,
     // chapiteles, linternas… no tienen pisos)
     const monument = parted || (osm !== null && (osm.shape === ROOF_PYRAMIDAL || osm.shape === ROOF_DOME || osm.shape === ROOF_ONION || osm.shape === ROOF_CONE))
-    const floorH = industrial || monument || height < 3.2 ? 0 : height > 40 ? 3.4 : 3.0
+    const floorH = tower || industrial || monument || height < 3.2 ? 0 : height > 40 ? 3.4 : 3.0
 
     // tejado mapeado en OSM: hasta dónde llegan las paredes y cuánto sube
     const plan = osm ? planOsmRoof(osm, local, top, base) : null
@@ -690,6 +722,67 @@ export class Buildings extends TileLayer<BuildingTile> {
     // para chocar, el tejado cuenta hasta media altura (por encima del alero, lejos de la cumbrera)
     prisms.push(makePrism(local[0], base, yt + rise * 0.5))
     return true
+  }
+
+  /**
+   * Suelo y color de una torre de puente: el suelo más bajo de la huella (el mismo para todas sus
+   * piezas) y el color del puente si `bridges.bin` lo trae (Wikidata: el 25 de Abril, rojo), si
+   * no el de OSM, y si tampoco, acero (colgantes) u hormigón (atirantados) como en bridgeShapes.ts.
+   */
+  private async towerLook(ring: Array<[number, number]>, toGeo: (px: number, py: number) => [number, number], osmColour: string | null): Promise<TowerLook | null> {
+    let ground = Infinity
+    for (const [px, py] of ring) {
+      const h = this.heights.sample(...toGeo(px, py))
+      if (h !== null) ground = Math.min(ground, h)
+    }
+    const [cx, cy] = ringCentroidArea(ring)
+    const [lat, lon] = toGeo(cx, cy)
+    const hc = this.heights.sample(lat, lon)
+    if (hc !== null) ground = Math.min(ground, hc)
+    if (!isFinite(ground)) return null
+    // el registro de Wikidata suele estar en el centro del puente (Akashi: torres a 1 km)
+    const cos = Math.max(0.2, Math.cos((lat * Math.PI) / 180))
+    let rec: BridgeRecord | null = null
+    let best = 3000
+    for (const r of await bridgeRecordsIn(lat - 0.027, lon - 0.027 / cos, lat + 0.027, lon + 0.027 / cos)) {
+      if (r.type !== BRIDGE_SUSPENSION && r.type !== BRIDGE_CABLE_STAYED && r.type !== BRIDGE_EXTRADOSED) continue
+      const d = Math.hypot(r.lat - lat, (r.lon - lon) * cos) * 111320
+      if (d < best) {
+        best = d
+        rec = r
+      }
+    }
+    const colour = new Color()
+    const osm = parseOsmColour(osmColour)
+    if (rec?.colour) colour.set(rec.colour)
+    else if (osm) colour.setRGB(osm[0], osm[1], osm[2], SRGBColorSpace)
+    else colour.set(rec && rec.type !== BRIDGE_SUSPENSION ? TOWER_CONCRETE : TOWER_STEEL)
+    return { ground, colour }
+  }
+
+  /** Torre de puente atravesada por los tableros: patas a sus lados y travesaños en lo alto (towerPieces). */
+  private addBridgeTower(
+    b: GeometryBuilder,
+    frame: GeoFrame,
+    prisms: Prism[],
+    deferred: DeferredRoof[],
+    ring: Array<[number, number]>,
+    cut: TowerCut,
+    toGeo: (px: number, py: number) => [number, number],
+    height: number,
+    minHeight: number,
+    look: TowerLook,
+    E: number,
+    ox: number,
+    oy: number,
+    mPerPx: number,
+  ): boolean {
+    let any = false
+    for (const p of towerPieces(ring, cut, height, minHeight, mPerPx)) {
+      const rings = [{ pts: p.pts, cut: p.pts.map(() => false) }]
+      if (this.addBuilding(b, frame, prisms, deferred, rings, toGeo, p.top, p.bottom, null, null, E, false, ox, oy, null, look)) any = true
+    }
+    return any
   }
 }
 
@@ -1032,10 +1125,13 @@ class GeometryBuilder {
     const ez = c.z - a.z
     // la cara (A, B, C) tiene normal ∝ (−ez, 0, ex): si apunta hacia fuera, ese orden
     const facing = -ez * nx + ex * nz
-    const A = this.v(a.x, a.y + yb, a.z, nx, 0, nz, col, u0, v0, floorH)
-    const B = this.v(c.x, c.y + yb, c.z, nx, 0, nz, col, u1, v0, floorH)
-    const C = this.v(c.x, c.y + yt, c.z, nx, 0, nz, col, u1, v1, floorH)
-    const D = this.v(a.x, a.y + yt, a.z, nx, 0, nz, col, u0, v1, floorH)
+    // fs = altura de planta (< 16) + 16 × la coronación de la pared en medios metros: el shader
+    // la necesita para los churretones que bajan de la cornisa (render/weathering.ts)
+    const fs = floorH + 16 * Math.max(0, Math.round(2 * v1))
+    const A = this.v(a.x, a.y + yb, a.z, nx, 0, nz, col, u0, v0, fs)
+    const B = this.v(c.x, c.y + yb, c.z, nx, 0, nz, col, u1, v0, fs)
+    const C = this.v(c.x, c.y + yt, c.z, nx, 0, nz, col, u1, v1, fs)
+    const D = this.v(a.x, a.y + yt, a.z, nx, 0, nz, col, u0, v1, fs)
     if (facing > 0) {
       this.tri(A, B, C)
       this.tri(A, C, D)
@@ -1161,19 +1257,23 @@ function createBuildingMaterial(): MeshStandardMaterial {
   const m = new MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 })
   m.onBeforeCompile = (shader) => {
     // ventanas encendidas de noche (render/nightLights.ts)
-    Object.assign(shader.uniforms, nightUniforms, lampGridUniforms)
+    Object.assign(shader.uniforms, nightUniforms, lampGridUniforms, weatherUniforms)
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec3 fac;\nvarying vec3 vFac;\nvarying vec3 vWinSeed;\nvarying vec3 vSlWorld;\nvarying vec3 vSlNormal;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFac = fac;\nvWinSeed = position;\nvSlWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvSlNormal = mat3(modelMatrix) * objectNormal;')
+      .replace('#include <common>', '#include <common>\nattribute vec3 fac;\nvarying vec3 vFac;\nvarying float vFacTop;\nvarying vec3 vWinSeed;\nvarying vec3 vSlWorld;\nvarying vec3 vSlNormal;')
+      // fac.z = altura de planta + 16 × coronación de la pared en medios metros (−1: tejado)
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nfloat facTop = floor(max(fac.z, 0.0) / 16.0);\nvFac = vec3(fac.xy, fac.z - 16.0 * facTop);\nvFacTop = 0.5 * facTop;\nvWinSeed = position;\nvSlWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvSlNormal = mat3(modelMatrix) * objectNormal;')
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
         /* glsl */ `#include <common>
         varying vec3 vFac;
+        varying float vFacTop;
         varying vec3 vWinSeed;
         varying vec3 vSlWorld;
         varying vec3 vSlNormal;
         ${streetLampGLSL}
+        ${WX_COMMON_GLSL}
+        ${WX_BUILDING_GLSL}
         uniform float nlOn;
         uniform float nlLit;
         uniform float nlGain;
@@ -1186,6 +1286,11 @@ function createBuildingMaterial(): MeshStandardMaterial {
       .replace(
         '#include <color_fragment>',
         /* glsl */ `#include <color_fragment>
+        // desgaste (render/weathering.ts): manchas y churretones en las fachadas, cubiertas con vida
+        if (wxAmount > 0.0) {
+          if (vFac.z > -0.5) wxWall(diffuseColor.rgb, vWinSeed, vFac.xy, vFacTop, vFac.z);
+          else wxRoof(diffuseColor.rgb, vWinSeed);
+        }
         float winMask = 0.0;
         vec3 winEmit = vec3(0.0);
         if (vFac.z > 0.5) {
@@ -1206,6 +1311,14 @@ function createBuildingMaterial(): MeshStandardMaterial {
           vec3 glass = vec3(0.025, 0.03, 0.035) * (0.6 + 0.8 * r);
           vec3 blind = diffuseColor.rgb * vec3(0.78, 0.72, 0.62);
           vec3 winCol = mix(glass, blind, step(0.62, r) * (1.0 - far));
+          // de cerca: alféizar claro bajo el hueco, el churretón de sus esquinas y el dintel,
+          // que deja en sombra la parte alta del hueco
+          float wxNear = (1.0 - far) * wxAmount * step(0.0, id.y);
+          float sill = wx * (smoothstep(0.25 - fw.y, 0.25 + fw.y, cell.y) - smoothstep(0.30 - fw.y, 0.30 + fw.y, cell.y));
+          vec2 sx = (cell.xx - vec2(0.29, 0.71)) / 0.035;
+          float stain = (exp(-sx.x * sx.x) + exp(-sx.y * sx.y)) * smoothstep(0.0, 0.25, cell.y) * step(cell.y, 0.26) * step(0.35, bHash(id + 4.7));
+          diffuseColor.rgb *= 1.0 + wxNear * (0.22 * sill - 0.22 * stain);
+          winCol *= 1.0 - 0.5 * wxNear * smoothstep(0.64, 0.80, cell.y);
           diffuseColor.rgb = mix(diffuseColor.rgb, winCol, w * 0.9);
           winMask = w * (1.0 - step(0.62, r));
           if (nlOn > 0.0) {
@@ -1249,7 +1362,7 @@ function createBuildingMaterial(): MeshStandardMaterial {
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += winEmit;\n// la luz de las farolas en las fachadas (la misma rejilla que alumbra el suelo)\nif (slOn > 0.0) totalEmissiveRadiance += diffuseColor.rgb * streetLampLight(vSlWorld, normalize(vSlNormal)) * 0.3183099;')
       .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a = 0.0;')
   }
-  m.customProgramCacheKey = () => 'osm-buildings-v3'
+  m.customProgramCacheKey = () => 'osm-buildings-v4'
   return m
 }
 
@@ -1640,6 +1753,115 @@ function coversBridge(rings: Array<{ pts: Array<[number, number]> }>, lines: Arr
     if (inside >= 3 && inside >= 0.6 * line.length) return true
   }
   return false
+}
+
+// ---------------------------------------------------------------------------
+// Torres de puente que OSM trae como edificio: se reconocen en bridgeTowers.ts (`towerCut`) y aquí
+// se dibujan como patas a los lados de los tableros con travesaños en lo alto (`towerPieces`), sin
+// ventanas y con el color del puente. La riostra bajo el tablero la pone bridgeShapes.ts, que sabe
+// a qué altura va.
+
+/** acero de los colgantes y hormigón de los pilonos (los de bridgeShapes.ts) */
+const TOWER_STEEL = 0x848c93
+const TOWER_CONCRETE = 0xc9c6bf
+interface TowerLook {
+  /** suelo de referencia de todas las piezas (m) */
+  ground: number
+  colour: Color
+}
+
+/**
+ * Piezas de una torre atravesada por los tableros (anillos en unidades de la tesela y alturas sobre
+ * el suelo): una pata por cada trozo de la huella fuera de las franjas de los tableros (si el de un
+ * lado no llega al mínimo, una pata de ese mínimo pegada a la franja, aunque se salga de la huella)
+ * y, sobre cada franja, un travesaño en lo alto y otro hacia los dos tercios en las torres de 90 m o
+ * más. La huella se recorta por franjas a lo largo del eje; si el recorte no es limpio (el borde de
+ * la franja corta el contorno más de dos veces), la pieza es la caja que lo envuelve.
+ */
+function towerPieces(ring: Array<[number, number]>, cut: TowerCut, height: number, minHeight: number, mPerPx: number): Array<{ pts: Array<[number, number]>; bottom: number; top: number }> {
+  const { ux, uy, cx, cy, v0, v1, lanes } = cut
+  // a coordenadas del puente: u a lo largo, v de lado
+  const uv = ring.map(([x, y]) => [(x - cx) * ux + (y - cy) * uy, (y - cy) * ux - (x - cx) * uy] as [number, number])
+  const back = (q: [number, number]): [number, number] => [cx + q[0] * ux - q[1] * uy, cy + q[0] * uy + q[1] * ux]
+  const clipV = (poly: Array<[number, number]>, v: number, keepAbove: boolean): Array<[number, number]> => {
+    const out: Array<[number, number]> = []
+    for (let i = 0; i < poly.length; i++) {
+      const p = poly[i]
+      const q = poly[(i + 1) % poly.length]
+      const sp = keepAbove ? p[1] - v : v - p[1]
+      const sq = keepAbove ? q[1] - v : v - q[1]
+      if (sp >= 0) out.push(p)
+      if (sp >= 0 !== sq >= 0) {
+        const t = sp / (sp - sq)
+        out.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t])
+      }
+    }
+    return out
+  }
+  const crossings = (v: number) => {
+    let n = 0
+    for (let i = 0; i < uv.length; i++) if (uv[i][1] >= v !== uv[(i + 1) % uv.length][1] >= v) n++
+    return n
+  }
+  const box = (u0: number, u1: number, a: number, b: number): Array<[number, number]> => [
+    [u0, a],
+    [u1, a],
+    [u1, b],
+    [u0, b],
+  ]
+  const uRange = (poly: Array<[number, number]>): [number, number] => {
+    let u0 = Infinity
+    let u1 = -Infinity
+    for (const [u] of poly) {
+      u0 = Math.min(u0, u)
+      u1 = Math.max(u1, u)
+    }
+    return [u0, u1]
+  }
+  /** la huella entre v = a y v = b */
+  const band = (a: number, b: number): Array<[number, number]> | null => {
+    const poly = clipV(clipV(uv, a, true), b, false)
+    if (poly.length < 3) return null
+    if ((a > v0 && crossings(a) > 2) || (b < v1 && crossings(b) > 2)) {
+      const [u0, u1] = uRange(poly)
+      return u1 - u0 > 1e-6 ? box(u0, u1, a, b) : null
+    }
+    return poly
+  }
+  const span = height - minHeight
+  const minLeg = Math.min(4, Math.max(1.5, 0.1 * (v1 - v0) * mPerPx)) / mPerPx
+  /** canto de un travesaño */
+  const strut = Math.min(9, Math.max(2.5, 0.045 * span))
+  const out: Array<{ pts: Array<[number, number]>; bottom: number; top: number }> = []
+  const piece = (poly: Array<[number, number]> | null, bottom: number, top: number) => {
+    if (poly && poly.length >= 3) out.push({ pts: poly.map(back), bottom, top })
+  }
+  // patas de los lados: lo que queda de la huella o, si no llega, el mínimo pegado a la franja
+  const first = lanes[0][0]
+  const last = lanes[lanes.length - 1][1]
+  const edge = 3 / mPerPx
+  if (first - v0 >= minLeg) piece(band(v0 - 1, first), minHeight, height)
+  else {
+    const near = band(v0 - 1, Math.max(v0 + edge, first)) ?? uv
+    const [u0, u1] = uRange(near)
+    piece(box(u0, u1, first - minLeg, first), minHeight, height)
+  }
+  if (v1 - last >= minLeg) piece(band(last, v1 + 1), minHeight, height)
+  else {
+    const near = band(Math.min(v1 - edge, last), v1 + 1) ?? uv
+    const [u0, u1] = uRange(near)
+    piece(box(u0, u1, last, last + minLeg), minHeight, height)
+  }
+  // patas entre tableros (la pila central de Brooklyn, entre sus dos arcos)
+  for (let k = 1; k < lanes.length; k++) piece(band(lanes[k - 1][1], lanes[k][0]), minHeight, height)
+  // travesaños sobre cada franja (de pata a pata, aunque la franja se salga de la huella)
+  for (const [a, b] of lanes) {
+    const inner = a >= v0 && b <= v1 ? band(a, b) : null
+    const poly = inner ?? box(...uRange(band(Math.max(a, v0), Math.min(b, v1)) ?? uv), a, b)
+    piece(poly, height - strut, height)
+    if (span >= 90) piece(poly, minHeight + 0.68 * span, minHeight + 0.68 * span + 0.8 * strut)
+  }
+  return out
 }
 
 /** ¿El centro del anillo cae dentro de alguno de los polígonos (con sus huecos)? */

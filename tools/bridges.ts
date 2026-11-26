@@ -1,7 +1,9 @@
 // Puentes con estructura conocida de todo el mundo, para public/bridges.bin (formato en
 // src/world/bridgeFormat.ts). Las teselas vectoriales traen el trazado de cada puente pero no
 // de qué tipo es; aquí se piden a Wikidata los puentes colgantes, atirantados, de arco y de
-// celosía con sus coordenadas y, si constan, su longitud, su vano mayor y su altura. El juego
+// celosía con sus coordenadas y, si constan, su longitud, su vano mayor y su altura. Y, de
+// cualquier tipo, los que tienen gálibo (P2793, el paso libre bajo el tablero): con él el juego
+// sube el vano principal a su altura de verdad (los de vigas entran solo por eso). El juego
 // (src/world/Bridges.ts) casa cada registro con el puente de la tesela que pasa por ese punto.
 //
 //   node --experimental-strip-types tools/bridges.ts [out=public/bridges.bin]
@@ -15,6 +17,7 @@ import {
   BRIDGE_ARCH_DECK,
   BRIDGE_ARCH_STONE,
   BRIDGE_ARCH_THROUGH,
+  BRIDGE_BEAM,
   BRIDGE_CABLE_STAYED,
   BRIDGE_CANTILEVER,
   BRIDGE_EXTRADOSED,
@@ -86,15 +89,31 @@ interface Row {
   len: number
   span: number
   height: number
+  /** gálibo (m) o 0; en los móviles, el menor que conste (con el puente cerrado) */
+  clearance: number
+  clearMin: number
+  movable: boolean
+  noDeck: boolean
   type: number
   prio: number
   gone: boolean
 }
 
-async function query(root: string): Promise<Array<Record<string, { value: string }>>> {
-  // psn: = valor normalizado a unidades SI (metros), venga como venga
-  const q = `SELECT ?b ?bLabel ?lat ?lon ?len ?span ?h ?gone WHERE {
+/**
+ * Puentes de una clase (y sus subclases), o con `clearance` todos los que tienen gálibo, diciendo
+ * si son móviles (basculantes, levadizos, giratorios: Q787417) o de los que no tienen un tablero
+ * fijo a esa altura (transbordadores, Q506412; de pontones, Q2104072). psn: = valor normalizado a
+ * unidades SI (metros), venga como venga.
+ */
+async function query(root: string, clearance = false): Promise<Array<Record<string, { value: string }>>> {
+  const extra = clearance
+    ? `?b p:P2793/psn:P2793/wikibase:quantityAmount ?cl .
+  OPTIONAL { ?b wdt:P31/wdt:P279* wd:Q787417 . BIND(1 AS ?mov) }
+  OPTIONAL { { ?b wdt:P31/wdt:P279* wd:Q506412 } UNION { ?b wdt:P31/wdt:P279* wd:Q2104072 } BIND(1 AS ?nodeck) }`
+    : ''
+  const q = `SELECT ?b ?bLabel ?lat ?lon ?len ?span ?h ?cl ?mov ?nodeck ?gone WHERE {
   ?b wdt:P31/wdt:P279* wd:${root} ; p:P625/psv:P625 ?c .
+  ${extra}
   ?c wikibase:geoLatitude ?lat ; wikibase:geoLongitude ?lon ; wikibase:geoGlobe wd:Q2 .
   OPTIONAL { ?b p:P2043/psn:P2043/wikibase:quantityAmount ?len }
   OPTIONAL { ?b p:P2787/psn:P2787/wikibase:quantityAmount ?span }
@@ -119,8 +138,9 @@ async function query(root: string): Promise<Array<Record<string, { value: string
 }
 
 const rows = new Map<string, Row>()
-for (const root of ROOTS) {
-  const res = await query(root.q)
+// (la última pasada: cualquier puente, Q12280, con gálibo; los que no tengan otro tipo, de vigas)
+for (const root of [...ROOTS, { q: 'Q12280', name: 'con gálibo (de cualquier tipo)', type: BRIDGE_BEAM, prio: 1 }]) {
+  const res = await query(root.q, root.type === BRIDGE_BEAM)
   let fresh = 0
   for (const b of res) {
     const q = b.b.value.replace(/^.*\//, '')
@@ -133,7 +153,7 @@ for (const root of ROOTS) {
     }
     let row = rows.get(q)
     if (!row) {
-      row = { q, label: b.bLabel?.value ?? q, lat, lon, len: 0, span: 0, height: 0, type: 0, prio: -1, gone: false }
+      row = { q, label: b.bLabel?.value ?? q, lat, lon, len: 0, span: 0, height: 0, clearance: 0, clearMin: Infinity, movable: false, noDeck: false, type: 0, prio: -1, gone: false }
       rows.set(q, row)
       fresh++
     }
@@ -141,6 +161,13 @@ for (const root of ROOTS) {
     row.len = Math.max(row.len, num(b.len, 60000))
     row.span = Math.max(row.span, num(b.span, 2500))
     row.height = Math.max(row.height, num(b.h, 400))
+    const cl = num(b.cl, 400)
+    if (cl > 0) {
+      row.clearance = Math.max(row.clearance, cl)
+      row.clearMin = Math.min(row.clearMin, cl)
+    }
+    if (b.mov) row.movable = true
+    if (b.nodeck) row.noDeck = true
     if (b.gone) row.gone = true
     if (root.prio > row.prio) {
       row.prio = root.prio
@@ -163,11 +190,22 @@ for (const row of rows.values()) {
   if (row.type === 0 || row.gone) continue
   // el vano no puede ser mayor que el puente
   if (row.len > 0 && row.span > row.len * 1.02) row.span = 0
+  // de un puente móvil vale el gálibo con el puente cerrado (Wikidata suele dar el de abierto: 43 m
+  // el Tower Bridge, que cerrado deja 9); en un transbordador o uno de pontones, ninguno
+  // (con un solo dato no se sabe cuál es: Chaban-Delmas, en Burdeos, solo trae los 53 m de abierto)
+  if (row.movable) row.clearance = row.clearMin < row.clearance ? row.clearMin : 0
+  if (row.noDeck) row.clearance = 0
+  // ni el gálibo mayor que lo que suben las torres o el arco sobre el agua (donde van por encima
+  // del tablero; en un arco bajo el tablero la «altura» suele ser la del propio tablero)
+  const above = [BRIDGE_SUSPENSION, BRIDGE_CABLE_STAYED, BRIDGE_EXTRADOSED, BRIDGE_ARCH_THROUGH].includes(row.type)
+  if (above && row.height > 0 && row.clearance >= row.height) row.clearance = 0
+  // los de vigas solo están por su gálibo
+  if (row.type === BRIDGE_BEAM && row.clearance < 2) continue
   let colour = 0
   for (const [re, c] of COLOURS) if (re.test(row.label)) colour = c
   let towers = 0
   for (const [re, n] of TOWERS) if (re.test(row.label)) towers = n
-  recs.push({ lat: row.lat, lon: row.lon, length: row.len, span: row.span, height: row.height, type: row.type, colour, towers })
+  recs.push({ lat: row.lat, lon: row.lon, length: row.len, span: row.span, height: row.height, type: row.type, colour, towers, clearance: row.clearance })
   perType.set(row.type, (perType.get(row.type) ?? 0) + 1)
 }
 recs.sort((a, b) => tileOf(a) - tileOf(b))
@@ -192,8 +230,10 @@ const names: Record<number, string> = {
   [BRIDGE_ARCH_STONE]: 'de piedra',
   [BRIDGE_TRUSS]: 'de celosía',
   [BRIDGE_CANTILEVER]: 'en ménsula',
+  [BRIDGE_BEAM]: 'de vigas (por su gálibo)',
 }
 for (const [t, c] of [...perType].sort((a, b) => b[1] - a[1])) console.log(`  ${String(c).padStart(6)} ${names[t]}`)
 const withLen = recs.filter((r) => r.length > 0).length
 const withSpan = recs.filter((r) => r.span > 0).length
-console.log(`${OUT}: ${recs.length} puentes (${withLen} con longitud, ${withSpan} con vano) · ${(packed.length / 1024).toFixed(0)} kB`)
+const withClear = recs.filter((r) => r.clearance > 0).length
+console.log(`${OUT}: ${recs.length} puentes (${withLen} con longitud, ${withSpan} con vano, ${withClear} con gálibo) · ${(packed.length / 1024).toFixed(0)} kB`)

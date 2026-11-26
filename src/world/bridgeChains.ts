@@ -105,6 +105,8 @@ export interface Chain {
   companion: boolean
   /** parche que rebaja el terreno incrustado, si lo hay */
   carve: (TerrainPatch & { stations: number }) | null
+  /** la rasante pasa por alturas medidas del tablero (el MDT del IGN lo trae incrustado en algún tramo) */
+  measured: boolean
   /** parches que rellenan el acceso en los extremos que vuelven al suelo (terraplén contra el estribo) */
   fills: Array<TerrainPatch & { depth: number; reach: number }>
   lat0: number
@@ -308,6 +310,7 @@ export class ChainBuilder {
       depth: 1,
       companion: false,
       carve: null,
+      measured: false,
       fills: [],
       lat0,
       lon0,
@@ -445,6 +448,15 @@ export class ChainBuilder {
       }
       if (tall) await Promise.all(ensureAlong(WIDE[WIDE.length - 1] + 40))
       this.detectCarve(c)
+    }
+    // Viaductos largos: a más de ~1,4 km de todo estribo la rasante pasa de la media de los estribos
+    // a «el terreno + 9 m» en unos 100 m, y si un estribo está alto eso es un precipicio (36 m en
+    // 80 m en la calzada del 25 de Abril, a 1,5 km de Lisboa). Sin alturas medidas que lo corrijan
+    // (el LiDAR del IGN), la rasante no cae más deprisa que la pendiente máxima de su clase
+    {
+      let far = 0
+      for (let i = 0; i < n; i++) far = Math.max(far, c.dTerm[i])
+      if (!c.measured && far > 0.8 * D_MAX) limitGrade(c, MAX_GRADE[parts[0].piece.kind] ?? 0.06)
     }
     // acuerdos verticales en los cambios de pendiente (antes de mirar el terreno: si asoma, se sube)
     smoothDeck(c, VCURVE)
@@ -814,18 +826,19 @@ export class ChainBuilder {
     // por cada lado que lo esté) como lo haría una calzada: 12 % de pendiente y 1,5 m de ruido. En
     // los bordes de cada tramo incrustado el MDT baja en rampa hasta el agua o el suelo (de 14 a
     // 37 m en 12 m en Cádiz) y anclar la rasante ahí la hacía caer en cada hueco entre tramos y
-    // subir de golpe en el siguiente.
+    // subir de golpe en el siguiente. Una estación del borde (con una sola vecina marcada) puede
+    // estar ya en el arranque de esa rampa sin que se note con esa holgura (en Cádiz, 2,1 m más
+    // baja que la de 12 m antes): esas tienen que seguir a su vecina como una calzada de verdad,
+    // con un 6 % y medio metro de ruido.
     const trusted = new Uint8Array(n)
     for (let i = 0; i < n; i++) {
       if (flag[i] !== 1) continue
-      let seen = 0
-      let ok = true
-      for (const j of [i - 2, i + 2]) {
-        if (j < 0 || j >= n || !flag[j]) continue
-        seen++
-        if (Math.abs(top[i] - top[j]) > 0.12 * Math.abs(c.s[i] - c.s[j]) + 1.5) ok = false
-      }
-      if (seen > 0 && ok) trusted[i] = 1
+      const nb: number[] = []
+      for (const j of [i - 2, i + 2]) if (j >= 0 && j < n && flag[j]) nb.push(j)
+      if (nb.length === 0) continue
+      // (con las dos vecinas marcadas: 12 % + 1,5 m con cada una; con una sola, un borde: 6 % + 0,5 m)
+      const [grade, noise] = nb.length === 2 ? [0.12, 1.5] : [0.06, 0.5]
+      if (nb.every((j) => Math.abs(top[i] - top[j]) <= grade * Math.abs(c.s[i] - c.s[j]) + noise)) trusted[i] = 1
     }
     {
       const anchors: Array<[number, number]> = [[0, 0]]
@@ -836,6 +849,7 @@ export class ChainBuilder {
         anchors.push([c.s[i], Math.min(room, Math.max(-room, top[i] + 0.3 - c.deck[i]))])
       }
       anchors.push([c.len, 0])
+      c.measured = anchors.length > 2
       const up = new Float32Array(n)
       let k = 0
       for (let i = 0; i < n; i++) {
@@ -1115,14 +1129,33 @@ export function stationAt(c: Chain, s: number): number {
 }
 
 /**
- * Media móvil de la rasante en ±h m a lo largo del eje (del perfil lineal entre estaciones), con
- * h = min(half, distancia al extremo más cercano): los extremos no se mueven, una recta se queda
- * como está y un quiebro pasa a ser una curva de 2h m (un acuerdo vertical).
+ * La rasante no baja más deprisa que `grade` en ningún sentido: la menor que pase por encima de la
+ * que había con esa pendiente máxima (solo sube). Cerca de los extremos, lo que quepa con un 8 % de
+ * rampa (allí manda la altura del estribo o del cruce).
  */
+function limitGrade(c: Chain, grade: number): void {
+  const { n, s, deck } = c
+  const env = Float64Array.from(deck)
+  for (let i = 1; i < n; i++) env[i] = Math.max(env[i], env[i - 1] - grade * (s[i] - s[i - 1]))
+  for (let i = n - 2; i >= 0; i--) env[i] = Math.max(env[i], env[i + 1] - grade * (s[i + 1] - s[i]))
+  for (let i = 0; i < n; i++) deck[i] = Math.min(env[i], deck[i] + 0.08 * Math.min(s[i], c.len - s[i]))
+}
+
+/** Acuerdos verticales: la rasante, suavizada como dice `smoothAlong`. */
 function smoothDeck(c: Chain, half: number): void {
+  c.deck.set(smoothAlong(c, c.deck, half))
+}
+
+/**
+ * Media móvil de un perfil de la cadena en ±h m a lo largo del eje (del perfil lineal entre
+ * estaciones), con h = min(half, distancia al extremo más cercano): los extremos no se mueven, una
+ * recta se queda como está y un quiebro pasa a ser una curva de 2h m (un acuerdo vertical).
+ */
+export function smoothAlong(c: Chain, arr: ArrayLike<number>, half: number): Float32Array {
   const { n, s } = c
-  if (n < 3) return
-  const d = Float64Array.from(c.deck)
+  const out = Float32Array.from(arr)
+  if (n < 3) return out
+  const d = Float64Array.from(arr)
   // integral de la rasante desde el principio hasta cada estación (trapecios)
   const acc = new Float64Array(n)
   for (let i = 1; i < n; i++) acc[i] = acc[i - 1] + ((d[i] + d[i - 1]) / 2) * (s[i] - s[i - 1])
@@ -1143,8 +1176,9 @@ function smoothDeck(c: Chain, half: number): void {
   for (let i = 1; i < n - 1; i++) {
     const h = Math.min(half, s[i] - s[0], s[n - 1] - s[i])
     if (h < 0.5) continue
-    c.deck[i] = (integral(s[i] + h) - integral(s[i] - h)) / (2 * h)
+    out[i] = (integral(s[i] + h) - integral(s[i] - h)) / (2 * h)
   }
+  return out
 }
 
 /** Valor interpolado de un perfil en la posición s. */
