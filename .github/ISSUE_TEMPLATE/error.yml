@@ -8,7 +8,9 @@ body:
         Gracias por avisar. Cuanto más concretos sean los datos, antes se arregla.
         Antes de nada, comprueba que tienes la [última versión](https://github.com/Marius-Romanus/autogiro/releases/latest): el juego se actualiza solo al abrirlo.
 
-        *Thanks for reporting! You can write in English.*
+        **¿Juegas en el navegador y faltan edificios, el agua, la foto o el relieve?** Casi siempre es un bloqueador de anuncios o de rastreo (Adblock Plus, uBlock Origin, Privacy Badger…): pruébalo con la página en sus excepciones antes de abrir el aviso. El juego te avisa arriba si detecta que algo no carga.
+
+        *Thanks for reporting! You can write in English.* *Playing in a browser and buildings, water, imagery or terrain are missing? It's almost always an ad/tracker blocker: try with this page allowed first.*
 
   - type: input
     id: version
@@ -32,6 +34,24 @@ body:
         - "Otro (dilo abajo) · Other (explain below)"
     validations:
       required: true
+
+  - type: dropdown
+    id: donde
+    attributes:
+      label: "Dónde juegas · Where do you play"
+      options:
+        - "App de escritorio (instalador) · Desktop app (installer)"
+        - "Navegador (Chrome, Edge, Firefox…) · Browser"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: bloqueador
+    attributes:
+      label: "Bloqueadores · Blockers"
+      options:
+        - label: "En el navegador uso un bloqueador de anuncios o de rastreo (Adblock, uBlock Origin, Privacy Badger, Brave Shields…) · I use an ad/tracker blocker in the browser"
+        - label: "Ya lo he probado con el juego en las excepciones del bloqueador · I already tried with the game allowed in the blocker"
 
   - type: input
     id: grafica
