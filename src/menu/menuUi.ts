@@ -13,12 +13,15 @@ import './menu.css'
 import pkg from '../../package.json'
 import { AIRCRAFT, aircraftById, aircraftName, aircraftNote } from '../aircraft/catalog.ts'
 import { airframeById } from '../sim/airframes.ts'
+import { FLOAT_KITS } from '../sim/floatKit.ts'
 import { LOCATIONS, locationName, type Location, type Settings } from '../config.ts'
 import { has, locale, t } from '../i18n.ts'
 import { localUtcOffset, sunTimes } from './sun.ts'
+import { failPlanText, fuelPlanText, refreshFuelMenu } from './fuelMenu.ts'
+import { airPlan, drawAir } from './weatherMenu.ts'
 
-export type MenuTab = 'aparato' | 'salida' | 'meteo' | 'escenario' | 'multi'
-const TABS: MenuTab[] = ['aparato', 'salida', 'meteo', 'escenario', 'multi']
+export type MenuTab = 'aparato' | 'salida' | 'meteo' | 'escenario' | 'escuela' | 'multi'
+const TABS: MenuTab[] = ['aparato', 'salida', 'meteo', 'escenario', 'escuela', 'multi']
 
 export interface MenuHooks {
   settings: Settings
@@ -64,7 +67,14 @@ export function setupMenuUi(h: MenuHooks): void {
     }
   })
   // los manejadores de main.ts van en cada control y se ejecutan antes que estos
-  menu.addEventListener('input', () => refreshMenuUi())
+  menu.addEventListener('input', (e) => {
+    // (casillas y radios guardan su ajuste en el «change» que llega justo después: repintar con su
+    // «input» volvía a poner la casilla como estaba y deshacía el clic, p. ej. «Cuando menos te lo
+    // esperes» o la ayuda al pilotaje del plan de vuelo)
+    const type = (e.target as HTMLInputElement).type
+    if (type === 'checkbox' || type === 'radio') return
+    refreshMenuUi()
+  })
   menu.addEventListener('change', () => refreshMenuUi())
 
   // la ayuda al pilotaje está en el plan de vuelo y también en Ajustes
@@ -221,12 +231,16 @@ export function refreshMenuUi(): void {
   drawSun(s, sun)
   drawWind(s, loc)
   drawDeparture(loc, tz)
+  drawAir(s, loc)
   drawPlan(s, loc, sun)
 }
 
 function drawAircraft(s: Settings): void {
   const a = aircraftById(s.aircraft)
-  const af = airframeById(a.id)
+  const af = airframeById(a.id, s.floats)
+  drawFloats(s, a.id)
+  // combustible al salir y fallos de motor de la Escuela (fuelMenu.ts)
+  refreshFuelMenu(s)
   for (const card of $('acCards').querySelectorAll<HTMLElement>('.ac-card')) {
     const id = card.dataset.value!
     // (un aparato nuevo sin sus claves ac.<id>.tag/.short/.maker sale sin etiqueta y con su nota)
@@ -249,6 +263,26 @@ function drawAircraft(s: Settings): void {
   $('acSpecs').innerHTML = specs
     .map(([k, v, u]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}${u ? `<small>${esc(u)}</small>` : ''}</dd></div>`)
     .join('')
+}
+
+/**
+ * Fila «Con flotadores»: solo en los aparatos con juego de flotadores (floatKit.ts); el Wilford XOZ-1
+ * los lleva de serie (marcada y fija). Los demás no la muestran.
+ */
+let floatsFor = ''
+function drawFloats(s: Settings, id: string): void {
+  const kit = FLOAT_KITS[id]
+  const builtIn = !kit && Boolean(airframeById(id).floats?.length)
+  const row = $('floatsRow')
+  row.hidden = !kit && !builtIn
+  const box = $('floats') as HTMLInputElement
+  box.disabled = builtIn
+  // (la casilla solo se pone al cambiar de aparato: el menú se repinta con «input», antes del «change» que
+  // guarda el ajuste, y forzarla siempre deshacía el clic)
+  if (builtIn) box.checked = true
+  else if (id !== floatsFor) box.checked = s.floats
+  floatsFor = id
+  $('floatsNote').textContent = builtIn ? t('menu.floatsBuiltIn') : kit ? t(kit.amphib ? 'menu.floatsAmphib' : 'menu.floatsD', { kg: kit.mass }) : ''
 }
 
 const ARC = { x0: 18, x1: 282, cx: 150, rx: 132, ry: 88, hy: 104 }
@@ -325,7 +359,7 @@ function drawPlan(s: Settings, loc: Location, sun: ReturnType<typeof sunTimes>):
   const extras = [s.buildings && t('plan.buildings'), s.trees && t('plan.trees'), s.power && t('plan.power'), s.catastro && t('plan.catastro')].filter(Boolean)
   const start = isPlace(loc) || s.start === 'air' ? t('plan.inFlight') : t('plan.onRunway')
   const rows: Array<{ tab: MenuTab; k: string; v: string; s?: string; warn?: boolean }> = [
-    { tab: 'aparato', k: t('plan.aircraft'), v: aircraftName(aircraftById(s.aircraft)), s: t(s.passenger ? 'plan.pax' : 'plan.solo') },
+    { tab: 'aparato', k: t('plan.aircraft'), v: aircraftName(aircraftById(s.aircraft)), s: [t(s.passenger ? 'plan.pax' : 'plan.solo') + (airframeById(s.aircraft, s.floats).floats?.length ? ` · ${t('plan.floats')}` : ''), fuelPlanText(s)].filter(Boolean).join(' · ') },
     { tab: 'salida', k: t('plan.departure'), v: locationName(loc), s: start },
     {
       tab: 'meteo',
@@ -340,6 +374,8 @@ function drawPlan(s: Settings, loc: Location, sun: ReturnType<typeof sunTimes>):
       s: t('plan.turb', { pct: Math.round(s.turbulence * 100) }),
     },
     { tab: 'meteo', k: t('plan.sky'), v: t(`sky.${s.clouds}`) },
+    // temperatura, QNH y altitud de densidad en la salida (weatherMenu.ts)
+    { tab: 'meteo', k: t('plan.air'), ...airPlan(s, loc) },
     {
       tab: 'escenario',
       k: t('plan.scenery'),
@@ -348,6 +384,9 @@ function drawPlan(s: Settings, loc: Location, sun: ReturnType<typeof sunTimes>):
       warn: google && !s.googleKey,
     },
   ]
+  // fallos de motor (pestaña Escuela): solo si hay alguno elegido
+  const fail = failPlanText(s)
+  if (fail) rows.push({ tab: 'escuela', k: t('menu.failT'), v: fail.charAt(0).toUpperCase() + fail.slice(1) })
   const cur = menu.dataset.tab
   $('planList').innerHTML = rows
     .map(

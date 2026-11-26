@@ -1,21 +1,31 @@
 // Servidor de salas del multijugador: WebSocket en /mp, salas con código de 4 caracteres.
 //
 // No simula nada: cada cliente es dueño de su autogiro y el servidor solo reparte
-// los mensajes dentro de la sala (estado, chat, condiciones del anfitrión).
+// los mensajes dentro de la sala (estado, chat, condiciones del anfitrión y la voz
+// de la radio, en mensajes binarios: ver protocol.ts).
 // Se engancha a cualquier servidor HTTP: el de Vite (vite.config.ts) o server/index.ts.
 
 import type { IncomingMessage, Server } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer, WebSocket } from 'ws'
 import {
+  BIN_VOICE,
   CODE_ALPHABET,
   CODE_LENGTH,
   MAX_PLAYERS,
   MP_PATH,
+  RADIO_ON,
+  VOICE_BURST,
+  VOICE_BYTES,
+  VOICE_BYTES_BURST,
+  VOICE_MAX,
+  VOICE_MIN,
+  VOICE_RATE,
   cleanName,
   cleanText,
   isValidCode,
   normalizeCode,
+  radioFlags,
   type PeerInfo,
   type RoomConditions,
   type ServerMsg,
@@ -27,12 +37,20 @@ interface Client {
   name: string
   aircraft: string
   passenger: boolean
+  /** con flotadores (otro modelo 3D del mismo aparato) */
+  floats: boolean
+  /** radio de voz: bits RADIO_ON / RADIO_OPUS del perfil */
+  radio: number
   slot: number
   room: Room | null
   alive: boolean
   /** cubo de fichas para limitar mensajes por segundo */
   tokens: number
   lastRefill: number
+  /** cubos de la voz: paquetes y bytes */
+  vTokens: number
+  vBytes: number
+  vRefill: number
 }
 
 interface Room {
@@ -78,7 +96,30 @@ export function attachMultiplayer(server: Server, log: (msg: string) => void = (
     const data = JSON.stringify(m)
     for (const c of room.clients.values()) if (c !== except) send(c, data)
   }
-  const info = (c: Client): PeerInfo => ({ id: c.id, name: c.name, aircraft: c.aircraft, passenger: c.passenger, slot: c.slot })
+  const info = (c: Client): PeerInfo => ({ id: c.id, name: c.name, aircraft: c.aircraft, passenger: c.passenger, floats: c.floats, radio: c.radio, slot: c.slot })
+
+  /**
+   * Voz (mensaje binario): se reenvía con el id del emisor delante a los de su sala que tienen la
+   * radio encendida. El cuerpo no se mira; solo su tamaño y el ritmo (cubos aparte de los del JSON).
+   */
+  const voice = (c: Client, data: Buffer) => {
+    const room = c.room
+    if (!room || !(c.radio & RADIO_ON) || data.length < 1 + VOICE_MIN || data.length > 1 + VOICE_MAX || data[0] !== BIN_VOICE) return
+    const now = Date.now()
+    const dt = (now - c.vRefill) / 1000
+    c.vRefill = now
+    c.vTokens = Math.min(VOICE_BURST, c.vTokens + dt * VOICE_RATE)
+    c.vBytes = Math.min(VOICE_BYTES_BURST, c.vBytes + dt * VOICE_BYTES)
+    if (c.vTokens < 1 || c.vBytes < data.length) return
+    c.vTokens -= 1
+    c.vBytes -= data.length
+    const out = Buffer.allocUnsafe(data.length + 4)
+    out[0] = BIN_VOICE
+    out.writeUInt32BE(c.id, 1)
+    data.copy(out, 5, 1)
+    for (const p of room.clients.values())
+      if (p !== c && p.radio & RADIO_ON && p.ws.readyState === WebSocket.OPEN) p.ws.send(out, { binary: true })
+  }
 
   const newCode = (): string => {
     for (;;) {
@@ -134,6 +175,8 @@ export function attachMultiplayer(server: Server, log: (msg: string) => void = (
     c.name = cleanName(m.name)
     c.aircraft = cleanText(m.aircraft, 32) || 'generic'
     c.passenger = Boolean(m.passenger)
+    c.floats = Boolean(m.floats)
+    c.radio = radioFlags(m.radio)
   }
 
   wss.on('connection', (ws: WebSocket) => {
@@ -143,11 +186,16 @@ export function attachMultiplayer(server: Server, log: (msg: string) => void = (
       name: 'Piloto',
       aircraft: 'generic',
       passenger: false,
+      floats: false,
+      radio: 0,
       slot: 0,
       room: null,
       alive: true,
       tokens: BURST,
       lastRefill: Date.now(),
+      vTokens: VOICE_BURST,
+      vBytes: VOICE_BYTES_BURST,
+      vRefill: Date.now(),
     }
     clients.set(ws, c)
     ws.on('pong', () => (c.alive = true))
@@ -157,7 +205,10 @@ export function attachMultiplayer(server: Server, log: (msg: string) => void = (
     })
     ws.on('error', () => leave(c))
     ws.on('message', (data, isBinary) => {
-      if (isBinary) return
+      if (isBinary) {
+        voice(c, Buffer.isBuffer(data) ? data : Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data))
+        return
+      }
       // límite de ritmo
       const now = Date.now()
       c.tokens = Math.min(BURST, c.tokens + ((now - c.lastRefill) / 1000) * RATE)
@@ -220,7 +271,7 @@ export function attachMultiplayer(server: Server, log: (msg: string) => void = (
           return
         case 'profile':
           profile(c, m)
-          if (room) broadcast(room, { t: 'profile', id: c.id, name: c.name, aircraft: c.aircraft, passenger: c.passenger }, c)
+          if (room) broadcast(room, { t: 'profile', id: c.id, name: c.name, aircraft: c.aircraft, passenger: c.passenger, floats: c.floats, radio: c.radio }, c)
           return
         case 'cond': {
           if (!room || room.hostId !== c.id || !m.c || typeof m.c !== 'object') return
@@ -288,7 +339,18 @@ function sanitizeConditions(c: any): RoomConditions | null {
     windFrom: num(c.windFrom, 0, 360, 0),
     windSpeed: num(c.windSpeed, 0, 60, 0),
     turbulence: num(c.turbulence, 0, 1, 0),
+    // viento del terreno y térmicas (anfitriones anteriores no lo mandan: viento uniforme); igual en src-tauri/src/rooms.rs
+    terrainWind: c.terrainWind === true,
     clouds: cleanText(c.clouds, 16) || 'clear',
+    // aire del día (anfitriones anteriores no lo mandan: atmósfera estándar); igual en src-tauri/src/rooms.rs
+    isa: c.isa !== false,
+    oatC: num(c.oatC, -60, 60, 15),
+    qnh: num(c.qnh, 850, 1100, 1013.25),
+    dewPointC: num(c.dewPointC, -80, 40, 5),
+    visibility: num(c.visibility, 0, 100000, 30000),
+    precip: num(c.precip, 0, 500, 0),
+    weatherCode: num(c.weatherCode, -1, 99, -1),
+    windGustKt: num(c.windGustKt, 0, 150, 0),
     simTime: num(c.simTime, 0, 4e12, Date.now()),
     collisions: c.collisions !== false,
   }

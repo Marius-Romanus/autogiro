@@ -8,10 +8,12 @@
 
 import { Matrix3, Matrix4, Quaternion, Vector3 } from 'three'
 import { DEFAULT_ROTOR, Rotor } from './rotor.ts'
-import { DEFAULT_PREROTATOR, GENERIC, PASSENGER_MASS, PILOT_MASS, propCoeffs, type Airframe } from './airframes.ts'
+import { DEFAULT_PREROTATOR, GENERIC, PASSENGER_MASS, PILOT_MASS, propCoeffs, type Airframe, type RopeStart } from './airframes.ts'
 import { partLabel, t } from '../i18n.ts'
 import { Compound } from './compound.ts'
 import { Hydro, waterCrashInfo, waterFlipInfo } from './hydro.ts'
+import { Powerplant } from './powerplant.ts'
+import { turboTempFactor } from './airMass.ts'
 
 const DEG = Math.PI / 180
 const G = 9.80665
@@ -60,7 +62,21 @@ export interface GroundProvider {
 }
 
 export interface Environment {
+  /** densidad del aire a la altura del aparato (kg/m³): la que sale de la temperatura y el QNH del día */
   rho: number
+  /**
+   * Temperatura del aire (°C), punto de rocío (°C) y presión estática (Pa) a la altura del aparato
+   * (`AirModel.fill` en sim/airMass.ts, desde main.ts). Las pruebas sin navegador no los ponen:
+   * si faltan, ISA a la altitud que toque.
+   */
+  oatC?: number
+  dewPointC?: number
+  pressure?: number
+  /**
+   * Agarre de las ruedas respecto al asfalto seco: multiplica el μ de frenada y el lateral
+   * (`SURFACE_GRIP` en sim/weather.ts: mojado ≈ 0,66, nieve ≈ 0,38). Si falta, seco.
+   */
+  grip?: number
   /** viento en la posición del aparato (mundo) */
   wind: Vector3
   ground: GroundProvider
@@ -172,6 +188,14 @@ export class Autogyro {
 
   /** el agua: flotación, resistencia y planeo de la góndola, las ruedas, la cola y los flotadores */
   readonly hydro = new Hydro()
+  /**
+   * Combustible que se gasta y fallos del motor (simulacro del instructor, paradas, pérdidas de
+   * potencia, aceite, hielo): sim/powerplant.ts. Apagado salvo que se encienda (el juego lo hace;
+   * los bancos de pruebas no): entonces el motor rinde como siempre y la masa no cambia.
+   */
+  readonly pp = new Powerplant()
+  /** combustible con el que se calcularon la masa y el CG (se rehacen al gastar 10 g) */
+  private fuelApplied = 0
   /** algo del aparato está metido en el agua */
   onWater = false
   /**
@@ -221,6 +245,8 @@ export class Autogyro {
     this.maxPower = af.engine.maxPower
     this.rotor.p = af.rotor
     this.contacts = []
+    // depósito con la carga de referencia de la ficha (`fuelMass`)
+    this.pp.setAirframe(af)
     this.setLoad(this.passenger)
     this.restHeight = this.restAttitude().height
     this.hydro.setAirframe(af)
@@ -242,14 +268,19 @@ export class Autogyro {
     const kg = af.gearScale ?? 1
     // hidroautogiro: las quillas de los flotadores en vez de ruedas; anfibio: ruedas que se recogen
     const keel = af.keelGear === true
-    const up = af.amphib?.retract ?? 0
+    // (tren retráctil: las ruedas suben `lift` metros mientras se recogen y desaparecen recogidas)
+    const up = af.amphib?.retract ?? af.retractGear?.lift ?? 0
     const side = (p: Vector3) => (p.z < 0 ? 'flotador izquierdo' : 'flotador derecho')
     const keels = af.keels ?? []
+    const noses = af.amphib?.noses
     this.contacts = [
-      ...(af.noseWheel
-        ? [keel ? c('flotadores', 'keel', af.noseWheel, 60000 * kg, 4200 * kg) : c('rueda de morro', 'nose', af.noseWheel, 38000 * (af.noseGearScale ?? 1), 2600 * (af.noseGearScale ?? 1), up)]
-        : []),
-      ...(af.tailWheel ? [c('rueda de cola', 'tailwheel', af.tailWheel, 30000 * kg, 2400 * kg)] : []),
+      // (anfibio: una rueda de proa en cada flotador, cada una con la mitad de la rigidez de una de morro)
+      ...(noses
+        ? noses.map((p) => c('rueda de morro', 'nose', p, 19000 * (af.noseGearScale ?? 1), 1300 * (af.noseGearScale ?? 1), up))
+        : af.noseWheel
+          ? [keel ? c('flotadores', 'keel', af.noseWheel, 60000 * kg, 4200 * kg) : c('rueda de morro', 'nose', af.noseWheel, 38000 * (af.noseGearScale ?? 1), 2600 * (af.noseGearScale ?? 1), up)]
+          : []),
+      ...(af.tailWheel ? [c(af.tailSkid ? 'patín de cola' : 'rueda de cola', 'tailwheel', af.tailWheel, 30000 * kg, 2400 * kg)] : []),
       keel ? c(side(af.mainL), 'keel', af.mainL, 60000 * kg, 4200 * kg) : c('rueda principal izquierda', 'wheel', af.mainL, 60000 * kg, 4200 * kg, up),
       keel ? c(side(af.mainR), 'keel', af.mainR, 60000 * kg, 4200 * kg) : c('rueda principal derecha', 'wheel', af.mainR, 60000 * kg, 4200 * kg, up),
       c('patín de cola', 'skid', af.tail, 45000 * kg, 3000 * kg),
@@ -260,7 +291,7 @@ export class Autogyro {
       }),
     ]
     this.contactPts = [
-      ...(af.noseWheel ? [af.noseWheel] : []),
+      ...(noses ?? (af.noseWheel ? [af.noseWheel] : [])),
       ...(af.tailWheel ? [af.tailWheel] : []),
       af.mainL,
       af.mainR,
@@ -275,16 +306,32 @@ export class Autogyro {
     // (un monoplaza no lleva pasajero aunque el menú lo pida)
     this.passenger = passenger
     const pax = passenger && (this.af.seats ?? 2) > 1 ? PASSENGER_MASS : 0
-    this.mass = this.af.emptyMass + this.af.fuelMass + PILOT_MASS + pax + this.payload
+    const fuel = this.pp.fuelKg
+    this.fuelApplied = fuel
+    this.mass = this.af.emptyMass + fuel + PILOT_MASS + pax + this.payload
     // asientos lado a lado: cada ocupante tira del CG hacia su lado
     const sz = this.af.seatZ
     this.cgOff.set(0, 0, sz ? (PILOT_MASS * sz.pilot + pax * sz.passenger) / this.mass : 0)
+    // combustible distinto del de la ficha en un depósito que no está en el CG: el CG va hacia él
+    // (con la carga de referencia, nada: el CG de la ficha)
+    const tank = this.pp.spec.tank
+    const dFuel = fuel - this.af.fuelMass
+    if (tank && dFuel !== 0) {
+      this.cgOff.x += (dFuel * (tank.x - this.af.cg.x)) / this.mass
+      this.cgOff.y += (dFuel * (tank.y - this.af.cg.y)) / this.mass
+    }
     this.cg.copy(this.af.cg).add(this.cgOff)
     // el piloto lo compensa con el compensador de alabeo: la cabeza se inclina hacia el lado ligero
     // lo justo para que el empuje del rotor pase por el CG (el fuselaje cuelga algo ladeado)
     if (sz) this.tune.rollTrim = (this.af.rollTrim ?? 0.35) - Math.atan2(this.cgOff.z, this.af.hub.y - this.cg.y) / DEG
     for (let i = 0; i < this.contacts.length; i++) this.contacts[i].r.copy(this.contactPts[i]).sub(this.cg)
     this.scaleInertia()
+  }
+
+  /** Combustible a bordo (kg): cambia la masa, las inercias y, si el depósito no está en el CG, el CG. */
+  setFuel(kg: number): void {
+    this.pp.fuelKg = Math.max(0, kg)
+    this.setLoad(this.passenger)
   }
 
   /**
@@ -305,7 +352,7 @@ export class Autogyro {
    */
   setGear(down: boolean, instant = false): void {
     this.gearDown = down
-    if (instant || !this.af.amphib) this.gearPos = down ? 1 : 0
+    if (instant || (!this.af.amphib && !this.af.retractGear)) this.gearPos = down ? 1 : 0
   }
 
   private scaleInertia(): void {
@@ -367,6 +414,7 @@ export class Autogyro {
     this.omega.set(0, 0, 0)
     this.rotor.omega = 0
     this.rotor.vi = 0
+    this.ropeLeft = 0
     this.computeHub(0, 0)
     this.rotor.alignTo(_hubN)
     this.engineOn = true
@@ -396,6 +444,7 @@ export class Autogyro {
     this.omega.set(0, 0, 0)
     this.rotor.rpm = 365 * this.rpmScale
     this.rotor.vi = 1.5
+    this.ropeLeft = 0
     if (this.cmp) this.cmp.placeInAir(this, speed)
     this.computeHub(0.25, 0)
     this.rotor.alignTo(_hubN)
@@ -411,10 +460,52 @@ export class Autogyro {
     }
   }
 
+  /** arranque con cuerda (`af.ropeStart`): metros de cuerda que quedan por tirar (0: nadie tira) */
+  ropeLeft = 0
+  /** aviso del arranque con cuerda para la interfaz (clave de i18n con {rpm}); quien lo muestra lo borra */
+  ropeMsg: string | null = null
+  private ropeKey = false
+
+  /**
+   * Arranque con cuerda: al pulsar la tecla del prerrotador parado en tierra y con el rotor quieto, el
+   * personal de tierra tira de la cuerda enrollada bajo las palas (fuerza que cae a cero cuando el rotor va
+   * más deprisa de lo que corren) hasta que se acaba; si el aparato echa a rodar o despega, se suelta. En el
+   * aire o rodando no hay a quién pedírselo. Devuelve el par sobre el eje del rotor.
+   */
+  private ropeTorque(rope: RopeStart, key: boolean, dt: number): number {
+    const press = key && !this.ropeKey
+    this.ropeKey = key
+    const v = this.rotor.omega * rope.radius
+    if (this.ropeLeft > 0) {
+      if (!this.onGround || this.groundSpeed > 1.5 || v >= rope.speed) {
+        this.ropeLeft = 0
+        this.ropeMsg = 'toast.ropeFree'
+        return 0
+      }
+      this.ropeLeft -= v * dt
+      if (this.ropeLeft <= 0) {
+        this.ropeLeft = 0
+        this.ropeMsg = 'toast.ropeFree'
+      }
+      return rope.force * (1 - v / rope.speed) * rope.radius
+    }
+    if (!press) return 0
+    if (!this.onGround) this.ropeMsg = 'toast.ropeAir'
+    else if (this.groundSpeed > 0.5) this.ropeMsg = 'toast.ropeMoving'
+    else if (this.rotor.rpm > 15) this.ropeMsg = 'toast.ropeTurning'
+    else {
+      this.ropeLeft = rope.length
+      this.ropeMsg = 'toast.ropePull'
+    }
+    return 0
+  }
+
   /** Calcula normal/adelante del plano de cabeza (mundo) a partir de la palanca. */
   private computeHub(pitchCmd: number, rollCmd: number): void {
     // cabeza: inclinación atrás −5°..+14°, alabeo ±7.5°, +0.6° a la derecha para compensar par
     const t = this.tune
+    // cabeza fija (C.6, C.19): la palanca solo mueve alerones y profundidad
+    if (this.af.headFixed) pitchCmd = rollCmd = 0
     this.headPitch = (pitchCmd < 0 ? t.headBase + t.headFwd * pitchCmd : t.headBase + t.headAft * pitchCmd) * DEG
     this.headRoll = (7.5 * rollCmd + this.tune.rollTrim) * DEG
     _qh.setFromAxisAngle(Z, this.headPitch)
@@ -450,6 +541,11 @@ export class Autogyro {
 
   step(dt: number, ctl: Controls, env: Environment): void {
     if (this.crash) return
+    // combustible y fallos del motor (sim/powerplant.ts; apagado en los bancos de pruebas)
+    if (this.pp.enabled) {
+      this.pp.step(dt, this, env)
+      if (Math.abs(this.pp.fuelKg - this.fuelApplied) > 0.01) this.setLoad(this.passenger)
+    }
     const rho = env.rho
     const q = this.quat
     _mat.setFromMatrix4(_tmpM4.makeRotationFromQuaternion(q))
@@ -488,8 +584,11 @@ export class Autogyro {
     let shaftTorque = 0
     if (this.cmp) this.cmp.prerotTorque = 0
     const airborneFast = V > 18 && !this.onGround
+    // (sin prerrotador, el C.6: el personal de tierra lanza el rotor con una cuerda)
+    const rope = this.af.ropeStart
+    if (rope) shaftTorque += this.ropeTorque(rope, ctl.prerotator, dt)
     const pre = this.af.prerotator ?? DEFAULT_PREROTATOR
-    if (ctl.prerotator && this.engineOn && !airborneFast && this.engineRpm > pre.minEngineRpm) {
+    if (!rope && ctl.prerotator && this.engineOn && !airborneFast && this.engineRpm > pre.minEngineRpm) {
       const targetRpm = Math.min(this.engineRpm * pre.ratio, pre.maxRpm)
       const targetOmega = (targetRpm * 2 * Math.PI) / 60
       const t = Math.max(0, Math.min(1, (targetOmega - this.rotor.omega) / 2.5))
@@ -532,7 +631,8 @@ export class Autogyro {
     // hélice gira arrastrada por el aire y frena un poco.
     // (El Cierva C.30A lleva un radial de toma directa y una bipala de madera con sus
     // propias curvas: `engine.gear` y `propCoef` en su ficha.)
-    const thr = Math.max(0, Math.min(1, ctl.throttle))
+    // (en un simulacro el instructor sujeta el gas a ralentí)
+    const thr = Math.max(0, Math.min(1, this.pp.throttle(ctl.throttle)))
     let T: number
     let Qp: number
     if (this.cmp && this.af.cspProp) {
@@ -564,14 +664,17 @@ export class Autogyro {
       const rpm = this.engineRpm
       const dR = rpm - eng.rpmPeak
       const na = rho / 1.225
-      const air = eng.turbo ? na + (Math.min(1, rho / eng.rhoCrit) - na) * thr : na
+      // (turbo con aire caliente: la carga entra menos densa aunque mantenga la presión; airMass.ts)
+      const boost = Math.min(1, rho / eng.rhoCrit) * (eng.turbo ? turboTempFactor(env.oatC, env.pressure) : 1)
+      const air = eng.turbo ? na + (boost - na) * thr : na
       let Tmax = (eng.torquePeak - (dR < 0 ? eng.dropBelow : eng.dropAbove) * dR * dR) * air
       if (rpm > eng.rpmLimit) Tmax *= Math.max(0, 1 - ((rpm - eng.rpmLimit) / 250) * (5900 / eng.rpmLimit)) // limitador
       const Tfric = eng.friction[0] + eng.friction[1] * rpm
       let Qe: number
       if (this.engineOn) {
         const th = eng.idle + (1 - eng.idle) * thr
-        Qe = th * Math.max(0, Tmax) - (1 - th) * Tfric
+        // (`pp.power`: lo que deja un fallo, la falta de combustible o el hielo; 1 con el motor sano)
+        Qe = th * Math.max(0, Tmax) * this.pp.power - (1 - th) * Tfric
         if (rpm < eng.starterRpm) Qe += 35 * (eng.torquePeak / 128) * (1 - rpm / eng.starterRpm) // motor de arranque
       } else {
         Qe = -1.8 * Tfric - 6 * (eng.torquePeak / 128) // compresión: la hélice se para
@@ -593,13 +696,16 @@ export class Autogyro {
     _m.x -= 0.35 * Qp * (this.af.torqueRoll ?? 1)
     _m.y += this.tune.swirl * Math.max(0, T) * (this.af.swirlYaw ?? 1)
 
-    const vSlip = 2 * this.propInduced
+    // (sin soplado en la cola si la tobera va por detrás de ella: Sigilo)
+    const vSlip = 2 * this.propInduced * (this.af.tailSlipstream ?? 1)
 
     // ---------------- Fuselaje ----------------
     const qd = 0.5 * rho * V
     const body = this.af.body
     // fuerza del aire sobre el fuselaje = −½ρ|V|·CdA·v (v: velocidad respecto al aire)
-    _v2.set(-qd * this.tune.cdA * vx, -qd * (body?.vertCdA ?? 2.6) * vy, 0)
+    // (con el tren retráctil recogido, sin la resistencia de patas y ruedas)
+    const cdA = this.tune.cdA - (this.af.retractGear ? this.af.retractGear.dragSave * (1 - this.gearPos) : 0)
+    _v2.set(-qd * cdA * vx, -qd * (body?.vertCdA ?? 2.6) * vy, 0)
     _f.add(_tmpV.copy(_v2).applyQuaternion(q))
     if (body) _r.copy(body.vertCP)
     else _r.set(0.35, -0.18, 0)
@@ -660,7 +766,8 @@ export class Autogyro {
     this.hardness = 0
     this.wheelRolling = 0
     // tren anfibio: el aire comprimido lo sube o lo baja en ~6 s
-    if (this.af.amphib) this.gearPos = Math.max(0, Math.min(1, this.gearPos + (this.gearDown ? dt : -dt) / GEAR_TIME))
+    if (this.af.amphib || this.af.retractGear)
+      this.gearPos = Math.max(0, Math.min(1, this.gearPos + (this.gearDown ? dt : -dt) / (this.af.retractGear?.time ?? GEAR_TIME)))
     for (const c of this.contacts) {
       _r.copy(c.r)
       // (rueda anfibia a medio recoger: más arriba; recogida del todo, dentro del flotador)
@@ -703,7 +810,9 @@ export class Autogyro {
       c.force = Fn
       // fricción
       const fx = _v2.set(0, 0, 0)
-      if (c.kind === 'wheel' || c.kind === 'nose' || c.kind === 'tailwheel') {
+      // patín de cola en vez de rueda (Cierva C.19): el apoyo trasero no rueda, roza en todas direcciones
+      const skidTail = c.kind === 'tailwheel' && this.af.tailSkid === true
+      if ((c.kind === 'wheel' || c.kind === 'nose' || c.kind === 'tailwheel') && !skidTail) {
         this.onGround = true
         // la rueda de cola gira al revés que los pedales (para llevar el morro a la derecha
         // la cola va a la izquierda); si es loca, apenas sujeta de lado
@@ -716,8 +825,10 @@ export class Autogyro {
         const vf = pv.dot(dir)
         const vl = pv.dot(lat)
         // rodadura (y freno en las principales) a lo largo de la rueda; agarre de lado
-        const muF = c.kind === 'nose' || tw ? 0.025 : 0.025 + this.tune.brakeMu * Math.max(0, Math.min(1, ctl.wheelBrake))
-        const muL = tw && twSteer === 0 ? 0.12 : 0.75
+        // (pista mojada o con nieve: `env.grip` < 1 baja la frenada y el agarre lateral)
+        const wet = env.grip ?? 1
+        const muF = c.kind === 'nose' || tw ? 0.025 : 0.025 + this.tune.brakeMu * wet * Math.max(0, Math.min(1, ctl.wheelBrake))
+        const muL = (tw && twSteer === 0 ? 0.12 : 0.75) * wet
         const Ff = grip(c.sf, vf, muF * Fn, Fn, dt)
         c.sf = _grip.s
         const Fl = grip(c.sl, vl, muL * Fn, Fn, dt)
@@ -730,8 +841,17 @@ export class Autogyro {
         const vt = tang.length()
         // (quilla de aluminio de un flotador sobre el suelo: patina como un trineo)
         const mu = c.kind === 'skid' ? 0.45 : c.kind === 'keel' ? 0.4 : 0.6
-        if (vt > 1e-4) fx.addScaledVector(tang, (-mu * Fn * Math.tanh(vt / 0.2)) / vt)
-        if (c.kind === 'skid' || c.kind === 'keel') this.onGround = true
+        if (skidTail) {
+          // patín de cola: a lo largo resbala (más en mojado o con nieve), de lado se clava como una quilla
+          const along = _skA.set(1, 0, 0).applyQuaternion(q)
+          along.addScaledVector(_n, -along.dot(_n)).normalize()
+          const va = tang.dot(along)
+          const side = _skS.copy(tang).addScaledVector(along, -va)
+          const vs = side.length()
+          fx.addScaledVector(along, -0.35 * (env.grip ?? 1) * Fn * Math.tanh(va / 0.2))
+          if (vs > 1e-4) fx.addScaledVector(side, (-0.6 * Fn * Math.tanh(vs / 0.2)) / vs)
+        } else if (vt > 1e-4) fx.addScaledVector(tang, (-mu * Fn * Math.tanh(vt / 0.2)) / vt)
+        if (c.kind === 'skid' || c.kind === 'keel' || skidTail) this.onGround = true
       }
       fx.addScaledVector(_n, Fn)
       _f.add(fx)
@@ -804,6 +924,8 @@ export class Autogyro {
     if (ctl.prerotator && ctl.rotorBrake) this.warnings.push(t('warn.prerotBrake'))
     // tren anfibio en la aproximación (como el aviso de voz de los anfibios): abajo sobre el agua el
     // aparato vuelca al tocar; arriba sobre tierra toma sobre las quillas
+    // tren retráctil arriba cerca del suelo bajando: aviso, como el de los aviones
+    if (this.af.retractGear && !this.onGround && this.agl < 40 && this.vs < -0.3 && this.gearPos < 0.95) this.warnings.push(t('warn.gearUp'))
     if (this.af.amphib && !this.onGround && this.agl < 40 && this.vs < -0.3 && env.ground.waterDepth) {
       const water = env.ground.waterDepth(this.pos.x, this.pos.z) > 0
       if (water && this.gearPos > 0.05) this.warnings.push(t('warn.gearWater'))
@@ -811,7 +933,7 @@ export class Autogyro {
     }
 
     // Fallos estructurales / pérdidas de control irrecuperables
-    if (this.teeterHits > 3.5) {
+    if (this.teeterHits > 3.5 * (this.af.flapToughness ?? 1)) {
       // (en el agua: el tren se ha clavado y ha volcado hacia delante)
       this.crash = this.onWater ? waterFlipInfo(this.groundSpeed) : {
         cause: 'flapping',
@@ -943,6 +1065,8 @@ const _prop = { T: 0, Q: 0 }
 // a poco con el viento, el empuje al ralentí o la reacción del prerrotador, aun frenado.
 const GRIP_K = 60 // 1/m: con μ = 0.75 desliza a 1.25 cm de deformación
 const GRIP_C = 4 // s/m
+const _skA = new Vector3()
+const _skS = new Vector3()
 const _grip = { s: 0 }
 
 /** Fuerza de rozamiento en un eje de la rueda (deja la nueva deformación en `_grip.s`). */

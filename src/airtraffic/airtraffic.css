@@ -1,0 +1,49 @@
+/* Radio del tráfico aéreo: las últimas llamadas, abajo a la izquierda, sobre los instrumentos */
+#atc-log {
+  position: fixed;
+  left: 14px;
+  bottom: 228px;
+  width: min(430px, calc(100vw - 28px));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  pointer-events: none;
+  z-index: 4;
+}
+#atc-log.hidden {
+  display: none;
+}
+#atc-log .atc-msg {
+  padding: 5px 10px 6px 9px;
+  background: rgba(8, 10, 12, 0.6);
+  border-left: 3px solid var(--accent);
+  font: 500 15px/1.25 var(--font-cond);
+  letter-spacing: 0.02em;
+  color: var(--text);
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+#atc-log .atc-msg.show {
+  opacity: 1;
+}
+#atc-log .atc-msg b {
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+}
+#atc-log .atc-msg small {
+  display: block;
+  font: 600 11px/1.2 var(--font-cond);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+body.replaying #atc-log {
+  display: none;
+}
+@media (max-width: 720px) {
+  #atc-log {
+    bottom: 150px;
+    font-size: 13px;
+  }
+}

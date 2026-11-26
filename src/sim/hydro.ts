@@ -286,8 +286,10 @@ export function floatSections(f: FloatSpec, n = 8): HullElement[] {
     const t = (i + 0.5) / n
     const p = f.stern.clone().lerp(f.bow, t)
     const aft = f.step !== undefined && p.x < f.step
-    // la proa se estrecha: los dos primeros tramos, algo menos de volumen
-    const ri = i >= n - 2 ? r * (i === n - 1 ? 0.75 : 0.9) : r
+    // la proa se estrecha: los dos primeros tramos, algo menos de volumen; con redán, detrás de él la quilla
+    // sube hacia la popa y el casco adelgaza (hasta 0,65 del radio en el espejo): el empuje queda más a proa
+    const taper = aft ? 1 - (0.35 * (f.step! - p.x)) / Math.max(0.1, f.step! - f.stern.x) : 1
+    const ri = (i >= n - 2 ? r * (i === n - 1 ? 0.75 : 0.9) : r) * taper
     out.push({
       name: f.name,
       kind: 'float',
@@ -354,6 +356,8 @@ export class Hydro {
   /** profundidad del CG bajo la superficie (m; negativa: por encima) */
   cgDepth = -Infinity
   failure: HydroFailure | null = null
+  /** mayor velocidad (m/s) hacia abajo con que algo ha entrado en el agua desde que se colocó: la «dureza» del amaraje */
+  entrySpeed = 0
   /** chapoteos desde la última lectura (los vacía quien los consume) */
   readonly splashes: SplashEvent[] = []
   /** lo que está mojado en este paso */
@@ -379,6 +383,7 @@ export class Hydro {
     this.wet = false
     this.cgDepth = -Infinity
     this.failure = null
+    this.entrySpeed = 0
     this.splashes.length = 0
     this.wetPoints.length = 0
   }
@@ -441,6 +446,7 @@ export class Hydro {
       // entrada en el agua: golpe y chapoteo
       if (!s.wasWet) {
         const down = -_vw.y
+        this.entrySpeed = Math.max(this.entrySpeed, down)
         if (down > e.entry && !this.failure) this.failure = { kind: 'entry', part: e.name, speed: down }
         const sp = _vw.length()
         if (sp > 0.8) this.splashes.push({ x: cx, y: surf, z: cz, vx: _vw.x, vy: _vw.y, vz: _vw.z, size: e.len > 0 ? Math.max(e.r * 2, e.len) : e.r * 2 })
@@ -499,8 +505,10 @@ export class Hydro {
           }
         }
         if (e.rudder > 0 && Math.abs(_u.x) > 0.3) {
-          // timón de agua: placa vertical girada con los pedales (ángulo de ataque = giro − deriva local)
-          const a = Math.max(-0.5, Math.min(0.5, b.noseSteer - Math.atan2(_u.z, Math.abs(_u.x))))
+          // timón de agua: placa vertical girada con los pedales. Pedal derecho: el borde de salida va a la
+          // derecha y el agua empuja la popa a la izquierda (como si la popa derrapara a la derecha), y el
+          // morro gira a la derecha; con el timón recto solo frena el derrape de la popa
+          const a = Math.max(-0.5, Math.min(0.5, -b.noseSteer - Math.atan2(_u.z, Math.abs(_u.x))))
           _fw.z += 0.5 * RHO_WATER * _u.x * Math.abs(_u.x) * e.rudder * wet * 2.5 * a
         }
         // limitador implícito: lo que frena en un paso no puede pasar de la velocidad del punto

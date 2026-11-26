@@ -6,6 +6,7 @@
 // `ShapeSet` reparte instancias entre las variantes (una InstancedMesh por
 // variante con el mismo material).
 
+import { hideWhenEmpty } from '../render/emptyDraws.ts'
 import { BufferGeometry, CylinderGeometry, Float32BufferAttribute, IcosahedronGeometry, InstancedMesh, Vector3, type Color, type Material, type Matrix4 } from 'three'
 
 /** Generador pseudoaleatorio reproducible (mulberry32). */
@@ -123,7 +124,8 @@ export class ShapeSet {
 
   constructor(geos: BufferGeometry[], material: Material, max: number, setup: (m: InstancedMesh) => void) {
     this.meshes = geos.map((g) => {
-      const m = new InstancedMesh(g, material, max)
+      // (sin trozos no se dibuja: render/emptyDraws.ts)
+      const m = hideWhenEmpty(new InstancedMesh(g, material, max))
       m.count = 0
       setup(m)
       return m

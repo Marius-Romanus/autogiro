@@ -1024,6 +1024,63 @@ body:has(#menu:not(.hidden)) #help {
   opacity: 0.45;
   pointer-events: none;
 }
+/* tiempo real (Open-Meteo) y aire del día (src/menu/weatherMenu.ts) */
+#menu .wx-real {
+  margin: 4px 0 18px;
+}
+#menu .wx-btn {
+  padding: 11px 16px;
+}
+#menu .wx-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+#menu .wx-btn.busy {
+  cursor: progress;
+  background: var(--m-sign);
+}
+#menu .wx-credit {
+  margin-top: 6px;
+  font-size: 11.5px;
+}
+#menu .wx-credit a {
+  color: inherit;
+}
+#menu .wx-credit a:hover {
+  color: #fff;
+}
+#menu .wx-status {
+  padding-left: 10px;
+  border-left: 3px solid var(--m-sign);
+  font-size: 13px;
+}
+#menu .wx-status.busy {
+  border-left-color: rgba(255, 255, 255, 0.4);
+  color: var(--m-muted);
+}
+#menu .wx-status.warn {
+  border-left-color: var(--danger, #e5484d);
+}
+#menu .air-box {
+  margin: 22px 0 12px;
+}
+#menu .air-box .m-row {
+  padding-top: 8px;
+}
+#menu .air-box .m-two .m-field {
+  margin-top: 0;
+}
+#menu #airFields[hidden],
+#menu .m-row[hidden] {
+  /* display:flex de .m-row anula el atributo hidden (la fila «Con flotadores» salía siempre) */
+  display: none;
+}
+#menu .air-note {
+  margin-top: 14px;
+  font: 600 17px/1.3 var(--m-cond);
+  letter-spacing: 0.02em;
+  color: #fff;
+}
 
 /* --- 4 · escenario --- */
 #menu .scen-cards {
@@ -1701,4 +1758,18 @@ body:has(#menu:not(.hidden)) #help {
   #menu[data-screen='settings'] .m-settings {
     columns: 1;
   }
+}
+
+/* precipitación (menu/skyMenu.ts): cinco botones que caben en el ancho de la pestaña */
+#menu .sky-precip {
+  display: flex;
+}
+#menu .sky-precip > button {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+#menu #skyFields .m-field + .m-field {
+  margin-top: 14px;
 }

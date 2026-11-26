@@ -9,7 +9,9 @@
 //     tendencia de la velocidad y, brevemente, la actitud). No cambia la
 //     velocidad de equilibrio de cada posición de palanca,
 //   · nivela suavemente el alabeo cuando no hay mando lateral,
-//   · coordina con pedales (centra el hilo) cuando no se pisan.
+//   · coordina con pedales (centra el hilo) cuando no se pisan,
+//   · en tierra, solo en los de vía estrecha sin rueda gobernable (`groundAssist`, Cierva C.6), lleva las
+//     alas a nivel y el rumbo de salida con alerones y timón.
 // No modifica la física: solo mueve los mandos dentro de un margen limitado.
 
 import { Vector3 } from 'three'
@@ -48,6 +50,8 @@ export class PilotAssist {
   private vPrev = 0
   private vDot = 0
   private rollI = 0
+  /** rumbo con el que echó a rodar (`groundAssist`); null en el aire */
+  private hdgRef: number | null = null
   private flareBase = 0
   /** la ayuda está moderando una recogida */
   flaring = false
@@ -59,6 +63,7 @@ export class PilotAssist {
     this.pitchCorrection = 0
     this.rollI = 0
     this.vDot = 0
+    this.hdgRef = null
   }
 
   apply(dt: number, ac: Autogyro, ctl: Controls, inp: AssistInputs): void {
@@ -117,8 +122,18 @@ export class PilotAssist {
 
     if (ac.onGround) {
       this.rollI = 0
+      // tren estrecho sin rueda gobernable ni deriva (Cierva C.6, `groundAssist`): en la carrera, alas a nivel
+      // con los alerones y el rumbo con el que echó a rodar con el timón, mientras no se toquen esos mandos
+      if (ac.af.groundAssist) {
+        const hdg = Math.atan2(-_f.z, _f.x)
+        if (this.hdgRef === null || ac.groundSpeed < 1) this.hdgRef = hdg
+        const e = Math.atan2(Math.sin(hdg - this.hdgRef), Math.cos(hdg - this.hdgRef))
+        if (!inp.yawActive && Math.abs(ctl.yaw) < 0.08) ctl.yaw = Math.max(-1, Math.min(1, ctl.yaw + 4 * e + 3 * ac.omega.y))
+        if (!inp.rollActive && Math.abs(ctl.roll) < 0.08) ctl.roll = Math.max(-1, Math.min(1, ctl.roll - 8 * bank - 2 * ac.omega.x))
+      }
       return
     }
+    this.hdgRef = null
 
     // ---- alabeo: alas niveladas si no hay mando lateral ----
     if (!inp.rollActive && Math.abs(ctl.roll) < 0.08) {

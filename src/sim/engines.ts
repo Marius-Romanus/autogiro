@@ -122,6 +122,35 @@ export const ROTAX_915IS: EngineSpec = {
 }
 
 /**
+ * Impulsor de plasma magnetohidrodinámico (Sigilo SX-1): FICCIÓN. El aire de dos tomas pasa por una
+ * etapa de compresor (escondida en la cabina), se ioniza y lo aceleran anillos de imanes
+ * superconductores. 220 kW (300 CV), par casi plano, sin reductora; como un turbo, mantiene la
+ * potencia hasta ~5000 m. El «cuentavueltas» es el del compresor.
+ */
+export const PLASMA_MHD: EngineSpec = {
+  id: 'plasma-mhd',
+  name: 'Impulsor de plasma MHD',
+  maxPower: 219000,
+  torquePeak: 240,
+  rpmPeak: 8000,
+  dropBelow: 1.0e-6,
+  dropAbove: 4e-6,
+  idle: 0.12,
+  turbo: true,
+  rhoCrit: 0.74,
+  gear: 1,
+  rpmLimit: 9200,
+  starterRpm: 1500,
+  idleRpm: 2000,
+  cruiseRpm: 7000,
+  friction: [2, 0.0004],
+  inertia: 0.08,
+  // (sonido: un silbido agudo en vez de explosiones)
+  cylinders: 24,
+  tach: { max: 10000, step: 1000, minor: 500, green: [2000, 8800], yellow: [8800, 9000], red: 9000 },
+}
+
+/**
  * McCulloch 4318A (Wallis WA-116 Agile): el motor de los blancos aéreos del ejército de EE. UU.
  * (O-100-1), cuatro cilindros opuestos de dos tiempos refrigerados por aire, 1,63 l, 35 kg. 72 CV
  * (54 kW) a 4100 rpm en toma directa: la hélice gira a las vueltas del motor. Cuatro cilindros de dos
@@ -174,6 +203,35 @@ export const GENET_MAJOR: EngineSpec = {
   friction: [20, 0.012],
   inertia: 5,
   cylinders: 7,
+  tach: { max: 3000, step: 500, minor: 100, green: [1000, 2200], yellow: [2200, 2400], red: 2400 },
+}
+
+/**
+ * Armstrong Siddeley Genet Major I (Cierva C.19, 1929-32): radial de 5 cilindros con los mismos
+ * cilindros que el IA de 7 (108 × 114,3 mm), 5,2 l, atmosférico y de toma directa. Flight (15-11-1934,
+ * tabla de motores británicos): 100 CV normales a 2200 rpm y 110 de máxima; la cifra que dan Jackson y
+ * Wikipedia es 105 CV (la de `maxPower`). Par: el del IA por 5/7 (~330 N·m hacia 2000 rpm), que da
+ * 100 CV a 2200 y ~105 a 2420. Ralentí y escala del cuentavueltas, los del IA.
+ */
+export const GENET_MAJOR_I: EngineSpec = {
+  id: 'genet-major-i',
+  name: 'Armstrong Siddeley Genet Major I',
+  maxPower: 78300,
+  torquePeak: 329,
+  rpmPeak: 2000,
+  dropBelow: 6.7e-5,
+  dropAbove: 1.25e-4,
+  idle: 0.2,
+  turbo: false,
+  rhoCrit: 1.225,
+  gear: 1,
+  rpmLimit: 2450,
+  starterRpm: 350,
+  idleRpm: 600,
+  cruiseRpm: 1900,
+  friction: [15, 0.009],
+  inertia: 3.8,
+  cylinders: 5,
   tach: { max: 3000, step: 500, minor: 100, green: [1000, 2200], yellow: [2200, 2400], red: 2400 },
 }
 
@@ -232,4 +290,85 @@ export const ROTAX_503: EngineSpec = {
   inertia: 0.27,
   cylinders: 4,
   tach: { max: 8000, step: 1000, minor: 500, green: [2000, 6500], yellow: [6500, 6800], red: 6800 },
+}
+
+/**
+ * Kinner R-5 (Wilford XOZ-1): radial de 5 cilindros, 6,4 l, atmosférico y de toma directa a una
+ * bipala de madera. 155 CV (116 kW) a 1975 rpm según la ficha de Aero Digest (1935); par máximo
+ * ~580 N·m algo por debajo, hacia 1850 rpm. Al ralentí, unas 550 rpm; crucero hacia 1800 rpm.
+ */
+export const KINNER_R5: EngineSpec = {
+  id: 'kinner-r5',
+  name: 'Kinner R-5',
+  maxPower: 115600,
+  torquePeak: 580,
+  rpmPeak: 1850,
+  dropBelow: 9.4e-5,
+  dropAbove: 1.75e-4,
+  idle: 0.2,
+  turbo: false,
+  rhoCrit: 1.225,
+  gear: 1,
+  rpmLimit: 2200,
+  starterRpm: 300,
+  idleRpm: 550,
+  cruiseRpm: 1800,
+  friction: [24, 0.014],
+  inertia: 6,
+  cylinders: 5,
+  tach: { max: 2500, step: 500, minor: 100, green: [900, 1975], yellow: [1975, 2050], red: 2050 },
+}
+
+/**
+ * Le Rhône 9J (Cierva C.6): ROTATIVO de 9 cilindros (cilindros y cárter giran con la hélice alrededor
+ * del cigüeñal fijo), 15 l (112 × 170 mm), 146 kg en seco y aceite de ricino a pérdida total. 110 CV
+ * (82 kW) a 1200 rpm según la ficha del Museo del Aire y Wikipedia (9Ja); par casi plano, ~660 N·m hacia
+ * 1150 rpm (estimado con esa potencia). Toma directa a una bipala de madera. Se gobernaba con el gas y
+ * la palanca de mezcla, y en tierra con el interruptor de corte («blip»): aquí, ralentí a unas 380 rpm.
+ * Inercia grande: casi todo el motor (~110 kg a ~0,3 m del eje) gira con la hélice (estimada).
+ */
+export const LE_RHONE_9J: EngineSpec = {
+  id: 'le-rhone-9j',
+  name: 'Le Rhône 9J',
+  maxPower: 82000,
+  torquePeak: 660,
+  rpmPeak: 1150,
+  dropBelow: 4.6e-4,
+  dropAbove: 3.2e-3,
+  idle: 0.25,
+  turbo: false,
+  rhoCrit: 1.225,
+  gear: 1,
+  rpmLimit: 1350,
+  starterRpm: 150,
+  idleRpm: 380,
+  cruiseRpm: 1150,
+  friction: [30, 0.04],
+  inertia: 15,
+  cylinders: 9,
+  tach: { max: 1600, step: 200, minor: 50, green: [900, 1250], yellow: [1250, 1300], red: 1300 },
+}
+
+/**
+ * Celier CA 912 ULST (BellComm C-44 MEDEVAC, Celier Xenon IV): el Rotax 912 ULS con un turbo de Celier
+ * Aviation (válvula de descarga neumática, dos carburadores, intercooler) y la reductora de serie de
+ * 2,43:1. Hoja de datos de tipo del DAeC 61208.1 (ed. 6, 2020): 107 kW a 5200 rpm de máxima y 96 kW
+ * continuos a 5000 rpm; BellComm y FlyArgo lo anuncian como «Rotax 912 ULS-T de 135 CV». Rotax no
+ * fabrica este motor y nadie publica su curva: el par sale de esa potencia (196 N·m a 5200 rpm), con el
+ * máximo (~204 N·m) hacia 4800 rpm y cayendo por encima para que la potencia no pase de 107 kW; por
+ * debajo, la forma de la del 914. Mismo par al ralentí que el 912. La altitud crítica del turbo no está
+ * publicada: la del 914 (estimada).
+ */
+export const CELIER_912ULST: EngineSpec = {
+  id: 'ca912ulst',
+  name: 'Rotax 912 ULS turbo (Celier)',
+  maxPower: 107000,
+  torquePeak: 204,
+  rpmPeak: 4800,
+  dropBelow: 4.0e-6,
+  dropAbove: 4.72e-5,
+  idle: 0.147,
+  turbo: true,
+  rhoCrit: 0.96,
+  ...ROTAX_COMMON,
 }

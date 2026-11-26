@@ -35,6 +35,7 @@ import {
 } from 'three'
 import { addStrings, onLangChange, t } from '../i18n.ts'
 import { OVERLAY_LAYER } from '../render/Graphics.ts'
+import { hideWhenEmpty } from '../render/emptyDraws.ts'
 import type { SprayerSpec } from '../sim/airframes.ts'
 import type { Autogyro } from '../sim/autogyro.ts'
 import { BILLBOARD_FS, BILLBOARD_VS } from './CrashFx.ts'
@@ -161,7 +162,8 @@ export class CropSprayer {
       return m
     }
     for (const [i, lit] of [false, true].entries()) {
-      const mesh = new Mesh(geo, mk(lit))
+      // (sin gotas no se dibuja: render/emptyDraws.ts)
+      const mesh = hideWhenEmpty(new Mesh(geo, mk(lit)))
       mesh.frustumCulled = false
       mesh.renderOrder = 4 + i
       // fuera del pase de normales, como los discos de las palas y los vidrios

@@ -25,7 +25,7 @@ import {
 } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { CG, GEOM } from '../sim/autogyro.ts'
-import { GENERIC, type Airframe } from '../sim/airframes.ts'
+import { GENERIC, type Airframe, type RetractGearSpec } from '../sim/airframes.ts'
 import { keepAlpha, LIGHT_LAYER, OVERLAY_LAYER, overlayAlbedoPass, overlayLightPass } from '../render/Graphics.ts'
 import { Cockpit } from './Cockpit.ts'
 import { AircraftLights } from './AircraftLights.ts'
@@ -52,6 +52,8 @@ export interface AircraftPose {
   readonly onGround: boolean
   /** desplazamiento del CG respecto al común (asientos lado a lado con un solo ocupante) */
   readonly cgOff?: Vector3
+  /** tren de unos flotadores anfibios: 1 abajo, 0 recogido (si falta, abajo) */
+  readonly gearPos?: number
 }
 /** Mandos que mueve la vista (`Controls` del propio aparato; los remotos mandan solo parte). */
 export interface ViewControls {
@@ -104,6 +106,10 @@ interface Parts {
   pedal_L?: Object3D
   pedal_R?: Object3D
   foot_bar?: Object3D
+  /** profundidad y alerones (Cierva C.19): giran sobre su bisagra con la palanca */
+  elevator?: Object3D
+  aileron_L?: Object3D
+  aileron_R?: Object3D
   pilot_front?: Object3D
   pilot_rear?: Object3D
   eye_front?: Object3D
@@ -144,8 +150,31 @@ export class AircraftView {
   private modelKey = ''
   /** boquillas de fumigación del modelo (nodos `spray_NN`, Gyro Tractor); vacío si no lleva */
   sprayNozzles: Object3D[] = []
+  /**
+   * Timones de derivas inclinadas (nodos `rudder_L`, `rudder_R`… del Sigilo): cada uno gira sobre su
+   * propio eje Y local (la bisagra), partiendo de la inclinación de su deriva (`rest`).
+   */
+  private extraRudders: { o: Object3D; rest: Quaternion }[] = []
+  /** materiales `Plasma_Glow` (propulsor del Sigilo): su brillo sigue al gas */
+  private glow: { m: MeshStandardMaterial; base: number }[] = []
   private readonly cgOff = new Vector3()
   private glassMeshes: Mesh[] = []
+  /** vidrios del modelo (gotas de lluvia: fx/GlassRain.ts) */
+  get glass(): readonly Mesh[] {
+    return this.glassMeshes
+  }
+  /** ruedas de unos flotadores anfibios (`amph_main_L`…, floatKit.ts): suben `gearRetract` m al recogerlas */
+  private amphWheels: { o: Object3D; rest: Vector3; main: boolean }[] = []
+  private gearRetract = 0
+  /** tren retráctil (`af.retractGear`, Sigilo): patas y compuertas que giran sobre sus bisagras al recogerlo */
+  private retractSpec: RetractGearSpec | null = null
+  private retractParts: { o: Object3D; rest: Quaternion; axis: Vector3; angle: number; late: boolean }[] = []
+  /**
+   * Rotor de paso cíclico sin batimiento (`featheringRotor`, Wilford XOZ-1): cabeza fija y palas en el
+   * plano del eje, en el buje de la ficha (`featherHub`, coordenadas del modelo)
+   */
+  private feathering = false
+  private readonly featherHub = new Vector3()
 
   /** Medidas del aparato que la animación necesita (rotor, hélice, ruedas, palanca). */
   vis = visualSpec(GENERIC)
@@ -168,6 +197,10 @@ export class AircraftView {
     }
     if (token !== this.loadToken) return // mientras tanto se pidió otro aparato
     this.unload()
+    this.gearRetract = af.amphib?.retract ?? 0
+    this.retractSpec = af.retractGear ?? null
+    this.feathering = af.featheringRotor === true
+    this.featherHub.copy(af.hub)
     if (vis.key !== this.vis.key) {
       this.vis = vis
       this.disposeBlurDiscs()
@@ -197,9 +230,14 @@ export class AircraftView {
     }
     this.parts = {}
     this.sprayNozzles = []
+    this.extraRudders = []
+    this.amphWheels = []
+    this.retractParts = []
+    this.glow = []
     this.rig = null
     this.rotorSpin = null
     this.propSpin = null
+    this.propBladeMeshes = []
     this.glassMaterials.length = 0
     this.bladesVisible = true
     this.eyeLocal.set(0.7 - CG.x, 0.47 - CG.y, 0)
@@ -224,6 +262,9 @@ export class AircraftView {
       'pedal_L',
       'pedal_R',
       'foot_bar',
+      'elevator',
+      'aileron_L',
+      'aileron_R',
       'pilot_front',
       'pilot_rear',
       'eye_front',
@@ -238,6 +279,14 @@ export class AircraftView {
     scene.traverse((o) => {
       if (/^spray_\d+$/.test(o.name)) this.sprayNozzles.push(o)
     })
+    for (const o of scene.children) if (/^rudder_\w+$/.test(o.name)) this.extraRudders.push({ o, rest: o.quaternion.clone() })
+    for (const o of scene.children)
+      if (/^amph_(main|nose)_[LR]$/.test(o.name)) this.amphWheels.push({ o, rest: o.position.clone(), main: o.name.startsWith('amph_main') })
+    for (const g of this.retractSpec?.parts ?? []) {
+      const o = scene.getObjectByName(g.node)
+      if (o)
+        this.retractParts.push({ o, rest: o.quaternion.clone(), axis: new Vector3(...g.axis).normalize(), angle: g.angle * DEG, late: g.late === true })
+    }
 
     scene.traverse((o) => {
       const m = o as Mesh
@@ -246,14 +295,17 @@ export class AircraftView {
       const transparent = mats.some((x) => x.transparent || (x as any).opacity < 1 || /glass/i.test(x.name))
       if (transparent) {
         // vidrio: en el búfer de albedo (no enmascarado), sin escribir profundidad
-        // tinte oscuro: en el búfer de albedo un vidrio claro "lava" el paisaje
+        // tinte oscuro: en el búfer de albedo un vidrio claro "lava" el paisaje; un vidrio de color
+        // (la cúpula dorada del Sigilo) conserva su color, algo oscurecido
+        const tint = glassTint(mats)
         const glass = new MeshBasicMaterial({
-          color: new Color(0x1c2833),
+          color: tint.color,
           transparent: true,
-          opacity: 0.2,
+          opacity: tint.opacity,
           depthWrite: false,
           side: DoubleSide,
         })
+        glass.userData.baseOpacity = tint.opacity
         m.material = keepAlpha(glass)
         this.glassMaterials.push(glass)
         this.glassMeshes.push(m)
@@ -265,7 +317,12 @@ export class AircraftView {
         m.layers.set(LIGHT_LAYER)
         m.castShadow = true
         m.receiveShadow = true
-        for (const mat of mats) tuneMaterial(mat)
+        for (const mat of mats) {
+          tuneMaterial(mat)
+          const sm = mat as MeshStandardMaterial
+          if (/^Plasma_Glow/i.test(mat.name) && sm.isMeshStandardMaterial && !this.glow.some((g) => g.m === sm))
+            this.glow.push({ m: sm, base: sm.emissiveIntensity })
+        }
       }
     })
 
@@ -290,6 +347,18 @@ export class AircraftView {
       const { pivot, spin } = wrapPivot(this.parts.prop)
       this.parts.prop = pivot
       this.propSpin = spin
+      // motor rotativo (el Le Rhône del Cierva C.6): cilindros y cárter giran con la hélice en el mismo nodo
+      // (materiales Rotary_*); con el desenfoque solo se ocultan las palas, no el motor
+      this.propBladeMeshes = []
+      let rotary = false
+      spin.traverse((o) => {
+        const m = o as Mesh
+        if (!m.isMesh) return
+        const mats = Array.isArray(m.material) ? m.material : [m.material]
+        if (mats.some((x) => /^Rotary/i.test(x.name))) rotary = true
+        else this.propBladeMeshes.push(m)
+      })
+      if (!rotary) this.propBladeMeshes = []
       pivot.add(this.propBlur)
       // por fuera del disco: detrás de una hélice propulsora, delante de una tractora
       this.propBlur.position.set(this.vis.tractor ? 0.04 : -0.04, 0, 0)
@@ -301,6 +370,8 @@ export class AircraftView {
 
   private rotorSpin: Object3D | null = null
   private propSpin: Object3D | null = null
+  /** palas de una hélice que lleva un motor rotativo en su nodo (las que se ocultan con el desenfoque) */
+  private propBladeMeshes: Mesh[] = []
   private rig: PilotRig | null = null
   /** mandos suavizados (el teclado y los frenos van a saltos) */
   private anim = { thr: 0, brake: 0, yaw: 0, pre: 0 }
@@ -343,7 +414,8 @@ export class AircraftView {
   setCockpitView(cockpit: boolean): void {
     this.cockpitView = cockpit
     if (this.parts.pilot_front) this.parts.pilot_front.visible = !cockpit
-    for (const g of this.glassMaterials) g.opacity = cockpit ? 0.06 : 0.2
+    // desde dentro, el vidrio casi no se ve (lo justo para notar su tinte)
+    for (const g of this.glassMaterials) g.opacity = (g.userData.baseOpacity ?? 0.2) * (cockpit ? 0.3 : 1)
   }
 
   setPassenger(p: boolean): void {
@@ -359,22 +431,29 @@ export class AircraftView {
     this.cgOff.copy(ac.cgOff ?? ZERO)
     const p = this.parts
 
-    // cabeza del rotor
+    // cabeza del rotor (la de un rotor de paso cíclico no se inclina: lo que cambia es el paso de las palas)
     if (p.rotor_head) {
-      _q.setFromAxisAngle(Z, ac.headPitch)
-      _q2.setFromAxisAngle(X, ac.headRoll)
-      p.rotor_head.quaternion.copy(_q).multiply(_q2)
+      if (this.feathering) p.rotor_head.quaternion.identity()
+      else {
+        _q.setFromAxisAngle(Z, ac.headPitch)
+        _q2.setFromAxisAngle(X, ac.headRoll)
+        p.rotor_head.quaternion.copy(_q).multiply(_q2)
+      }
     }
 
-    // rotor: plano de puntas real del modelo + giro
+    // rotor: plano de puntas real del modelo + giro (sin batimiento, el plano del eje, fijo al pilón)
     this.rotorAngle = (this.rotorAngle + ac.rotor.omega * dt) % (Math.PI * 2)
-    const nBody = _v.copy(ac.rotor.normal).applyQuaternion(_q2.copy(ac.quat).invert())
-    _q.setFromUnitVectors(Y, nBody)
+    if (this.feathering) _q.identity()
+    else {
+      const nBody = _v.copy(ac.rotor.normal).applyQuaternion(_q2.copy(ac.quat).invert())
+      _q.setFromUnitVectors(Y, nBody)
+    }
     _q2.setFromAxisAngle(Y, this.rotorAngle)
     if (p.rotor) {
       p.rotor.quaternion.copy(_q)
       if (this.rotorSpin) this.rotorSpin.quaternion.copy(_q2)
-      p.rotor.position.copy(ac.hubBody).add(CG).add(this.cgOff)
+      if (this.feathering) p.rotor.position.copy(this.featherHub).add(this.cgOff)
+      else p.rotor.position.copy(ac.hubBody).add(CG).add(this.cgOff)
       // desenfoque según el paso de palas (con tres palas se emborrona a menos vueltas)
       const blur = smooth(110, 230, (ac.rotor.rpm * this.vis.rotorBlades) / 2)
       for (const m of discMaterials(this.rotorBlur)) m.opacity = blur
@@ -395,7 +474,8 @@ export class AircraftView {
     this.propAngle = (this.propAngle + propOmega * dt) % (Math.PI * 2)
     if (p.prop && this.propSpin) {
       const blur = smooth(500, 1100, (propRpm * vis.propBlades) / 3)
-      this.propSpin.visible = blur < 0.9
+      if (this.propBladeMeshes.length) for (const m of this.propBladeMeshes) m.visible = blur < 0.9
+      else this.propSpin.visible = blur < 0.9
       // Rotax: gira en sentido negativo sobre +X (vista desde atrás antihoraria); el radial
       // del Cierva, al revés (`propSpin` = 1)
       this.propSpin.quaternion.setFromAxisAngle(X, vis.propSpin * this.propAngle)
@@ -408,6 +488,7 @@ export class AircraftView {
 
     // timón, rueda de morro, ruedas, palanca
     if (p.rudder) p.rudder.quaternion.setFromAxisAngle(Y, ac.rudder)
+    for (const r of this.extraRudders) r.o.quaternion.copy(r.rest).multiply(_q.setFromAxisAngle(Y, ac.rudder))
     // (rueda de cola: gira al revés que una de morro, y solo lo que permitan sus muelles)
     if (p.nose_wheel)
       p.nose_wheel.quaternion.setFromAxisAngle(Y, vis.tailWheel ? (ac.noseSteer * vis.tailWheelSteer) / 22 : -ac.noseSteer)
@@ -415,6 +496,22 @@ export class AircraftView {
     if (ac.onGround) this.wheelAngle -= (fwdSpeed / vis.wheelR) * dt
     if (p.wheel_L) p.wheel_L.quaternion.setFromAxisAngle(Z, this.wheelAngle)
     if (p.wheel_R) p.wheel_R.quaternion.setFromAxisAngle(Z, this.wheelAngle)
+    // ruedas anfibias: suben dentro del flotador; las principales ruedan
+    // tren retráctil: las patas suben en el primer 70 % del recorrido y las compuertas «tardías» se cierran
+    // en el último 30 % (al bajarlo, al revés: primero se abren)
+    if (this.retractParts.length) {
+      const r = 1 - (ac.gearPos ?? 1)
+      for (const g of this.retractParts) {
+        const x = g.late ? (r - 0.7) / 0.3 : r / 0.7
+        const k = x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x)
+        g.o.quaternion.copy(g.rest).multiply(_q.setFromAxisAngle(g.axis, g.angle * k))
+      }
+    }
+    const up = this.gearRetract * (1 - (ac.gearPos ?? 1))
+    for (const w of this.amphWheels) {
+      w.o.position.set(w.rest.x, w.rest.y + up, w.rest.z)
+      if (w.main) w.o.quaternion.setFromAxisAngle(Z, this.wheelAngle)
+    }
     if (p.stick && vis.hangingStick) {
       // mando directo (Cierva): la palanca cuelga de la cabeza del rotor y, por su varillaje,
       // la mano va en el sentido de un avión (atrás = disco atrás) pero la palanca entera se
@@ -438,6 +535,11 @@ export class AircraftView {
     a.pre += ((ctl.prerotator ? 1 : 0) - a.pre) * Math.min(1, dt * 8)
     // (todo gas = palanca adelante: giro negativo sobre +Z)
     if (p.throttle) p.throttle.quaternion.setFromAxisAngle(Z, -a.thr * THROTTLE_TRAVEL)
+    // propulsor de plasma: un rescoldo al ralentí y todo el brillo a pleno gas; apagado, nada
+    if (this.glow.length) {
+      const k = ac.engineRpm > 50 ? 0.12 + 0.88 * a.thr : 0
+      for (const g of this.glow) g.m.emissiveIntensity = g.base * k
+    }
     if (p.throttle_brake) p.throttle_brake.quaternion.setFromAxisAngle(Z, -a.brake * 18 * DEG)
     if (p.brake_lever) p.brake_lever.quaternion.setFromAxisAngle(Z, a.brake * 22 * DEG)
     if (p.starter_lever) p.starter_lever.quaternion.setFromAxisAngle(Z, a.pre * 22 * DEG)
@@ -445,6 +547,11 @@ export class AircraftView {
     if (p.pedal_R) p.pedal_R.quaternion.setFromAxisAngle(Z, -a.yaw * PEDAL_TRAVEL)
     if (p.pedal_L) p.pedal_L.quaternion.setFromAxisAngle(Z, a.yaw * PEDAL_TRAVEL)
     if (p.foot_bar) p.foot_bar.quaternion.setFromAxisAngle(Y, a.yaw * FOOT_BAR_TRAVEL)
+    // profundidad (palanca atrás → borde de salida arriba; sube más de lo que baja) y alerones (palanca a la
+    // derecha → el derecho sube): nodos de bisagra sobre +Z, el borde de salida hacia −X
+    if (p.elevator) p.elevator.quaternion.setFromAxisAngle(Z, -ctl.pitch * (ctl.pitch > 0 ? 28 : 16) * DEG)
+    if (p.aileron_R) p.aileron_R.quaternion.setFromAxisAngle(Z, -ctl.roll * 18 * DEG)
+    if (p.aileron_L) p.aileron_L.quaternion.setFromAxisAngle(Z, ctl.roll * 18 * DEG)
     if (this.rig && p.pilot_front?.visible) this.rig.update()
     // interruptores de luces del panel
     this.cockpit.lightsOn = this.lights.on
@@ -520,6 +627,21 @@ function wrapPivot(node: Object3D): { pivot: Group; spin: Group } {
 function smooth(a: number, b: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)))
   return t * t * (3 - 2 * t)
+}
+
+/**
+ * Tinte del vidrio en el simulador: el oscuro de siempre, salvo que el material del modelo sea un vidrio
+ * de color claramente saturado (dorado, ámbar…): entonces su color, oscurecido, y algo más opaco.
+ */
+const _hsl = { h: 0, s: 0, l: 0 }
+function glassTint(mats: Material[]): { color: Color; opacity: number } {
+  for (const m of mats) {
+    const c = (m as MeshStandardMaterial).color
+    if (!c) continue
+    c.getHSL(_hsl)
+    if (_hsl.s > 0.4 && _hsl.l > 0.15 && _hsl.l < 0.85) return { color: c.clone().multiplyScalar(0.6), opacity: 0.34 }
+  }
+  return { color: new Color(0x1c2833), opacity: 0.2 }
 }
 
 function tuneMaterial(mat: Material): void {

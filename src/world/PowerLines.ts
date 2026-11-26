@@ -17,14 +17,14 @@
 // - Flecha: L²/(8c) con el parámetro de la catenaria de cada tensión (WIRE en powerDesigns.ts).
 // - Choques: cajas de cada apoyo (collides) y tramos de cable (wiresNear, crash/wireStrike.ts).
 
-import { BufferGeometry, Color, Float32BufferAttribute, Matrix4, Mesh, MeshBasicMaterial, Vector3, type PerspectiveCamera, type Texture } from 'three'
+import { BufferGeometry, Color, Float32BufferAttribute, Frustum, Matrix4, Mesh, MeshBasicMaterial, Sphere, Vector3, type PerspectiveCamera, type Texture } from 'three'
 import { OVERLAY_LAYER } from '../render/Graphics.ts'
 import type { GeoFrame } from './GeoFrame.ts'
 import type { HeightSource } from './HeightSource.ts'
 import { latToY, lonToX, xToLon, yToLat } from './mapTiles.ts'
 import { chooseTemplate, PALETTE, vclass, WIRE, type Template, type VClass } from './powerDesigns.ts'
 import { MATERIAL, NODE, type PowerWay } from './powerFormat.ts'
-import { createPowerMaterials, eyeBoost, pixelScale, SEGMENTS, templateArrays, towerGeometry, wireGeometry, type PowerMaterials } from './powerMaterial.ts'
+import { createPowerMaterials, eyeBoost, mergedTowerGeometry, pixelScale, SEGMENTS, templateArrays, towerGeometry, wireGeometry, type PowerMaterials, type TemplateArrays } from './powerMaterial.ts'
 import { powerWaysIn, usesOpenInfraMap } from './powerSources.ts'
 import { Slicer, TileLayer, type LayerTile } from './TileLayer.ts'
 
@@ -93,10 +93,16 @@ interface PowerTile extends LayerTile {
   nTowers: number
   nSpans: number
   oim: boolean
+  /** nivel de detalle que toca (afterUpdate): apoyos con todas sus barras, y cables a la vista */
+  near?: boolean
+  wiresOn?: boolean
 }
 
 const _v = new Vector3()
 const _w = new Vector3()
+const _frustum = new Frustum()
+const _pv = new Matrix4()
+const _sphere = new Sphere()
 const _m = new Matrix4()
 const _m2 = new Matrix4()
 const _q = new Vector3()
@@ -153,7 +159,11 @@ export class PowerLines extends TileLayer<PowerTile> {
     if (heightPx > 0) pixelScale.value = (2 * Math.tan((camera.fov * DEG) / 2)) / camera.zoom / heightPx
     // (radianes por píxel frente a los ~0,35 mrad que resuelve el ojo)
     eyeBoost.value = Math.max(1, Math.min(4, pixelScale.value / 0.00035))
+    // el encuadre, para no mandar a dibujar las mallas que quedan fuera (afterUpdate)
+    _frustum.setFromProjectionMatrix(_pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse))
+    this.hasView = true
   }
+  private hasView = false
 
   setEnvMap(tex: Texture | null): void {
     for (const m of [this.mats.towerLit, this.mats.wireLit]) {
@@ -170,10 +180,42 @@ export class PowerLines extends TileLayer<PowerTile> {
 
   protected override afterUpdate(): void {
     for (const t of this.tiles.values()) {
-      const near = t.dist < 0.3
-      for (const m of t.full) m.visible = near
-      for (const m of t.simple) m.visible = !near
-      for (const m of t.wires) m.visible = t.dist < 0.75
+      t.near = t.dist < 0.3
+      t.wiresOn = t.dist < 0.75
+    }
+    this.cull()
+  }
+
+  override update(dt: number, cameraWorld: Vector3): void {
+    super.update(dt, cameraWorld)
+    // (la capa revisa sus teselas cada 0,4 s; el encuadre cambia en cada fotograma)
+    if (this.enabled) this.cull()
+  }
+
+  /** Cada fotograma: de lo que toca ver por distancia, solo lo que cae en el encuadre. */
+  private cull(): void {
+    for (const t of this.tiles.values()) {
+      this.show(t.full, t.near === true)
+      this.show(t.simple, t.near === false)
+      this.show(t.wires, t.wiresOn === true)
+    }
+  }
+
+  /**
+   * Muestra u oculta las mallas (de tres en tres: albedo, luz y profundidad de una misma
+   * geometría). Las que tocaría ver pero quedan fuera del encuadre se ocultan también: solo las
+   * dibuja la cámara principal, y la envolvente ajustada lleva margen de sobra (powerMaterial.ts).
+   */
+  private show(meshes: Mesh[], on: boolean): void {
+    for (let i = 0; i < meshes.length; i += 3) {
+      let v = on
+      const tight = v && this.hasView ? (meshes[i].geometry.userData.tight as Sphere | undefined) : undefined
+      if (tight) {
+        _sphere.center.copy(tight.center).applyMatrix4(meshes[i].matrixWorld)
+        _sphere.radius = tight.radius
+        v = _frustum.intersectsSphere(_sphere)
+      }
+      for (let k = i; k < i + 3 && k < meshes.length; k++) meshes[k].visible = v
     }
   }
 
@@ -444,6 +486,7 @@ export class PowerLines extends TileLayer<PowerTile> {
     }
     const tileR = 0.75 * Math.hypot((east - west) * kx, (north - south) * ky) + 800
     const towers: TowerRec[] = []
+    const simpleParts: Array<{ arrays: TemplateArrays; ip: Float32Array; iu: Float32Array }> = []
     for (const [tpl, list] of byTpl) {
       const ip = new Float32Array(list.length * 4)
       const iu = new Float32Array(list.length * 2)
@@ -455,8 +498,10 @@ export class PowerLines extends TileLayer<PowerTile> {
         towers.push({ x: p.p.x, y: p.p.y, z: p.p.z, ux: p.ux, uz: p.uz, s: p.scale, tpl, r: r * p.scale, base: p.base, raise: p.raise })
       })
       t.full.push(...this.pair(towerGeometry(templateArrays(tpl, false), ip, iu, tileR), true, t))
-      t.simple.push(...this.pair(towerGeometry(templateArrays(tpl, true), ip, iu, tileR), true, t))
+      simpleParts.push({ arrays: templateArrays(tpl, true), ip, iu })
     }
+    // la silueta de lejos de todas las plantillas de la tesela, en una sola malla (tres dibujos)
+    if (simpleParts.length) t.simple.push(...this.pair(mergedTowerGeometry(simpleParts, tileR), true, t))
 
     const wa: number[] = []
     const wb: number[] = []

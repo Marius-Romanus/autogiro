@@ -113,6 +113,8 @@ interface Piece {
 interface VTile {
   state: 'loading' | 'ok' | 'failed'
   pieces: Piece[]
+  /** cuándo falló (performance.now): pasados 15 s se vuelve a pedir */
+  failedAt?: number
 }
 
 /** Ancho probable de la pista según su longitud (OpenMapTiles no trae el ancho). */
@@ -307,6 +309,12 @@ export class Runways {
   private readonly applied = new WeakMap<BufferGeometry, number>()
   /** correcciones que cambiaron en la última versión */
   private lastChanged: Patch[] = []
+  /** las que cambiaron en cada versión reciente, y su unión desde una versión dada hasta la vigente */
+  private readonly changesAt = new Map<number, Patch[]>()
+  private readonly changedFrom = new Map<number, Patch[] | null>()
+  /** mallas que faltan por poner al día (pump) */
+  private queue: Mesh[] = []
+  private queuePos = 0
   private readonly tileVersion = new WeakMap<object, number>()
   /** geometrías ya convertidas en rejilla */
   private readonly gridded = new WeakSet<BufferGeometry>()
@@ -425,7 +433,33 @@ export class Runways {
     this.versions.set(this.version, next)
     // versiones viejas que ya no puede tener ninguna malla (se guardan unas cuantas por las teselas en vuelo)
     for (const v of this.versions.keys()) if (v < this.version - 64) this.versions.delete(v)
+    this.changesAt.set(this.version, this.lastChanged)
+    for (const v of this.changesAt.keys()) if (v < this.version - 64) this.changesAt.delete(v)
+    this.changedFrom.clear()
     this.changed = true
+  }
+
+  /** Correcciones que han cambiado desde la versión `v` (undefined si ya no se sabe: todas). */
+  private changedSince(v: number): Patch[] | undefined {
+    let u = this.changedFrom.get(v)
+    if (u === undefined) {
+      const seen = new Set<Patch>()
+      u = []
+      for (let k = v + 1; k <= this.version; k++) {
+        const c = this.changesAt.get(k)
+        if (!c) {
+          u = null
+          break
+        }
+        for (const p of c) {
+          if (seen.has(p)) continue
+          seen.add(p)
+          u.push(p)
+        }
+      }
+      this.changedFrom.set(v, u)
+    }
+    return u ?? undefined
   }
 
   /** true una vez tras cambiar las pistas: hay que volver a aplicar las mallas cargadas. */
@@ -444,12 +478,24 @@ export class Runways {
     const n = 2 ** Z
     const cx = Math.floor(lonToX(lon, n))
     const cy = Math.floor(latToY(lat, n))
-    if (cx === this.centerX && cy === this.centerY) return
+    if (cx === this.centerX && cy === this.centerY) {
+      // las que fallaron por un corte de red se vuelven a pedir pasados 15 s
+      const now = performance.now()
+      for (const [k, t] of this.vtiles) {
+        if (t.state !== 'failed' || now - (t.failedAt ?? 0) < 15000) continue
+        this.vtiles.delete(k)
+        const [x, y] = k.split('/').map(Number)
+        this.request(x, y)
+      }
+      return
+    }
     this.centerX = cx
     this.centerY = cy
     for (const [k, t] of this.vtiles) {
       const [x, y] = k.split('/').map(Number)
       if (t.state !== 'loading' && Math.max(Math.abs(x - cx), Math.abs(y - cy)) > SEARCH + 2) this.vtiles.delete(k)
+      // (y las que fallaron, para pedirlas otra vez aquí abajo)
+      else if (t.state === 'failed' && performance.now() - (t.failedAt ?? 0) > 15000) this.vtiles.delete(k)
     }
     for (let dy = -SEARCH; dy <= SEARCH; dy++) for (let dx = -SEARCH; dx <= SEARCH; dx++) this.request(cx + dx, cy + dy)
     this.rebuild()
@@ -470,6 +516,7 @@ export class Runways {
       })
       .catch(() => {
         t.state = 'failed'
+        t.failedAt = performance.now()
       })
       .finally(() => {
         this.inflight--
@@ -639,6 +686,59 @@ export class Runways {
       this.reloaded.add(t)
       this.tiles.lruCache.remove(t)
     }
+  }
+
+  /**
+   * Lo mismo que `reapply`, repartido: llamar en cada fotograma; gasta como mucho `budgetMs`
+   * (más lo que tarde la malla que tenga entre manos) y sigue en el siguiente. Poner al día las
+   * mallas de golpe eran 50-65 ms en el fotograma en que llegaban los parches de una tesela de
+   * puentes (uno de cada tres tirones volando sobre Madrid, visto con el perfil de CPU). Van
+   * primero las que cuelgan de la escena, que son las que se ven; la física no espera a nada,
+   * porque lee las pistas y los parches directamente (`adjust`).
+   */
+  pump(meshes: ReadonlySet<Mesh>, budgetMs: number): void {
+    if (this.changed) {
+      this.changed = false
+      const group = this.tiles.group
+      const shown: Mesh[] = []
+      const rest: Mesh[] = []
+      for (const m of meshes) (isDescendant(m, group) ? shown : rest).push(m)
+      this.queue = shown.concat(rest)
+      this.queuePos = 0
+    }
+    if (this.queuePos >= this.queue.length) return
+    const t0 = performance.now()
+    while (this.queuePos < this.queue.length) {
+      const m = this.queue[this.queuePos++]
+      // (descargada entretanto)
+      if (!meshes.has(m)) continue
+      const tile = m.userData.tile
+      const z = tile?.internal?.isVirtual ? null : tileLevel(tile)
+      const reg = regionDeg(tile)
+      // tesela fina cargada antes de conocer la pista: recargarla para mallarla en rejilla
+      if (z !== null && z >= REGRID_LEVEL && reg && !this.gridded.has(m.geometry) && !this.reloaded.has(tile) && boxTouches(this.runways, ...reg)) {
+        this.reloaded.add(tile)
+        this.tiles.lruCache.remove(tile)
+        continue
+      }
+      const v = this.applied.get(m.geometry)
+      if (v !== this.version) {
+        const inherited = tile?.internal?.isVirtual && tile.parent ? (this.tileVersion.get(tile.parent) ?? 0) : 0
+        // (si no toca ninguna corrección de las que han cambiado desde su versión, no cambia)
+        this.applyMesh(m, inherited, v === undefined ? undefined : this.changedSince(v))
+        if (tile) this.tileVersion.set(tile, this.version)
+      }
+      if ((this.queuePos & 3) === 0 && performance.now() - t0 > budgetMs) break
+    }
+    if (this.queuePos >= this.queue.length) {
+      this.queue = []
+      this.queuePos = 0
+    }
+  }
+
+  /** Quedan mallas por poner al día (el aparato no debe aparecer aún sobre una pista sin alisar). */
+  get reapplying(): boolean {
+    return this.changed || this.queuePos < this.queue.length
   }
 
   /**

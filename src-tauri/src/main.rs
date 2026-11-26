@@ -20,7 +20,7 @@ mod updates;
 
 use std::path::PathBuf;
 
-use tauri::webview::NewWindowResponse;
+use tauri::webview::{NewWindowResponse, PermissionKind, PermissionResponse};
 use tauri::{App, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 
 /// Puertos que prueba, en orden. Lo guardado por el juego (idioma, clave de Google, ajustes,
@@ -150,6 +150,17 @@ fn game_window(app: &App, port: u16) -> Result<(), Box<dyn std::error::Error>> {
             }
             NewWindowResponse::Deny
         })
+        // Micrófono para la radio de voz del multijugador. Solo puede pedirlo la página del juego:
+        // esta ventana no navega a ningún otro sitio (on_navigation) y la página no lleva iframes
+        // de fuera (que además no podrían pedirlo: la política de permisos lo limita al propio
+        // origen). El juego lo pide únicamente cuando el jugador activa «Radio de voz» y solo
+        // envía mientras mantiene el PTT. Sin esto WebKitGTK lo deniega siempre y WebView2 saca su
+        // propio aviso. Lo demás (cámara, ubicación…), lo que haga el motor por defecto.
+        // (No se mira `webview.url()` aquí: se llama desde el hilo principal en mitad del evento.)
+        .on_permission_request(|_, kind| match kind {
+            PermissionKind::Microphone => PermissionResponse::Allow,
+            _ => PermissionResponse::Default,
+        })
         .build()?;
     #[cfg(target_os = "linux")]
     linux::tune_webview(&window);
@@ -177,6 +188,8 @@ mod linux {
 
     /// Siempre con la gráfica (sin el modo «solo cuando haga falta», que en un juego 3D
     /// solo añade cambios de modo) y con sonido aunque aún no se haya pulsado nada.
+    /// Con captura de audio (getUserMedia, apagada por defecto en WebKitGTK) para la radio de voz;
+    /// el permiso lo da `on_permission_request` solo a la página del juego.
     /// `AUTOGIRO_CONSOLE=1` saca la consola del juego por la terminal, para depurar.
     pub fn tune_webview(window: &tauri::WebviewWindow) {
         let console = std::env::var_os("AUTOGIRO_CONSOLE").is_some();
@@ -184,6 +197,7 @@ mod linux {
             let Some(settings) = w.inner().settings() else { return };
             settings.set_hardware_acceleration_policy(HardwareAccelerationPolicy::Always);
             settings.set_media_playback_requires_user_gesture(false);
+            settings.set_enable_media_stream(true);
             if console {
                 settings.set_enable_write_console_messages_to_stdout(true);
             }

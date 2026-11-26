@@ -30,6 +30,11 @@ export interface Location {
   region?: Region
   /** país (ISO 3166-1 alfa-2) de los sitios de fuera de España: se agrupan por país en el menú */
   country?: string
+  /**
+   * Salida en el agua (hidrobase, lago, bahía): con flotadores se sale posado en ella, a la deriva y con
+   * el motor parado; sin flotadores, en vuelo a `airAGL`.
+   */
+  water?: boolean
 }
 
 /** País de un lugar (los que no lo dicen están en España). */
@@ -601,6 +606,24 @@ export const LOCATIONS: Location[] = [
     note: 'Desde el mar: el castillo del Morro y el Malecón' },
   { id: 'cartagena', name: 'Cartagena de Indias', lat: 10.4101, lon: -75.5748, heading: 60, geoid: -5.9, airAGL: 220, country: 'CO',
     note: 'La ciudad amurallada junto al Caribe' },
+  // Salidas en el agua (hidroautogiros: el Wilford XOZ-1 y los aparatos con flotadores). Puntos en agua
+  // abierta, con el rumbo a lo largo de la lámina más larga para despegar.
+  { id: 'marmenor', name: 'Mar Menor', lat: 37.7259, lon: -0.7984, heading: 20, geoid: 50.0, airAGL: 150, region: 'mur', water: true,
+    note: 'Murcia · la mayor laguna salada de Europa: agua llana y 20 km de largo' },
+  { id: 'sanjuan', name: 'Embalse de San Juan', lat: 40.3943, lon: -4.3715, heading: 300, geoid: 51.8, airAGL: 150, region: 'mad', water: true,
+    note: 'Madrid · el pantano del Alberche, entre pinares' },
+  { id: 'palmabahia', name: 'Bahía de Palma', lat: 39.5250, lon: 2.6050, heading: 230, geoid: 49.6, airAGL: 150, region: 'bal', water: true,
+    note: 'Mallorca · frente a la catedral de Palma' },
+  { id: 'sanabriaagua', name: 'Lago de Sanabria · en el agua', lat: 42.1217, lon: -6.7162, heading: 270, geoid: 58.4, airAGL: 150, region: 'cyl', water: true,
+    note: 'Zamora · el mayor lago glaciar de la Península' },
+  { id: 'lakehood', name: 'Anchorage · Lake Hood', lat: 61.1812, lon: -149.9700, heading: 90, geoid: 9.0, airAGL: 150, country: 'US', water: true,
+    note: 'Alaska · la hidrobase con más tráfico del mundo' },
+  { id: 'vancouverhb', name: 'Vancouver · puerto de hidroaviones', lat: 49.2925, lon: -123.1150, heading: 270, geoid: -16.5, airAGL: 150, country: 'CA', water: true,
+    note: 'Columbia Británica · Coal Harbour, frente a los rascacielos' },
+  { id: 'comoidro', name: 'Lago de Como · hidrobase de Como', lat: 45.8300, lon: 9.0850, heading: 30, geoid: 47.0, airAGL: 150, country: 'IT', water: true,
+    note: 'Lombardía · la hidrobase en activo más antigua del mundo (1913)' },
+  { id: 'malelagoon', name: 'Malé · laguna de hidroaviones', lat: 4.1975, lon: 73.5350, heading: 0, geoid: -95.0, airAGL: 150, country: 'MV', water: true,
+    note: 'Maldivas · junto al aeropuerto, de donde salen los hidroaviones a los atolones' },
 ]
 
 /** Nombre del lugar en el idioma de la interfaz (los nombres de LOCATIONS están en español). */
@@ -616,6 +639,7 @@ export function locationNote(l: Location): string {
   const k = `loc.${l.id}.note`
   const note = has(k) ? t(k) : (l.note ?? '')
   if (l.runway || l.group === 'airfield') return note
+  if (l.water) return note ? `${note} · ${t('loc.onWater', { m: l.airAGL ?? 150 })}` : t('loc.onWater', { m: l.airAGL ?? 150 })
   const fly = t('loc.inFlight', { m: l.airAGL ?? 300 })
   return note ? `${note} · ${fly}` : fly
 }
@@ -633,6 +657,9 @@ export interface Settings {
   trees: boolean
   /** tráfico simulado por las calles (modo sin clave) */
   traffic: boolean
+  /** otros autogiros en los aeródromos (src/airtraffic) y cuántos */
+  airTraffic: boolean
+  airTrafficDensity: 'low' | 'normal' | 'high'
   /** tendidos eléctricos en 3D (modo sin clave) */
   power: boolean
   locationId: string
@@ -647,6 +674,16 @@ export interface Settings {
   placeLocationId: string
   start: StartMode
   passenger: boolean
+  /** con flotadores (solo los aparatos con juego de flotadores: src/sim/floatKit.ts) */
+  floats: boolean
+  /** combustible al salir (% del depósito; sim/fuel.ts) */
+  fuelPct: number
+  /**
+   * Fallos de motor (sim/powerplant.ts): ninguno (F2 hace igualmente un simulacro), simulacros del
+   * instructor o fallos reales; `failRandom`: llegan solos en un momento al azar del vuelo.
+   */
+  failures: 'none' | 'drill' | 'real'
+  failRandom: boolean
   /** id del modelo 3D en src/aircraft/catalog.ts */
   aircraft: string
   hour: number // hora local (decimal)
@@ -654,7 +691,30 @@ export interface Settings {
   windFrom: number
   windSpeed: number // nudos
   turbulence: number // 0..1
+  /**
+   * Viento del terreno (src/sim/wind, src/world/WindField.ts): relieve, obstáculos, térmicas y perfil
+   * según la hora y el suelo; apagado, el viento uniforme de siempre. Con él, `turbulence` multiplica
+   * la turbulencia que sale del sitio (0,25 = tal cual).
+   */
+  terrainWind: boolean
   clouds: CloudPreset
+  /**
+   * Aire del día (sim/airMass.ts). `isa`: atmósfera estándar (15 °C y 1013,25 hPa a nivel del mar),
+   * como siempre; si no, temperatura en el suelo de la salida (°C) y QNH (hPa).
+   */
+  isa: boolean
+  oatC: number
+  qnh: number
+  /**
+   * Del botón «Tiempo real» (Open-Meteo, menu/realWeather.ts); aún no los usa nada (niebla, lluvia,
+   * hielo en el carburador): punto de rocío en el suelo (°C), visibilidad (m), precipitación (mm/h),
+   * código de tiempo WMO (−1 = sin datos) y rachas a 10 m (nudos, 0 = sin datos).
+   */
+  dewPointC: number
+  visibility: number
+  precip: number
+  weatherCode: number
+  windGustKt: number
   /** 'auto' = según la GPU detectada */
   quality: Quality | 'auto'
   volume: number
@@ -673,6 +733,12 @@ export interface Settings {
   exposure: number
   /** panel de telemetría de rendimiento (tecla F3, src/hud/Telemetry.ts) */
   telemetry: boolean
+  /**
+   * Relojes en pantalla (src/hud/Hud.ts; tecla I o botón de la barra superior), por separado en la
+   * cámara de cabina, que ya tiene los suyos en el panel 3D, y en las exteriores.
+   */
+  hudCockpit: boolean
+  hudOutside: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -684,6 +750,8 @@ export const DEFAULT_SETTINGS: Settings = {
   catastro: true,
   trees: true,
   traffic: true,
+  airTraffic: true,
+  airTrafficDensity: 'normal',
   power: true,
   locationId: 'lemt26',
   customLat: 40.2348,
@@ -694,13 +762,26 @@ export const DEFAULT_SETTINGS: Settings = {
   placeLocationId: 'alhambra',
   start: 'runway',
   passenger: false,
+  floats: false,
+  fuelPct: 100,
+  failures: 'none',
+  failRandom: false,
   aircraft: 'ela07',
   hour: 11,
   dayOfYear: 140,
   windFrom: 250,
   windSpeed: 6,
   turbulence: 0.25,
+  terrainWind: true,
   clouds: 'fair',
+  isa: true,
+  oatC: 15,
+  qnh: 1013.25,
+  dewPointC: 5,
+  visibility: 30000,
+  precip: 0,
+  weatherCode: -1,
+  windGustKt: 0,
   quality: 'auto',
   volume: 0.8,
   invertPitch: false,
@@ -714,6 +795,8 @@ export const DEFAULT_SETTINGS: Settings = {
   invertThrottle: true,
   exposure: 2.6,
   telemetry: false,
+  hudCockpit: true,
+  hudOutside: true,
 }
 
 const KEY = 'autogiro.settings.v4'

@@ -11,11 +11,12 @@
 // también el peso en vacío, la resistencia de la célula y el motor (prestaciones).
 
 import { Vector3 } from 'three'
-import { GENET_MAJOR, LYCOMING_IO540, MCCULLOCH_4318A, ROTAX_503, ROTAX_912ULS, ROTAX_914UL, ROTAX_915IS, type EngineSpec } from './engines.ts'
+import { CELIER_912ULST, GENET_MAJOR, GENET_MAJOR_I, LE_RHONE_9J, LYCOMING_IO540, MCCULLOCH_4318A, PLASMA_MHD, KINNER_R5, ROTAX_503, ROTAX_912ULS, ROTAX_914UL, ROTAX_915IS, type EngineSpec } from './engines.ts'
 import { DEFAULT_ROTOR, type RotorParams } from './rotor.ts'
 import type { WreckZones } from './wreck/parts.ts'
 import type { CspPropSpec, SlowedRotorSpec, WingSpec } from './compound.ts'
 import type { FloatSpec, HullElement } from './hydro.ts'
+import { withFloats } from './floatKit.ts'
 
 /** masa del piloto y del pasajero, equipados (kg) */
 export const PILOT_MASS = 85
@@ -68,7 +69,11 @@ export interface Airframe {
    *   brazo), más bajo tiene que estar ese tope.
    */
   head: { base: number; aft: number; fwd: number }
-  /** masa en vacío (kg, con aceite y refrigerante) y combustible que lleva a bordo (kg) */
+  /**
+   * masa en vacío (kg, con aceite y refrigerante) y combustible de referencia (kg): el que llevan los
+   * bancos de pruebas y con el que vale el CG de la ficha. En el juego se sale con el del menú;
+   * capacidad, consumo y dónde va el depósito: sim/fuel.ts
+   */
   emptyMass: number
   fuelMass: number
   /** masa máxima al despegue (kg) */
@@ -111,6 +116,17 @@ export interface Airframe {
    */
   prerotator?: Prerotator
   /**
+   * Arranque del rotor con cuerda en vez de prerrotador (Cierva C.6): con el aparato parado y el rotor
+   * quieto, la tecla del prerrotador hace que el personal de tierra tire de la cuerda (ver `RopeStart`).
+   */
+  ropeStart?: RopeStart
+  /**
+   * Tren estrecho sin rueda gobernable ni deriva (Cierva C.6): en tierra la ayuda de teclado lleva las alas a
+   * nivel con los alerones y el rumbo con el que echó a rodar con el timón, mientras no se toquen esos mandos (sin
+   * ella, al aligerarse en la carrera se va de lado y vuelca sobre una punta).
+   */
+  groundAssist?: boolean
+  /**
    * Escala de las vueltas del rotor respecto a las de los autogiros actuales (8,4 m,
    * ~350 rpm en crucero): avisos de bajas vueltas, cuentarrevoluciones, desenfoque de
    * las palas. Un rotor grande y lento (el del Cierva) gira a ~0,6 de esas vueltas.
@@ -125,6 +141,8 @@ export interface Airframe {
   body?: { vertCdA: number; vertCP: Vector3; sideCdA: number; sideCP: Vector3 }
   /** rueda de cola: grados de giro con los pedales a fondo (0 = loca) */
   tailWheelSteer?: number
+  /** el apoyo de cola (`tailWheel`) es un patín (Cierva C.19): no rueda, roza en todas direcciones */
+  tailSkid?: boolean
   /** rigidez y amortiguación del tren respecto a las de los autogiros actuales (~480 kg) */
   gearScale?: number
   /** lo mismo para la rueda de morro (1 si falta) */
@@ -136,6 +154,20 @@ export interface Airframe {
    * Cierva) en vez de salir del suelo de la cabina.
    */
   hangingStick?: boolean
+  /**
+   * Rotor de paso cíclico sin batimiento (Wilford XOZ-1): las palas solo cambian de paso y giran siempre
+   * en el plano del eje, fijo al pilón; lo que se inclina con la palanca y el viento es el empuje, no el
+   * disco. Las fuerzas son las de un rotor que bate (equivalencia paso-batimiento), pero se dibuja con
+   * las palas en el plano del eje: la deriva del XOZ-1 llega a 0,3 m del plano del rotor, y un disco que
+   * se inclinara hacia atrás la atravesaría.
+   */
+  featheringRotor?: boolean
+  /**
+   * Cabeza del rotor fija (los Cierva de antes del mando directo: C.6, C.19 hasta el Mk IV): la palanca
+   * no inclina el rotor, que se queda en `head.base`; se gobierna como un avión, con los alerones del
+   * ala (`wing`), la profundidad (`elevator`) y el timón, que apenas sirven a poca velocidad.
+   */
+  headFixed?: boolean
   /** zonas del modelo 3D para el despiece de los accidentes (si no, las del genérico) */
   wreck?: WreckZones
   /** false: sin timón (el Cierva C.30A): los pedales solo mueven la rueda de cola */
@@ -170,6 +202,20 @@ export interface Airframe {
   /** incidencia del estabilizador respecto al fuselaje (°, + borde de ataque arriba); −1,5 si falta */
   stabIncidence?: number
   /**
+   * Fracción del soplado de la hélice que llega a estabilizador y deriva (1 si falta). 0 cuando la
+   * salida va por detrás de la cola (la tobera del Sigilo): si no, el chorro de un disco pequeño y muy
+   * cargado haría de la cola un timón de profundidad gigante.
+   */
+  tailSlipstream?: number
+  /**
+   * Aguante del rotor contra los topes de batimiento respecto a un bipala basculante (1): cuántos
+   * golpes aguanta antes de romper. Un rotor rígido de material compuesto con topes elastoméricos
+   * (Sigilo) aguanta bastante más en maniobras bruscas.
+   */
+  flapToughness?: number
+  /** escala del velocímetro (km/h) si el aparato pasa de la normal (0-200: arco verde 45-150, amarillo hasta 180) */
+  asi?: AsiSpec
+  /**
    * Equipo de fumigación (Gyro Tractor): tolva y barras. Las boquillas son los nodos `spray_NN` del
    * modelo; la tecla U abre y cierra el paso (src/fx/SprayFx.ts) y el producto que sale aligera el aparato.
    */
@@ -193,7 +239,15 @@ export interface Airframe {
    * al recogerlas suben `retract` metros dentro del flotador. `wheels`: apoyo de cada rueda (para el
    * agua, si se amariza con ellas fuera) y su radio.
    */
-  amphib?: { retract: number; wheels: Vector3[]; radius: number }
+  amphib?: { retract: number; wheels: Vector3[]; radius: number; noses?: Vector3[] }
+  /**
+   * Tren retráctil (Sigilo): la tecla del tren (Y) lo sube o lo baja en `time` s. Recogido, las ruedas no
+   * tocan (se toma sobre la panza: sus puntos de choque) y la célula pierde `dragSave` m² de resistencia.
+   * `parts`: nodos del modelo que giran al recogerlo (patas con su rueda, compuertas): eje en ejes del
+   * modelo (x adelante, y arriba, z derecha) y grados de abajo/abierto a recogido/cerrado; `late` = la
+   * compuerta se cierra al final, cuando la pata ya está dentro (y se abre la primera al bajarlo).
+   */
+  retractGear?: RetractGearSpec
 
   // ---- Autogiro compuesto de rotor frenado (Carter PAV): `compound.ts` ----
   /** ala con alerones (fuerzas en el centro aerodinámico de cada franja) */
@@ -203,6 +257,12 @@ export interface Airframe {
    * (palanca atrás → borde de salida arriba). La palanca sigue inclinando la cabeza del rotor.
    */
   elevator?: number
+  /**
+   * Grados con la palanca a fondo atrás, si la profundidad sube más de lo que baja (C.19: con la cabeza
+   * fija, tiene que poder levantar el morro para la bajada empinada). Cerca del centro manda `elevator`;
+   * la subida extra crece con el cuadrado de la palanca.
+   */
+  elevatorAft?: number
   /** hélice de paso variable con regulador (en vez de la de paso fijo de `propCoeffs`) */
   cspProp?: CspPropSpec
   /**
@@ -211,6 +271,23 @@ export interface Airframe {
    * automático y salto. Avisos y accidente de bajas vueltas referidos a la ley de vueltas.
    */
   slowedRotor?: SlowedRotorSpec
+}
+
+export interface RetractGearSpec {
+  time: number
+  lift: number
+  dragSave: number
+  parts: { node: string; axis: [number, number, number]; angle: number; late?: boolean }[]
+}
+
+/** Escala del velocímetro: fondo, marca grande cada `step` y pequeña cada `minor`, arcos de color (km/h). */
+export interface AsiSpec {
+  max: number
+  step: number
+  minor: number
+  green: [number, number]
+  yellow: [number, number]
+  red: number
 }
 
 export interface SprayerSpec {
@@ -229,6 +306,18 @@ export interface PropCoef {
   cp0: number
   j0: number
   j1: number
+}
+
+/**
+ * Arranque con cuerda (Cierva C.6 de 1924-25, sin prerrotador; Flight, 22-10-1925): una cuerda enrollada
+ * en unos tacos bajo las palas, a `radius` m del eje, de la que tira el personal de tierra con `force` N
+ * hasta que se acaban los `length` m o el rotor va más deprisa de lo que pueden correr (`speed`, m/s).
+ */
+export interface RopeStart {
+  force: number
+  radius: number
+  length: number
+  speed: number
 }
 
 export interface Prerotator {
@@ -339,15 +428,17 @@ export const ELA07: Airframe = {
   // deriva (0,24 m²) + timón (0,27 m²) + las dos puntas dobladas (0,21 m² cada una)
   fin: v(-2.33, 0.01),
   finArea: 0.92,
-  // 250 kg en vacío y 450 kg de máximo: con dos a bordo solo caben 42 de los 75 l del depósito
+  // motor de serie del Cougar: Rotax 912 ULS de 100 CV (el 914 turbo es opcional). 250 kg en vacío y
+  // 450 kg de máximo (folleto de ELA y Wikipedia): con dos a bordo solo caben 42 de los 75 l del depósito
   emptyMass: 250,
   fuelMass: 30,
   mtow: 450,
   cdA: 0.6,
-  engine: ROTAX_914UL,
+  engine: ROTAX_912ULS,
   // 8,23 m de diámetro y 22 cm de cuerda: palas más cortas y más anchas (y más pesadas)
   rotor: { ...DEFAULT_ROTOR, radius: 4.115, chord: 0.22, inertia: 179 },
-  propPitch: 1.05,
+  // con el 912 ULS, el mismo paso que el genérico (5150 rpm a punto fijo, 5670 a 158 km/h)
+  propPitch: 1,
   // ruedas anchas de 0,49 m
   wheelRadius: 0.244,
   crashPoints: [
@@ -1359,6 +1450,600 @@ export const VENCEJO: Airframe = {
   ],
 }
 
+/**
+ * Sigilo SX-1: biplaza en tándem INVENTADO (hacia 2060) con lenguaje furtivo, el boceto C «Dos vigas»
+ * que eligió el dueño en la segunda tanda (antes descartó un tubo con tobera de ventilador, «feísimo»,
+ * y un cuerpo-ala en rombo que parecía «un F-22 con unas hélices absurdas arriba»). Proporciones de
+ * autogiro: cabina facetada compacta con la cúpula dorada, mástil alto en cuchilla con un anillo de
+ * plasma en el eje, alitas diminutas que llevan dos vigas finas hasta una cola alta con dos derivas
+ * (un timón en cada una: nodos `rudder_L`/`rudder_R`, inclinadas 10°) y un impulsor de plasma de
+ * ficción que sale por una ranura dentada en la popa de la cabina, entre las vigas, con el plasma
+ * brillando según el gas. Diseñado con blender/build_sigilo.py. Rotor tripala de 8,80 m (el del Vencejo).
+ */
+export const SIGILO: Airframe = {
+  id: 'sigilo',
+  wreck: wreckZones(-1.3, -0.85, -0.95, 0.5, -0.25, 0.45, -1.13),
+  hub: v(-0.25, 1.82),
+  headPivot: v(-0.25, 1.62),
+  // compresor de 0,34 m escondido dentro de la cabina, delante de la ranura (0,12 m bajo el CG); la
+  // ranura echa el chorro 4° hacia abajo, así que la línea de empuje pasa por el CG: aquí cuenta esa
+  // (con la del compresor, a poca velocidad y con potencia se encabritaba 20° y se quedaba sin velocidad)
+  prop: v(-1.13, 0.1),
+  propRadius: 0.17,
+  cg: CG_COMMON.clone(),
+  noseWheel: v(1.37, -0.95),
+  mainL: v(-0.85, -0.95, -0.8),
+  mainR: v(-0.85, -0.95, 0.8),
+  // sin patín: lo primero que toca al encabritar es el pie de los timones (a 23°)
+  tail: v(-2.92, -0.06),
+  // estabilizador alto entre las vigas: 1,76 m y 0,77 m², con las derivas de placas (con el primero, de
+  // 0,51 m², la recogida sin motor rebotaba y en la carrera el rotor acababa tocando el suelo)
+  stab: v(-2.45, 0.36),
+  stabArea: 0.774,
+  ...stabCoeffs(1.76, 0.774, 0.43),
+  // dos derivas con aleta ventral y timón de toda la altura: 0,86 m² vistas de lado (las primeras, de
+  // 0,31 m², hacían trompo en la carrera de aterrizaje y metían el rotor en el suelo)
+  fin: v(-2.703, 0.326),
+  finArea: 0.857,
+  // estabilizador pequeño y alto: palanca centrada a ~115 km/h y tope trasero en 10,9° (con más, a
+  // fondo atrás y con potencia se encabrita y se queda sin velocidad); mucho recorrido adelante para
+  // llegar a ~280 km/h
+  head: { base: 5.9, aft: 5.0, fwd: 13 },
+  // carbono: 320 kg en vacío; 40 kg de «combustible»; 600 kg de máximo
+  emptyMass: 320,
+  fuelMass: 40,
+  mtow: 600,
+  // cabina facetada fina, vigas finas y tren carenado: limpio
+  cdA: 0.36,
+  engine: PLASMA_MHD,
+  // tripala de 8,80 m y 20 cm de cuerda, como el Vencejo: gira a ~0,82 de los bipala. Rotor rígido de
+  // material compuesto con pesos en las puntas (guarda las vueltas cuando se descarga en maniobras) y
+  // más recorrido de batimiento antes de los topes, que son elastoméricos (`flapToughness`)
+  rotor: { ...DEFAULT_ROTOR, radius: 4.4, chord: 0.2, blades: 3, inertia: 300, teeterLimit: 14 * (Math.PI / 180) },
+  flapToughness: 2.5,
+  rpmScale: 0.82,
+  propPitch: 1,
+  // compresor diminuto y muy rápido (8800 rpm): ~2500 N a punto fijo y sigue empujando a mucho avance
+  // (coeficientes de ficción para un disco de 0,34 m)
+  propCoef: { ct0: 7.2, cp0: 12.4, j0: 2.5, j1: 2.6 },
+  // velocímetro hasta 320 km/h
+  asi: { max: 320, step: 40, minor: 10, green: [55, 250], yellow: [250, 290], red: 290 },
+  propBlades: 15,
+  // el chorro sale en lámina por una ranura de 5 cm, 0,38 m por debajo del estabilizador: no lo sopla
+  tailSlipstream: 0,
+  // compresor de etapas contrarrotativas: ni par de reacción ni remolino sobre las derivas (con el
+  // remolino de una hélice y sin soplado que lo compense, a poca velocidad los pedales no daban más de
+  // sí, se iba de lado y caía)
+  torqueRoll: 0,
+  swirlYaw: 0,
+  // el compresor gira más deprisa que un Rotax: el embrague del prerrotador va más desmultiplicado
+  prerotator: { minEngineRpm: 2500, ratio: 0.055, maxRpm: 290, torque: 420 },
+  // ruedas pequeñas de caza (0,26 m)
+  wheelRadius: 0.13,
+  // Tren retráctil (tecla Y): las patas principales se pliegan hacia atrás en unas góndolas bajo las
+  // vigas (como un P-38) y la de morro hacia delante, bajo el panel; las compuertas cierran al final.
+  // Recogido quita ~0,06 m² de resistencia; sin bajarlo, se toma sobre la panza (y se rompe).
+  retractGear: {
+    time: 4,
+    lift: 0.45,
+    dragSave: 0.06,
+    parts: [
+      { node: 'gear_L', axis: [0, 0, -1], angle: 72.1 },
+      { node: 'gear_R', axis: [0, 0, -1], angle: 72.1 },
+      { node: 'gear_nose', axis: [0, 0, -1], angle: -105 },
+      { node: 'door_L_out', axis: [1, 0, 0], angle: -100, late: true },
+      { node: 'door_L_in', axis: [1, 0, 0], angle: 100, late: true },
+      { node: 'door_R_out', axis: [1, 0, 0], angle: 100, late: true },
+      { node: 'door_R_in', axis: [1, 0, 0], angle: -100, late: true },
+      { node: 'door_nose_L', axis: [0.949, 0.3153, 0], angle: -95, late: true },
+      { node: 'door_nose_R', axis: [0.949, 0.3153, 0], angle: 95, late: true },
+    ],
+  },
+  // alitas diminutas (0,53 m² al aire, 1,68 m entre las vigas), sin alerones, detrás del CG: a 200 km/h
+  // sostienen ~10 kg. (Contadas hasta el eje, 1,16 m², al entrar en pérdida con la palanca toda atrás
+  // dejaban de tirar de la cola hacia arriba y el morro se encabritaba.)
+  wing: {
+    area: 0.533,
+    span: 1.68,
+    taper: 0.727,
+    ac: v(-0.644, -0.17),
+    incidence: 2,
+    dihedral: 2.1,
+    cl0: 0.1,
+    clMax: 1.3,
+    clMin: -1.0,
+    cd0: 0.01,
+    oswald: 0.8,
+    cm0: -0.02,
+    aileron: 0,
+    aileronFrom: 1,
+    rotorWash: 1,
+  },
+  crashPoints: [
+    { name: 'morro', p: v(2.05, -0.3) },
+    { name: 'panza', p: v(0.55, -0.63) },
+    { name: 'panza', p: v(-0.97, -0.611) },
+    { name: 'costado izquierdo', p: v(-0.15, -0.3, -0.5) },
+    { name: 'costado derecho', p: v(-0.15, -0.3, 0.5) },
+    { name: 'cúpula', p: v(0, 0.555) },
+    { name: 'mástil', p: v(-0.25, 1.73) },
+    { name: 'viga izquierda', p: v(-0.37, -0.15, -0.84) },
+    { name: 'viga derecha', p: v(-0.37, -0.15, 0.84) },
+    { name: 'viga izquierda', p: v(-2.78, 0.189, -0.84) },
+    { name: 'viga derecha', p: v(-2.78, 0.189, 0.84) },
+    { name: 'estabilizador', p: v(-2.78, 0.36, -0.88) },
+    { name: 'estabilizador', p: v(-2.78, 0.36, 0.88) },
+    { name: 'deriva', p: v(-2.643, 0.706, -0.924) },
+    { name: 'deriva', p: v(-2.643, 0.706, 0.924) },
+    { name: 'deriva', p: v(-3.114, 0.65, -0.914) },
+    { name: 'deriva', p: v(-3.114, 0.65, 0.914) },
+    { name: 'deriva', p: v(-2.49, -0.08, -0.785) },
+    { name: 'deriva', p: v(-2.49, -0.08, 0.785) },
+    { name: 'deriva', p: v(-2.92, -0.06, -0.788) },
+    { name: 'deriva', p: v(-2.92, -0.06, 0.788) },
+    { name: 'tobera', p: v(-1.7, -0.09) },
+    { name: 'góndola izquierda', p: v(-0.63, -0.37, -0.8) },
+    { name: 'góndola izquierda', p: v(-1.49, -0.37, -0.8) },
+    { name: 'góndola derecha', p: v(-0.63, -0.37, 0.8) },
+    { name: 'góndola derecha', p: v(-1.49, -0.37, 0.8) },
+    { name: 'panza', p: v(0.742, -0.63) },
+    { name: 'panza', p: v(-0.662, -0.621) },
+    { name: 'compuertas del tren de morro', p: v(1.204, -0.598) },
+  ],
+}
+
+/**
+ * Wilford XOZ-1 (Pennsylvania Aircraft Syndicate, 1936): el hidroautogiro de pruebas de la US Navy.
+ * Fuselaje y ala baja del entrenador Fleet N2Y, rotor de cuatro palas de 9,75 m sin articulaciones de
+ * batimiento (las palas solo cambian de paso: las opuestas van unidas, y la palanca las inclina como un
+ * cíclico, además de mover alerones y profundidad) sobre un pilón de cuatro tubos, Kinner R-5 de
+ * 155 CV y dos flotadores Edo en vez de ruedas. Datos de Aero Digest (feb. 1935 y mar. 1937): ala de
+ * 8,33 m y 10,2 m², rotor de 804 sq ft con 68,3 sq ft de pala, 660 kg en vacío y 900 al máximo como
+ * avión de tierra, máxima 172 km/h, crucero 145, toma a 48 km/h. Con flotadores, unos 65 kg más.
+ * Calcado sobre esas fotos y su plano de tres vistas (blender/build_wilford.py). Como un rotor de
+ * paso cíclico hace lo mismo que inclinar la cabeza (equivalencia batimiento-paso), el modelo de vuelo
+ * lo trata como los demás; el CG lleva el criterio común (buje 0,33 m por detrás).
+ */
+export const WILFORD: Airframe = {
+  id: 'wilford',
+  // medidas del modelo (blender/build_wilford.py): buje 1,58 m sobre el CG
+  hub: v(-0.25, 1.68),
+  headPivot: v(-0.25, 1.42),
+  // bipala metálica de 2,50 m («metal propeller» en la ficha de 1937), toma directa
+  prop: v(1.526, 0.25),
+  propRadius: 1.25,
+  cg: CG_COMMON.clone(),
+  // sin ruedas: apoya en las quillas de los flotadores (bajo el redán, y en proas y popas)
+  keelGear: true,
+  mainL: v(-0.3, -1.75, -1.08),
+  mainR: v(-0.3, -1.75, 1.08),
+  keels: [v(1.7, -1.62, -1.08), v(1.7, -1.62, 1.08), v(-2.4, -1.38, -1.08), v(-2.4, -1.38, 1.08)],
+  // lo más bajo de la cola: el pie del timón
+  tail: v(-4.23, 0.12),
+  // estabilizador y profundidad de 2,62 m (2,08 m²) sobre el fuselaje
+  stab: v(-3.95, 0.55),
+  stabArea: 2.08,
+  ...stabCoeffs(2.62, 2.08, 0),
+  // deriva (0,87 m²) y timón (0,78 m²)
+  fin: v(-3.95, 0.82),
+  finArea: 1.65,
+  head: { base: 7.2, aft: 8.0, fwd: 8.2 },
+  emptyMass: 725,
+  fuelMass: 44,
+  mtow: 970,
+  // fuselaje de tela con cables, motor radial a la vista, pilón de cuatro tubos y los flotadores
+  cdA: 1.0,
+  engine: KINNER_R5,
+  // 4 palas de ~0,34 m (68,3 sq ft entre las cuatro): madera y tela sobre larguero de acero
+  rotor: {
+    ...DEFAULT_ROTOR,
+    radius: 4.875,
+    chord: 0.34,
+    blades: 4,
+    pitch: 0.0465,
+    precone: 3 * (Math.PI / 180),
+    inertia: 380,
+    rootCutout: 0.6,
+    liftSlope: 5.72,
+    cd0: 0.0105,
+    cd2: 0.3,
+  },
+  propPitch: 1,
+  // a punto fijo deja al Kinner subir a ~1800 rpm; con ella sube ~3,3 m/s solo y ~2,2 con dos (el C.30A, con
+  // 140 CV y 770 kg, subía 2,7)
+  propCoef: { ct0: 0.078, cp0: 0.031, j0: 0.72, j1: 0.82 },
+  propBlades: 2,
+  propSpin: 1,
+  // embrague del prerrotador desde el motor: con el 40 % de gas (~1150 rpm) llega a las ~170 de soltar (0,7 de las de crucero, como el C.30A)
+  prerotator: { minEngineRpm: 800, ratio: 0.165, maxRpm: 185, torque: 1500 },
+  // rotor grande y de mucha cuerda: ~236 rpm en crucero
+  rpmScale: 0.67,
+  inertia: [520, 780, 900],
+  // los flotadores frenan mucho el aire que viene de abajo y de lado
+  body: { vertCdA: 8, vertCP: v(-0.3, -0.9), sideCdA: 7, sideCP: v(-0.9, -0.3) },
+  // ala baja del Fleet: 8,33 m, cuerda 1,40 (1,32 en la punta), 5° de diedro, 2° de calado; alerones del 45 al 92 %
+  wing: {
+    area: 10.2,
+    span: 8.33,
+    taper: 0.94,
+    ac: v(0.04, -0.185),
+    incidence: 2,
+    dihedral: 5,
+    cl0: 0.25,
+    clMax: 1.35,
+    clMin: -0.6,
+    cd0: 0.012,
+    oswald: 0.75,
+    cm0: -0.08,
+    aileron: 10,
+    aileronFrom: 0.45,
+    // sin estela del rotor sobre ala y cola: su efecto en el Wilford no está medido y el modelo sencillo de
+    // estela (compound.ts) lo exagera: con la cola alta, en la recogida la hacía caer de morro
+    rotorWash: 0,
+  },
+  // la palanca mueve también la profundidad (además del paso cíclico del rotor)
+  elevator: 4,
+  // las palas no baten: se dibujan siempre en el plano del eje (la deriva llega a 0,3 m del disco)
+  featheringRotor: true,
+  // Edo 2000 (2000 lb de empuje cada uno: 0,9 m³) de 5,28 m, a 1,08 m a cada lado, redán 0,38 m por detrás del
+  // CG. En la física van 0,15 m más adelante que en el dibujo: el CG del simulador va por criterio por delante
+  // del real, y así el empuje queda bajo él (en reposo, nivelado) y el redán justo detrás. Nivelados; el fondo
+  // de proa planea con 3,5°; timones de agua de 0,056 m²
+  floats: [
+    { name: 'flotador izquierdo', bow: v(2.52, -1.484, -1.08), stern: v(-2.76, -1.484, -1.08), radius: 0.266, rudder: 0.056, step: -0.15, forebodyTrim: 0.06 },
+    { name: 'flotador derecho', bow: v(2.52, -1.484, 1.08), stern: v(-2.76, -1.484, 1.08), radius: 0.266, rudder: 0.056, step: -0.15, forebodyTrim: 0.06 },
+  ],
+  wreck: wreckZones(-2.6, -0.3, -1.75, 0.42, -0.25, 0.55, 1.526),
+  crashPoints: [
+    { name: 'motor', p: v(1.23, 0.84) },
+    { name: 'motor', p: v(1.23, 0.432, -0.561) },
+    { name: 'motor', p: v(1.23, 0.432, 0.561) },
+    { name: 'motor', p: v(1.23, -0.227, -0.347) },
+    { name: 'motor', p: v(1.23, -0.227, 0.347) },
+    { name: 'panza', p: v(0.02, -0.26) },
+    { name: 'panza', p: v(-1.6, -0.15) },
+    { name: 'costado izquierdo', p: v(0.06, 0.14, -0.42) },
+    { name: 'costado derecho', p: v(0.06, 0.14, 0.42) },
+    { name: 'ala izquierda', p: v(-0.12, 0.144, -4.165) },
+    { name: 'ala derecha', p: v(-0.12, 0.144, 4.165) },
+    { name: 'pilón', p: v(-0.25, 1.32) },
+    { name: 'estabilizador', p: v(-4.22, 0.57, -1.36) },
+    { name: 'estabilizador', p: v(-4.22, 0.57, 1.36) },
+    { name: 'deriva', p: v(-3.97, 1.43) },
+    { name: 'deriva', p: v(-4.97, 0.32) },
+  ],
+}
+
+/**
+ * Cierva C.19 Mk IV (Avro 620, 1932), el EC-AIM del Museo del Aire: biplaza abierto de cabeza FIJA (antes del
+ * mando directo): rotor tripala en voladizo de 34 ft con arranque por embrague desde el motor, ala baja de
+ * 21 ft con alerones y puntas levantadas, cola normal con profundidad y timón, patín de cola y Genet Major I
+ * de 5 cilindros. Calcado sobre el plano de la NACA (AC-120, Mk III) y fotos del museo con cámara resuelta
+ * (blender/build_cierva_c19.py). Sin datos del CG: el criterio común (buje 0,33 m detrás del CG), a la
+ * altura de la línea de empuje. Pesos y prestaciones de Flight (20-11-1931 y 17-11-1932) y de la Revista de
+ * Aeronáutica (mayo de 1932).
+ */
+export const CIERVA_C19: Airframe = {
+  id: 'cierva_c19',
+  // buje 1,62 m sobre el CG y 0,13 por detrás: el CG medido del C.30A (R&M 1859), no el 0,33 común. Con la cabeza
+  // fija al pilón (`headFixed`), con 0,33 el empuje del rotor clava el morro: la profundidad no lo frena de 70 km/h
+  // y las ruedas quedan a 0,23 m del CG (capota al frenar)
+  hub: v(-0.05, 1.722),
+  headPivot: v(-0.05, 1.392),
+  // bipala metálica de ~1,90 m (6 ft 3 in en el plano del Mk III), toma directa
+  prop: v(1.773, 0.09),
+  propRadius: 0.95,
+  cg: CG_COMMON.clone(),
+  // ruedas Dunlop de baja presión de 0,54 m, vía de 8 ft 10 in (2,70 m), amortiguadores de 24 cm
+  mainL: v(0.51, -1.268, -1.35),
+  mainR: v(0.51, -1.268, 1.35),
+  // patín de cola: con él apoyado, 12° de cola abajo
+  tailWheel: v(-3.5, -0.398),
+  tailSkid: true,
+  // si el patín cede, lo primero que toca es el pie del timón
+  tail: v(-3.85, -0.26),
+  // estabilizador (1,39 m²) y profundidad (1,01 m²) de 2,90 m, sobre los largueros altos
+  stab: v(-3.32, 0.54),
+  stabArea: 2.4,
+  ...stabCoeffs(2.9, 2.4, 0),
+  // deriva dorsal baja y larga (0,45 m²) y timón (0,76 m²)
+  fin: v(-3.45, 0.44),
+  finArea: 1.21,
+  // (cabeza fija: solo cuenta `base`, la inclinación del eje respecto al fuselaje)
+  head: { base: 0.8, aft: 6, fwd: 6 },
+  // tara de 1075 lb (Flight 1932) + 12 l de aceite; 16 gal (72,7 l) de gasolina; 1550 lb de máximo
+  emptyMass: 499,
+  fuelMass: 52,
+  mtow: 705,
+  // fuselaje alto y estrecho, dos cabinas abiertas, radial a la vista, pilón y montantes (ajustada para la
+  // máxima de 102 mph de Flight; el ala, la cola y el rotor van aparte)
+  cdA: 0.45,
+  engine: GENET_MAJOR_I,
+  // 3 palas macizas de balsa con alma de abeto sobre larguero de acero, ~0,48 m de cuerda (solidez 0,09:
+  // las vueltas, ~180 rpm, como las del arrancador de la Revista); ~4,3 kg/m → ~600 kg·m² (estimado)
+  rotor: {
+    ...DEFAULT_ROTOR,
+    radius: 5.18,
+    chord: 0.48,
+    blades: 3,
+    pitch: 0.0465,
+    precone: 3 * (Math.PI / 180),
+    inertia: 600,
+    rootCutout: 0.62,
+    liftSlope: 5.72,
+    // (balsa maciza y lisa: algo menos de resistencia de perfil que las palas de costillas y tela)
+    cd0: 0.0095,
+    cd2: 0.3,
+  },
+  propPitch: 1,
+  // a punto fijo deja al Genet subir a ~2000 rpm; da los 630 ft/min de Flight y ~160 km/h a fondo
+  propCoef: { ct0: 0.115, cp0: 0.058, j0: 0.8, j1: 0.88 },
+  propBlades: 2,
+  propSpin: -1,
+  // arrancador mecánico con embrague de disco: 180 rpm de rotor en 30 s (Revista de Aeronáutica, 1932)
+  prerotator: { minEngineRpm: 900, ratio: 0.16, maxRpm: 190, torque: 1200 },
+  rpmScale: 0.51,
+  inertia: [480, 760, 900],
+  body: { vertCdA: 3.0, vertCP: v(-1.1, -0.1), sideCdA: 4.5, sideCP: v(-0.9, 0.0) },
+  tailWheelSteer: 0,
+  // sin rueda gobernable: en la carrera la ayuda del teclado lleva el rumbo con el timón y las alas con los alerones
+  groundAssist: true,
+  gearScale: 1.5,
+  wheelRadius: 0.27,
+  headFixed: true,
+  // frenos Bendix de tambor, flojos (con más, el patín no sujeta la cola y capota)
+  brakeMu: 0.44,
+  torqueRoll: -0.6,
+  swirlYaw: -1,
+  rollTrim: 0,
+  // ala de madera de 6,40 m y 0,84 m de cuerda (3,78 m² según la Revista; 4,9 contando el centro y las puntas
+  // planas), 5° de diedro y puntas levantadas 35° (diedro equivalente ~9°), alerones grandes del 33 % hacia fuera
+  wing: {
+    area: 4.9,
+    span: 6.33,
+    taper: 1,
+    ac: v(0.445, -0.243),
+    incidence: 2,
+    dihedral: 9,
+    cl0: 0.25,
+    clMax: 1.3,
+    clMin: -0.6,
+    cd0: 0.012,
+    oswald: 0.75,
+    cm0: -0.06,
+    aileron: 12,
+    aileronFrom: 0.33,
+    rotorWash: 0,
+  },
+  // la palanca mueve la profundidad (la mitad de la cola, como en el Mk III: 15,4 de 30,4 sq ft); sube mucho
+  // más de lo que baja, para levantar el morro en la bajada lenta
+  elevator: 4,
+  elevatorAft: 30,
+  // calado del estabilizador (con él, palanca neutra ≈ 105 km/h)
+  stabIncidence: 1.5,
+  wreck: wreckZones(-2.4, 0.51, -1.27, 0.32, -0.05, 0.6, 1.773),
+  crashPoints: [
+    { name: 'motor', p: v(1.462, -0.365) },
+    { name: 'motor', p: v(1.462, 0.458, -0.267) },
+    { name: 'motor', p: v(1.462, 0.458, 0.267) },
+    { name: 'motor', p: v(1.462, -0.051, -0.433) },
+    { name: 'motor', p: v(1.462, -0.051, 0.433) },
+    { name: 'panza', p: v(0.25, -0.33) },
+    { name: 'panza', p: v(-1.3, -0.28) },
+    { name: 'costado izquierdo', p: v(0.2, 0.1, -0.32) },
+    { name: 'costado derecho', p: v(0.2, 0.1, 0.32) },
+    { name: 'ala izquierda', p: v(0.288, 0.234, -3.157) },
+    { name: 'ala derecha', p: v(0.288, 0.234, 3.157) },
+    { name: 'ala izquierda', p: v(0.35, -0.026, -2.78) },
+    { name: 'ala derecha', p: v(0.35, -0.026, 2.78) },
+    { name: 'pilón', p: v(-0.05, 1.32) },
+    { name: 'estabilizador', p: v(-3.53, 0.542, -1.45) },
+    { name: 'estabilizador', p: v(-3.53, 0.542, 1.45) },
+    { name: 'deriva', p: v(-3.05, 0.8) },
+    { name: 'deriva', p: v(-4.43, 0.48) },
+  ],
+}
+
+/**
+ * Cierva C.6bis (1925), con la decoración de la réplica del Museo del Aire («C6.B.» en el timón): el autogiro
+ * que Courtney voló en Farnborough en octubre de 1925. Fuselaje de Avro 504K con su tren de patín central,
+ * motor ROTATIVO Le Rhône 9J de 110 CV, una sola cabina, rotor de cuatro palas de 36 ft con articulaciones de
+ * batimiento en un mástil de tubo con cuatro montantes y la cabeza FIJA: se gobierna como un avión, con dos
+ * alerones enteros en las puntas de unos largueros, profundidad (el estabilizador mayor con compensación de
+ * la versión bis) y timón de coma; sin prerrotador: el rotor se lanzaba tirando de una cuerda (`ropeStart`).
+ * Geometría calcada del plano del Avro 504 y del plano del hangar 4 del Museo del Aire
+ * (blender/build_cierva_c6.py). Datos: Flight (22-10-1925: rotor de 36 ft y ~140 rpm, 2 ft 7 in de cuerda
+ * media), ficha del museo (900 kg de peso total, carrera de despegue 125 m, de aterrizaje 8,9 m) y Avro 504K
+ * (Wikipedia: 558 kg en vacío, hélice de 9 ft). Sin datos del CG: el criterio común (buje 0,33 m detrás).
+ */
+export const CIERVA_C6: Airframe = {
+  id: 'cierva_c6',
+  // buje 1,85 m sobre el CG (1,75 sobre la línea de empuje, fotos); cabeza fija: el eje va fijo al mástil
+  hub: v(-0.25, 1.95),
+  headPivot: v(-0.25, 1.8),
+  // bipala de madera del 504K: 9 ft (2,74 m), paso 8 ft 8 in; toma directa del rotativo
+  prop: v(2.07, 0.2),
+  propRadius: 1.37,
+  cg: CG_COMMON.clone(),
+  // ruedas de 700 × 75 mm, vía de 1,28 m (plano del 504)
+  mainL: v(0.53, -1.56, -0.64),
+  mainR: v(0.53, -1.56, 0.64),
+  // patín de cola del 504K: con él apoyado, 9,6° de cola abajo
+  tailWheel: v(-6.2, -0.42),
+  tailSkid: true,
+  // si el patín cede, lo primero que toca es el pie del timón
+  tail: v(-6.25, -0.22),
+  // estabilizador y profundidades con cuernos de compensación: 5,48 m² y 4,02 m de envergadura (plano)
+  stab: v(-5.48, 0.35),
+  stabArea: 5.48,
+  ...stabCoeffs(4.02, 5.48, 0),
+  // sin deriva: solo el timón de coma del 504K (0,92 m², compensado)
+  fin: v(-6.34, 0.48),
+  finArea: 0.92,
+  // (cabeza fija: solo cuenta `base`, la inclinación del eje respecto al fuselaje)
+  head: { base: 4, aft: 6, fwd: 6 },
+  // estimado: los 558 kg del 504K vacío, más el aceite de ricino, menos las alas y más el rotor, el mástil y
+  // los largueros de los alerones; lleno y con el piloto da ~860 kg (900 de «peso total» en la ficha)
+  emptyMass: 690,
+  fuelMass: 60,
+  mtow: 900,
+  // fuselaje de tela con el piloto asomado, tren de patín con montantes y cables, mástil con montantes,
+  // largueros de los alerones y el capó del rotativo (estimada para la máxima de ~100-110 km/h)
+  cdA: 0.95,
+  engine: LE_RHONE_9J,
+  // 4 palas de madera y tela de ~0,61 m de cuerda (plano de la réplica; Flight da 2 ft 7 in de media en la
+  // original): solidez 0,14, ~140 rpm en vuelo (Flight: 264 ft/s en la punta); ~4,5 kg/m → ~1000 kg·m² (estimado).
+  // Paso de 4,5° para esas vueltas; con la resistencia de perfil algo baja (0,0095) le alcanzan los 110 CV para
+  // subir ~1 m/s y llegar a ~115 km/h (ajustado, sin datos de subida)
+  rotor: {
+    ...DEFAULT_ROTOR,
+    radius: 5.49,
+    chord: 0.61,
+    blades: 4,
+    pitch: 4.5 * (Math.PI / 180),
+    precone: 3 * (Math.PI / 180),
+    inertia: 1000,
+    rootCutout: 0.75,
+    liftSlope: 5.6,
+    cd0: 0.0095,
+    cd2: 0.3,
+  },
+  propPitch: 1,
+  propCoef: { ct0: 0.1, cp0: 0.06, j0: 1.0, j1: 1.1 },
+  propBlades: 2,
+  // el rotativo gira a derechas visto desde la cabina: con gas alabea a la izquierda
+  propSpin: 1,
+  // sin prerrotador: cuatro hombres tiran (~250 N cada uno) de 30 m de cuerda enrollada en tacos a 0,61 m del
+  // eje (Flight, 22-10-1925); lleva el rotor a ~53 rpm en ~16 s (fuerza, cuerda y carrera de los hombres estimadas)
+  ropeStart: { force: 1000, radius: 0.61, length: 30, speed: 8 },
+  rpmScale: 0.4,
+  inertia: [480, 1000, 1150],
+  body: { vertCdA: 4.5, vertCP: v(-2.0, -0.1), sideCdA: 5.0, sideCP: v(-1.6, 0.1) },
+  tailWheelSteer: 0,
+  gearScale: 1.6,
+  wheelRadius: 0.35,
+  headFixed: true,
+  // el 504K no llevaba frenos: frena el patín de cola
+  brakeMu: 0,
+  rollTrim: 0,
+  seats: 1,
+  groundAssist: true,
+  // alerones enteros de 0,78 × 2,14 m en las puntas de los largueros (de 1,75 a 3,89 m del eje): sin
+  // superficie hasta `root`; cada uno es una placa de alargamiento ~2,7
+  wing: {
+    area: 3.34,
+    span: 7.78,
+    root: 1.75,
+    taper: 1,
+    ac: v(0.115, -0.3),
+    incidence: 0,
+    dihedral: 0,
+    cl0: 0,
+    clMax: 1.0,
+    clMin: -1.0,
+    liftSlope: 3.2,
+    cd0: 0.02,
+    oswald: 0.45,
+    cm0: 0,
+    // (enteros: ~20° de ángulo efectivo a fondo, estimado)
+    aileron: 20,
+    aileronFrom: 0,
+    rotorWash: 0,
+  },
+  // (la profundidad del 504K, grande: con ella baja casi en vertical a 20-40 km/h, como en Farnborough)
+  elevator: 12,
+  wreck: wreckZones(-3.0, 0.53, -1.56, 0.5, -0.25, 0.75, 2.07),
+  crashPoints: [
+    { name: 'motor', p: v(1.77, 0.74) },
+    { name: 'motor', p: v(1.77, 0.2, -0.54) },
+    { name: 'motor', p: v(1.77, 0.2, 0.54) },
+    { name: 'motor', p: v(1.74, -0.29) },
+    { name: 'panza', p: v(1.07, -0.38) },
+    { name: 'panza', p: v(-1.93, -0.37) },
+    { name: 'costado izquierdo', p: v(0.07, 0.1, -0.5) },
+    { name: 'costado derecho', p: v(0.07, 0.1, 0.5) },
+    { name: 'ala izquierda', p: v(0.01, -0.3, -3.89) },
+    { name: 'ala derecha', p: v(0.01, -0.3, 3.89) },
+    { name: 'pilón', p: v(-0.25, 1.71) },
+    { name: 'estabilizador', p: v(-6.13, 0.35, -2.01) },
+    { name: 'estabilizador', p: v(-6.13, 0.35, 2.01) },
+    { name: 'deriva', p: v(-6.13, 1.04) },
+    { name: 'deriva', p: v(-6.89, 0.47) },
+  ],
+}
+
+/**
+ * BellComm C-44 MEDEVAC (2015-2016): el autogiro ambulancia que BellComm Information Systems (Madrid) y
+ * Celier Aviation sacaron del Xenon IV CA-22 (después, Xenon IV CA-22 / C-44 MEDEVAC de FlyArgo). Cabina
+ * de carbono con los dos sitios lado a lado: el piloto a la IZQUIERDA y, en vez del asiento derecho, la
+ * camilla, que entra por la puerta delantera; dos contenedores laterales con las patas del tren, dos
+ * vigas hasta dos derivas con timón y un estabilizador alto con las puntas dobladas hacia abajo.
+ * Calcado sobre una foto lateral de FlyArgo y el plano en planta de BellComm (blender/build_c44.py).
+ * Hoja de tipo DAeC 61208.1 (Xenon IV CA-22): 5,65 m de largo, 2,80 m de alto, 2,32 m de ancho, rotor de
+ * 8,80 m, 560 kg de máximo, cabeza 19° atrás y 2° adelante, VNE 210 km/h, 180 km/h a potencia continua.
+ * BellComm: 320 kg en vacío, 2 plazas (piloto y camilla), 160 km/h de crucero, 185 de máxima, 800 ft/min,
+ * despegue en 50-100 m. FlyArgo: 200 km/h y 1200 ft/min. El pasajero del menú es el herido en la camilla
+ * (a la derecha); volando solo, el peso del piloto lleva el CG a la izquierda.
+ * CG: la hoja de tipo lo da entre 2121 y 2344 mm del morro (0,03-0,25 m por delante del eje del rotor);
+ * aquí, como en el resto, 0,33 m por delante del buje y 0,85 m sobre el eje de las ruedas.
+ */
+export const C44: Airframe = {
+  id: 'c44',
+  wreck: wreckZones(-1.3, -0.414, -0.928, 0.6, -0.25, 0.62, -1.25),
+  hub: v(-0.25, 1.826),
+  headPivot: v(-0.22, 1.626),
+  // Kaspar KA 2/3 tripala de 1,72 m con cono
+  prop: v(-1.25, 0.367),
+  propRadius: 0.86,
+  cg: CG_COMMON.clone(),
+  noseWheel: v(1.465, -0.928),
+  mainL: v(-0.414, -0.928, -0.98),
+  mainR: v(-0.414, -0.928, 0.98),
+  // final de las vigas de cola (lo primero que toca al encabritar, a 11,5°)
+  tail: v(-3.11, -0.38),
+  // estabilizador alto de 2,32 m y 0,945 m de cuerda (2,19 m²) con aletas de 0,31 m hacia abajo en las puntas
+  stab: v(-2.63, 0.374),
+  stabArea: 2.19,
+  ...stabCoeffs(2.32, 2.19, 0.31),
+  // dos derivas con timón (0,64 m² cada una) y las dos aletas de las puntas (0,14 m² cada una)
+  fin: v(-3.0, 0.05),
+  finArea: 1.56,
+  // palanca centrada a ~105 km/h; tope trasero en 14,5° (a fondo atrás y sin motor baja estable a ~35 km/h)
+  head: { base: 6.1, aft: 8.4, fwd: 8.2 },
+  // 320 kg en vacío (BellComm, con la camilla); 70 de los 85 l; 560 kg de máximo
+  emptyMass: 320,
+  fuelMass: 50,
+  mtow: 560,
+  // cabina cerrada con dos contenedores laterales, dos vigas y una cola grande
+  cdA: 0.55,
+  engine: CELIER_912ULST,
+  // 8,80 m de diámetro y 20 cm de cuerda
+  rotor: { ...DEFAULT_ROTOR, radius: 4.4, chord: 0.2, inertia: 190 },
+  // con más paso que la de los Rotax: a pleno gas y parado, 5050 rpm de motor (2060 de hélice en la hoja de tipo)
+  propPitch: 1.28,
+  wheelRadius: 0.178,
+  // piloto a la izquierda, herido a la derecha
+  seatZ: { pilot: -0.23, passenger: 0.23 },
+  crashPoints: [
+    { name: 'morro', p: v(2.125, -0.246) },
+    { name: 'panza', p: v(1.2, -0.477) },
+    { name: 'panza', p: v(-0.2, -0.477) },
+    { name: 'costado izquierdo', p: v(0.4, -0.15, -0.58) },
+    { name: 'costado derecho', p: v(0.4, -0.15, 0.58) },
+    { name: 'contenedor izquierdo', p: v(-0.25, -0.35, -1.16) },
+    { name: 'contenedor derecho', p: v(-0.25, -0.35, 1.16) },
+    { name: 'mástil', p: v(-0.15, 1.65) },
+    { name: 'viga de cola', p: v(-3.11, -0.38, -0.68) },
+    { name: 'viga de cola', p: v(-3.11, -0.38, 0.68) },
+    { name: 'estabilizador', p: v(-2.85, 0.37, -1.16) },
+    { name: 'estabilizador', p: v(-2.85, 0.37, 1.16) },
+    { name: 'deriva lateral', p: v(-3.1, 0.036, -1.16) },
+    { name: 'deriva lateral', p: v(-3.1, 0.036, 1.16) },
+    { name: 'deriva', p: v(-3.612, -0.129, -0.68) },
+    { name: 'deriva', p: v(-3.612, -0.129, 0.68) },
+  ],
+}
+
 export const AIRFRAMES: Record<string, Airframe> = {
   generic: GENERIC,
   ela07: ELA07,
@@ -1376,9 +2061,16 @@ export const AIRFRAMES: Record<string, Airframe> = {
   vencejo: VENCEJO,
   tractor: TRACTOR,
   wa116: WA116,
+  sigilo: SIGILO,
+  wilford: WILFORD,
+  cierva_c19: CIERVA_C19,
+  cierva_c6: CIERVA_C6,
+  c44: C44,
 }
 
 /** Geometría de vuelo del aparato del catálogo (la genérica si no tiene una propia). */
-export function airframeById(id: string): Airframe {
-  return AIRFRAMES[id] ?? GENERIC
+export function airframeById(id: string, floats = false): Airframe {
+  const af = AIRFRAMES[id] ?? GENERIC
+  // (con flotadores: la variante del juego anfibio, si el aparato lo tiene; floatKit.ts)
+  return floats ? withFloats(af) : af
 }

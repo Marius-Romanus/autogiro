@@ -23,11 +23,15 @@ import {
 } from 'three'
 import { GeoFrame } from './GeoFrame.ts'
 import type { HeightSource } from './HeightSource.ts'
+import type { TerrainPatch } from './Runways.ts'
+import { buildTowerBridge, inTowerBridgeZone, TOWER_BRIDGE, TOWER_BRIDGE_ZONE, towerBridgeRiverPatch } from './towerBridge.ts'
 
 interface Model {
   object: Group
   /** ¿punto (coordenadas del modelo: x, z en horizontal, y desde el suelo) dentro de la estructura? */
   inside(x: number, y: number, z: number): boolean
+  /** calzada propia del modelo bajo (x, z) (coordenadas del modelo), su altura o null */
+  deckAt?(x: number, z: number): number | null
 }
 
 interface Spec {
@@ -38,7 +42,18 @@ interface Spec {
   yaw: number
   /** radio (m) en el que se quitan los edificios de OSM que lo representan a bloques */
   replaces: number
-  build(mats: Materials): Model
+  /** o una zona de forma cualquiera (además del radio) */
+  zone?: (lat: number, lon: number) => boolean
+  /** hasta dónde llega el modelo desde su centro (m, para los choques); 70 si no se dice */
+  extent?: number
+  /**
+   * Puentes: altura de la calzada que dibuja Bridges.ts sobre el suelo del centro (se mide en ese
+   * punto cuando el puente está cargado, y el modelo se rehace con ella); `fallback` mientras tanto
+   */
+  deck?: { lat: number; lon: number; fallback: number }
+  /** corrección del relieve alrededor (Runways.setExtra: dibujo y física) */
+  patch?: TerrainPatch
+  build(mats: Materials, deck: number): Model
 }
 
 interface Item {
@@ -47,11 +62,16 @@ interface Item {
   root?: Group
   model?: Model
   toLocal: Matrix4
+  /** suelo del centro y calzada con que se hizo el modelo (NaN: aún sin medir) */
+  ground?: number
+  deckUsed?: number
 }
 
 interface Materials {
   lattice: MeshStandardMaterial
   solid: MeshStandardMaterial
+  /** color por vértice (Tower Bridge) */
+  painted: MeshStandardMaterial
 }
 
 /** a qué distancia (m) se construye un monumento y a cuál se quita */
@@ -226,6 +246,20 @@ const SPECS: Spec[] = [
   // ejes paralelos y perpendiculares al Campo de Marte (Trocadero–Escuela Militar, rumbo ≈ 132°).
   // En OSM está por partes (building:part) que salen como cajas apiladas: se quitan.
   { id: 'eiffel', lat: 48.858222, lon: 2.2945, yaw: 48, replaces: 72, build: eiffel },
+  // Tower Bridge (towerBridge.ts): sus building:part de OSM y lo genérico de Bridges.ts (pilas,
+  // cables de colgante) se quitan en su zona; la calzada sigue siendo la de Bridges.ts
+  {
+    id: 'towerbridge',
+    lat: TOWER_BRIDGE.lat,
+    lon: TOWER_BRIDGE.lon,
+    yaw: -TOWER_BRIDGE.bearing,
+    replaces: 0,
+    zone: inTowerBridgeZone,
+    extent: TOWER_BRIDGE_ZONE.halfLen,
+    deck: { lat: TOWER_BRIDGE.lat, lon: TOWER_BRIDGE.lon, fallback: 11 },
+    patch: towerBridgeRiverPatch(),
+    build: (mats, deck) => buildTowerBridge(mats.painted, deck),
+  },
 ]
 
 /**
@@ -233,7 +267,16 @@ const SPECS: Spec[] = [
  * dentro (la torre Eiffel está mapeada como cajas apiladas que taparían el modelo).
  */
 export function replacedByLandmark(lat: number, lon: number): boolean {
-  for (const s of SPECS) if (distanceM(lat, lon, s.lat, s.lon) < s.replaces) return true
+  for (const s of SPECS) if (distanceM(lat, lon, s.lat, s.lon) < s.replaces || s.zone?.(lat, lon)) return true
+  return false
+}
+
+/** Correcciones del relieve de los monumentos (se suman a las de los puentes en Runways.setExtra). */
+export const LANDMARK_PATCHES: TerrainPatch[] = SPECS.flatMap((s) => (s.patch ? [s.patch] : []))
+
+/** ¿Lo dibuja un monumento modelado aparte? (Bridges.ts: sin estructura genérica ni pilas ahí) */
+export function bridgeReplacedByLandmark(lat: number, lon: number): boolean {
+  for (const s of SPECS) if (s.deck && s.zone?.(lat, lon)) return true
   return false
 }
 
@@ -305,6 +348,7 @@ export class Landmarks {
     this.items = SPECS.map((spec) => ({ spec, state: 'idle', toLocal: new Matrix4() }))
     this.group.matrixAutoUpdate = false
     this.group.userData.worldShadowCaster = true // sombra del sol (SunShadows)
+    this.group.userData.litOnly = true // ya iluminado: fuera del pase de normales (Graphics.ts)
     const lattice = latticeTexture()
     // bronce de la torre Eiffel («marrón torre Eiffel»)
     this.mats = {
@@ -313,6 +357,7 @@ export class Landmarks {
         'landmark-lattice',
       ),
       solid: litAlphaZero(new MeshStandardMaterial({ color: 0x6a5440, side: DoubleSide, roughness: 0.7, metalness: 0.25 }), 'landmark-solid'),
+      painted: litAlphaZero(new MeshStandardMaterial({ vertexColors: true, roughness: 0.8, metalness: 0.05 }), 'landmark-painted'),
     }
   }
 
@@ -326,8 +371,32 @@ export class Landmarks {
       const d = distanceM(g.lat, g.lon, it.spec.lat, it.spec.lon)
       if (it.state === 'idle' && d < BUILD_DIST) void this.build(it)
       else if (it.state === 'ready' && d > DROP_DIST) this.drop(it)
+      else if (it.state === 'ready' && it.spec.deck) this.matchDeck(it)
     }
   }
+
+  /** Puentes: si la calzada de Bridges.ts ya está (o ha cambiado), rehacer el modelo con su altura. */
+  private matchDeck(it: Item): void {
+    const dk = it.spec.deck
+    if (!dk || !this.deckProbe || !it.root || it.ground === undefined) return
+    const h = this.deckProbe(dk.lat, dk.lon)
+    if (h === null) return
+    const deck = h - it.ground
+    if (!(deck > 2 && deck < 80) || Math.abs(deck - (it.deckUsed ?? NaN)) < 0.3) return
+    const old = it.model!.object
+    const model = it.spec.build(this.mats, deck)
+    model.object.position.copy(old.position)
+    model.object.rotation.copy(old.rotation)
+    old.removeFromParent()
+    old.traverse((o) => (o as Mesh).geometry?.dispose())
+    it.root.add(model.object)
+    it.model = model
+    it.deckUsed = deck
+    this.syncFrame()
+  }
+
+  /** Altura (la del relieve) de la calzada de un puente en un punto, o null (World.ts, con Bridges.ts). */
+  deckProbe: ((lat: number, lon: number) => number | null) | null = null
 
   private async build(it: Item): Promise<void> {
     it.state = 'loading'
@@ -344,7 +413,9 @@ export class Landmarks {
       it.state = 'idle' // se reintenta en la próxima pasada
       return
     }
-    const model = it.spec.build(this.mats)
+    const model = it.spec.build(this.mats, it.spec.deck?.fallback ?? 0)
+    it.ground = ground
+    it.deckUsed = Number.NaN
     const root = new Group()
     root.matrixAutoUpdate = false
     const f = new GeoFrame()
@@ -376,19 +447,44 @@ export class Landmarks {
     for (const it of this.items) if (it.model) it.toLocal.copy(it.model.object.matrixWorld).invert()
   }
 
+  /**
+   * Calzada de un monumento bajo (x, z) del mundo y por debajo de maxY (la del aparato o el
+   * vehículo), como `Bridges.deckBelow`: rellena `out` y devuelve true si la hay.
+   */
+  deckBelow(x: number, z: number, maxY: number, out: { y: number; normal: Vector3 }): boolean {
+    let found = false
+    for (const it of this.items) {
+      if (!it.model?.deckAt) continue
+      _p.set(x, maxY, z).applyMatrix4(it.toLocal)
+      const ext = it.spec.extent ?? 70
+      if (Math.abs(_p.x) > ext || Math.abs(_p.z) > ext) continue
+      const y = it.model.deckAt(_p.x, _p.z)
+      if (y === null || y > _p.y) continue
+      _p.y = y
+      _p.applyMatrix4(it.model.object.matrixWorld)
+      if (!found || _p.y > out.y) {
+        out.y = _p.y
+        out.normal.set(0, 1, 0)
+        found = true
+      }
+    }
+    return found
+  }
+
   /** ¿El punto (mundo) está dentro de algún monumento? */
   collides(p: Vector3): boolean {
     for (const it of this.items) {
       if (!it.model) continue
       _p.copy(p).applyMatrix4(it.toLocal)
-      if (Math.abs(_p.x) > 70 || Math.abs(_p.z) > 70) continue
+      const ext = it.spec.extent ?? 70
+      if (Math.abs(_p.x) > ext || Math.abs(_p.z) > ext) continue
       if (it.model.inside(_p.x, _p.y, _p.z)) return true
     }
     return false
   }
 
   setEnvMap(tex: Texture | null): void {
-    for (const m of [this.mats.lattice, this.mats.solid]) {
+    for (const m of [this.mats.lattice, this.mats.solid, this.mats.painted]) {
       if ((m.envMap === null) !== (tex === null)) m.needsUpdate = true
       m.envMap = tex
       m.envMapIntensity = 1
@@ -401,6 +497,7 @@ export class Landmarks {
     this.mats.lattice.map?.dispose()
     this.mats.lattice.dispose()
     this.mats.solid.dispose()
+    this.mats.painted.dispose()
   }
 }
 

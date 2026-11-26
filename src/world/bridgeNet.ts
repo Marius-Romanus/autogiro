@@ -79,6 +79,8 @@ interface NetTile {
   x: number
   y: number
   state: 'loading' | 'ok' | 'failed'
+  /** cuándo falló (performance.now): pasado un rato se vuelve a pedir */
+  failedAt?: number
   promise: Promise<void>
   pieces: BridgePiece[]
   ground: GroundWay[]
@@ -234,11 +236,16 @@ export class BridgeNet {
     return this.tiles.size
   }
 
-  /** Carga los puentes de una tesela (una vez). */
+  /** ¿Falló hace más de 10 s? (un corte de red: se puede volver a pedir) */
+  private stale(t: NetTile | undefined): boolean {
+    return t?.state === 'failed' && performance.now() - (t.failedAt ?? 0) > 10000
+  }
+
+  /** Carga los puentes de una tesela (una vez; si falló, otra vez pasado un rato). */
   ensure(x: number, y: number): Promise<void> {
     const key = tileKey(x, y)
     let t = this.tiles.get(key)
-    if (t) return t.promise
+    if (t && !this.stale(t)) return t.promise
     t = { key, x, y, state: 'loading', promise: Promise.resolve(), pieces: [], ground: [], tall: [], groundGrid: null }
     const tile = t
     tile.promise = this.fetchTile(x, y, this.abort.signal)
@@ -248,6 +255,7 @@ export class BridgeNet {
       })
       .catch(() => {
         tile.state = 'failed'
+        tile.failedAt = performance.now()
       })
       .then(() => {
         // con esta tesela pueden aparecer terminales nuevos al alcance de nodos ya calculados
@@ -273,6 +281,8 @@ export class BridgeNet {
    */
   async close(x: number, y: number): Promise<void> {
     await this.ensure(x, y)
+    // sin su propia tesela no se sabe si tiene puentes: que la capa la vuelva a intentar (TileLayer)
+    if (this.tiles.get(tileKey(x, y))?.state === 'failed' && !this.abort.signal.aborted) throw new Error('sin la tesela vectorial')
     for (let round = 0; round < 12; round++) {
       const src = new Set<BridgeNode>()
       for (const p of this.piecesOf(x, y)) {
@@ -284,7 +294,7 @@ export class BridgeNet {
       const want = new Map<number, [number, number]>()
       for (const n of dist.keys()) {
         if (!n.tiles || n.pieces.length !== 1) continue
-        for (const k of n.tiles) if (!this.tiles.has(k)) want.set(k, [k % N, Math.floor(k / N)])
+        for (const k of n.tiles) if (!this.tiles.has(k) || this.stale(this.tiles.get(k))) want.set(k, [k % N, Math.floor(k / N)])
       }
       // las que ya se están cargando (por otra tesela) también hay que esperarlas
       const busy: Array<Promise<void>> = []

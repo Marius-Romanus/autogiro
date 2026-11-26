@@ -19,21 +19,23 @@
 // troceando el trabajo para no dar tirones, y se descargan al alejarse.
 
 import {
+  Box3,
   BufferAttribute,
   BufferGeometry,
   Color,
   Mesh,
   MeshStandardMaterial,
   ShapeUtils,
+  Sphere,
   SRGBColorSpace,
+  type Texture,
   Vector2,
   Vector3,
-  type Texture,
 } from 'three'
 import { catastro, type BBox, type CatTile, type Circle } from './catastro/Catastro.ts'
 import type { GeoFrame } from './GeoFrame.ts'
 import type { HeightSource } from './HeightSource.ts'
-import { classifyRings, fetchVectorTile, loadOrthoMosaic, xToLon, yToLat, Z, type Ring } from './mapTiles.ts'
+import { classifyRings, fetchVectorTile, latToY, loadOrthoMosaic, lonToX, xToLon, yToLat, Z, type Ring } from './mapTiles.ts'
 import { facadeColour, parseOsmColour, roofColour } from './osmColour.ts'
 import { lampGridUniforms, nightUniforms, streetLampGLSL } from '../render/nightLights.ts'
 import { ROOF_CONE, ROOF_DOME, ROOF_FLAT, ROOF_GABLED, ROOF_HIPPED, ROOF_ONION, ROOF_PYRAMIDAL, ROOF_ROUND, ROOF_SKILLION } from './osmRoofFormat.ts'
@@ -267,6 +269,30 @@ export class Buildings extends TileLayer<BuildingTile> {
     return false
   }
 
+  /**
+   * Altura (m) del edificio que hay en (lat°, lon°): 0 si no hay ninguno y −1 si esa tesela aún no
+   * está cargada. Para el viento (estela de los edificios, src/world/WindField.ts); con un índice
+   * por tesela, porque se pregunta por miles de puntos.
+   */
+  heightAtGeo(lat: number, lon: number): number {
+    const n = 2 ** this.zoom
+    const t = this.tiles.get(`${Math.floor(lonToX(lon, n))}/${Math.floor(latToY(lat, n))}`)
+    if (!t || (t.state !== 'ready' && t.state !== 'empty')) return -1
+    if (t.prisms.length === 0) return 0
+    let ix = prismIndex.get(t.prisms)
+    if (!ix) prismIndex.set(t.prisms, (ix = indexPrisms(t.prisms)))
+    t.frame.geoToWorld(lat, lon, 0, _q)
+    const i = Math.floor((_q.x - ix.x0) / ix.cell)
+    const j = Math.floor((_q.z - ix.z0) / ix.cell)
+    if (i < 0 || j < 0 || i >= PRISM_GRID || j >= PRISM_GRID) return 0
+    let h = 0
+    for (const b of ix.cells[j * PRISM_GRID + i]) {
+      if (_q.x < b.minX || _q.x > b.maxX || _q.z < b.minZ || _q.z > b.maxZ) continue
+      if (b.top - b.base > h && pointInRing(b.ring, _q.x, _q.z)) h = b.top - b.base
+    }
+    return h
+  }
+
   override dispose(): void {
     super.dispose()
     this.offCatastro?.()
@@ -434,8 +460,13 @@ export class Buildings extends TileLayer<BuildingTile> {
 
     // Catastro: las partes cuyo centro no cae dentro de un edificio de OSM
     let fromCatastro = 0
+    let seen = 0
     for (const rec of catData) {
       for (let p = 0; p + 1 < rec.partRing.length; p++) {
+        // (antes de los descartes: en ciudad casi todas las partes se descartan porque el edificio
+        // ya está en OpenStreetMap, y con el corte al final del bucle no se cedía el hilo nunca:
+        // tramos de 40 ms seguidos)
+        if ((++seen & 31) === 0 && !(await slicer.yield(signal))) return null
         const rings = catastroRings(rec, p, E)
         if (rings.length === 0) continue
         const [cx, cy] = ringCentre(rings[0].pts)
@@ -449,7 +480,6 @@ export class Buildings extends TileLayer<BuildingTile> {
           buildings++
           fromCatastro++
         }
-        if ((p & 15) === 0 && !(await slicer.yield(signal))) return null
       }
     }
 
@@ -1082,8 +1112,41 @@ class GeometryBuilder {
     g.setAttribute('color', new BufferAttribute(this.col.slice(0, n3), 3, true))
     g.setAttribute('fac', new BufferAttribute(this.fac.slice(0, n3), 3))
     g.setIndex(new BufferAttribute(this.idx.slice(0, this.ni), 1))
-    g.computeBoundingSphere()
-    g.computeBoundingBox()
+    if (n3 === 0) {
+      g.computeBoundingSphere()
+      g.computeBoundingBox()
+      return g
+    }
+    // Envolventes: las mismas cuentas que computeBoundingBox y computeBoundingSphere de three.js
+    // (caja, su centro y la distancia al vértice más lejano), en dos pasadas sobre la tabla en vez
+    // de sus tres con un vector por vértice: en una tesela de ciudad, con cientos de miles de
+    // vértices, eran ~10 ms seguidos sin soltar el hilo.
+    const p = this.pos
+    let x0 = Infinity
+    let y0 = Infinity
+    let z0 = Infinity
+    let x1 = -Infinity
+    let y1 = -Infinity
+    let z1 = -Infinity
+    for (let o = 0; o < n3; o += 3) {
+      x0 = Math.min(x0, p[o])
+      y0 = Math.min(y0, p[o + 1])
+      z0 = Math.min(z0, p[o + 2])
+      x1 = Math.max(x1, p[o])
+      y1 = Math.max(y1, p[o + 1])
+      z1 = Math.max(z1, p[o + 2])
+    }
+    const box = new Box3(new Vector3(x0, y0, z0), new Vector3(x1, y1, z1))
+    const centre = box.getCenter(new Vector3())
+    let maxSq = 0
+    for (let o = 0; o < n3; o += 3) {
+      const dx = centre.x - p[o]
+      const dy = centre.y - p[o + 1]
+      const dz = centre.z - p[o + 2]
+      maxSq = Math.max(maxSq, dx * dx + dy * dy + dz * dz)
+    }
+    g.boundingBox = box
+    g.boundingSphere = new Sphere(centre, Math.sqrt(maxSq))
     return g
   }
 }
@@ -1312,6 +1375,35 @@ function makePrism(ring: Vector3[], base: number, top: number): Prism {
   return { ring: arr, minX, maxX, minZ, maxZ, base: base + y0, top: top + y0 }
 }
 
+/** Índice de los prismas de una tesela para `heightAtGeo`: rejilla con los que tocan cada celda. */
+const PRISM_GRID = 48
+interface PrismIndex {
+  x0: number
+  z0: number
+  cell: number
+  cells: Prism[][]
+}
+const prismIndex = new WeakMap<Prism[], PrismIndex>()
+function indexPrisms(prisms: Prism[]): PrismIndex {
+  let x0 = Infinity
+  let z0 = Infinity
+  let x1 = -Infinity
+  let z1 = -Infinity
+  for (const b of prisms) {
+    x0 = Math.min(x0, b.minX)
+    z0 = Math.min(z0, b.minZ)
+    x1 = Math.max(x1, b.maxX)
+    z1 = Math.max(z1, b.maxZ)
+  }
+  const cell = Math.max(1, Math.max(x1 - x0, z1 - z0) / PRISM_GRID + 1e-3)
+  const cells: Prism[][] = Array.from({ length: PRISM_GRID * PRISM_GRID }, () => [])
+  const at = (v: number) => Math.min(PRISM_GRID - 1, Math.max(0, Math.floor(v / cell)))
+  for (const b of prisms) {
+    for (let j = at(b.minZ - z0); j <= at(b.maxZ - z0); j++) for (let i = at(b.minX - x0); i <= at(b.maxX - x0); i++) cells[j * PRISM_GRID + i].push(b)
+  }
+  return { x0, z0, cell, cells }
+}
+
 function pointInRing(r: Float32Array, x: number, z: number): boolean {
   let inside = false
   const n = r.length / 2
@@ -1426,7 +1518,11 @@ function tileEdgeIndex(x: number, y: number, side: EdgeSide): Promise<Array<{ at
         }
         return out
       })
-      .catch(() => [])
+      .catch(() => {
+        // (un corte de red: no se guarda, la próxima vez se vuelve a pedir)
+        if (edgeIndex.get(k) === p) edgeIndex.delete(k)
+        return []
+      })
     edgeIndex.set(k, p)
     if (edgeIndex.size > 64) edgeIndex.delete(edgeIndex.keys().next().value!)
   }

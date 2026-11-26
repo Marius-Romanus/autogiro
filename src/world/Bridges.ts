@@ -24,6 +24,7 @@ import { ChainBuilder, offsetGeo, profileAt, stationAt, type Chain } from './bri
 import { ChainFrame, MeshBuilder, primBounds, primHit, type Prim } from './bridgeMesh.ts'
 import { buildStructure, planStructure, type StructurePlan } from './bridgeShapes.ts'
 import { bridgeRecordsNear } from './bridgeStructures.ts'
+import { bridgeReplacedByLandmark } from './Landmarks.ts'
 import { loadOrthoMosaic, latToY, lonToX, Z } from './mapTiles.ts'
 import { asphaltColour, OrthoSampler } from './orthoSample.ts'
 import type { TerrainPatch } from './Runways.ts'
@@ -334,7 +335,8 @@ export class Bridges extends TileLayer<BridgeTile> {
     let p = plans.get(c)
     if (!p) {
       p = (async () => {
-        const recs = await bridgeRecordsNear(c)
+        // (los puentes modelados aparte, como el Tower Bridge de Landmarks.ts, sin estructura genérica)
+        const recs = (await bridgeRecordsNear(c)).filter((r) => !bridgeReplacedByLandmark(r.lat, r.lon))
         return recs.length ? planStructure(c, recs, net, builder) : null
       })().catch(() => null)
       plans.set(c, p)
@@ -527,6 +529,8 @@ export class Bridges extends TileLayer<BridgeTile> {
       if (plan && !plan.pierAllowed(c, s)) continue
       const i = Math.min(c.n - 2, lowerStation(c, s))
       if (!mine(i)) continue
+      // (las pilas de un puente modelado aparte las pone su modelo)
+      if (bridgeReplacedByLandmark(c.lat[i], c.lon[i])) continue
       const width = 2 * c.hw[i]
       const top = fr.atS(s, 0, -depthAt(s), _a)
       const height = profileAt(c, c.deck, s) - profileAt(c, c.ground, s)
@@ -626,7 +630,10 @@ export class Bridges extends TileLayer<BridgeTile> {
             ok = false
             break
           }
-          if (c.carve) h = c.carve.apply(la, lo, h)
+          // el rebaje de todas las cadenas de la tesela, no solo el de esta: donde una calzada se
+          // separa de la otra (junto al pilono del muelle en Cádiz) la banda caía sobre el tablero
+          // incrustado de la vecina y salía como una aleta de 20 m
+          for (const o of chains) if (o.carve) h = o.carve.apply(la, lo, h)
           pts.push(t.frame.geoToWorld(la, lo, h + 0.25, v).clone())
           cols.push(mix.copy(colL).lerp(colR, f).clone())
         }

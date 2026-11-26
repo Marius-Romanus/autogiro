@@ -85,6 +85,59 @@ const es: Dict = {
         <li>Gas <b>a fondo</b> (<kbd>0</kbd>) con la palanca <b>adelante</b> (<kbd>W</kbd>), sin frenos.</li>
         <li>Hacia 60 km/h tira <b>despacio pero a fondo</b> (<kbd>S</kbd>): se va al aire a ~65-70 km/h.</li>
         <li>Si el rotor ha perdido muchas vueltas, mejor para y vuelve a prerrotar (<kbd>P</kbd>).</li>`,
+  // Cierva C.6bis (1925): cabeza fija, alerones, profundidad y timón; sin prerrotador (cuerda) ni frenos
+  'guide.cierva_c6.ground.title': 'Despegue en el Cierva C.6bis',
+  'guide.cierva_c6.ground.steps': `
+        <li><b>No hay prerrotador</b>: parado y al ralentí, pulsa <kbd>P</kbd> y el <b>personal de tierra tira de la cuerda</b> enrollada bajo las palas: en ~15 s el rotor coge unas 50-55 rpm. Solo con el aparato quieto y el rotor parado.</li>
+        <li>Cuando suelten la cuerda, gas <b>a fondo</b> (<kbd>0</kbd>) con la palanca <b>un poco adelante</b> (toques de <kbd>W</kbd>): la cola se levanta algo y el disco, fijo, frena menos mientras el aire lo embala. <b>No hay frenos</b>: el patín de cola sujeta y frena.</li>
+        <li>Recto con los pedales (<kbd>Q</kbd>/<kbd>E</kbd>) y alas a nivel con los alerones (<kbd>A</kbd>/<kbd>D</kbd>); si no los tocas, la ayuda lo hace por ti.</li>
+        <li>Hacia 60-65 km/h, palanca <b>algo atrás</b> (toques de <kbd>S</kbd>): con el rotor a ~120 rpm se va al aire a ~60 km/h (el museo da 125 m de carrera; aquí sale más larga). Sube a ~75 km/h con la palanca neutra: apenas 1 m/s.</li>`,
+  'guide.cierva_c6.ground.note': 'Se gobierna <b>como un avión</b>: la cabeza del rotor va fija y la palanca mueve los dos alerones de las puntas de los largueros y la profundidad; los pedales, el timón. A poca velocidad <b>apenas obedecen</b>: así era. Toda la palanca adelante en la carrera lo pone de morro sobre el patín.',
+  'guide.cierva_c6.ground.warn': 'Vía estrecha y sin deriva: si se tuerce o se ladea al aligerarse, <b>vuelca sobre una punta</b>. El motor rotativo gira entero con la hélice: con gas alabea a la izquierda.',
+  'guide.cierva_c6.flight.tips': `
+        <li><b>Velocidad con la palanca</b> (profundidad): adelante acelera, atrás frena. Neutra, unos 77 km/h; no pases de ~115.</li>
+        <li><b>Altura con el gas</b> (<kbd>R</kbd>/<kbd>F</kbd>): a fondo apenas sube 1 m/s (110 CV para 840 kg).</li>
+        <li><b>Virajes</b> con alerones (<kbd>A</kbd>/<kbd>D</kbd>) y timón (<kbd>Q</kbd>/<kbd>E</kbd>): lentos; por debajo de ~50 km/h casi no responden.</li>
+        <li>Con la palanca atrás y poco gas baja casi en vertical, a 20-40 km/h, como lo enseñaban en 1925.</li>
+        <li><b>Sin motor</b> planea a ~80 km/h bajando unos 4-5 m/s.</li>`,
+  'guide.cierva_c6.flight.land': `
+        <li>Alinéate desde lejos, gas a ralentí (<kbd>1</kbd>) y ~80 km/h con la palanca.</li>
+        <li>Recogida a unos 7-8 m (mantén <kbd>S</kbd>): se posa a 30-40 km/h casi sin carrera.</li>
+        <li>Recto con el timón en cuanto toque: con este tren se tuerce enseguida.</li>`,
+  'guide.cierva_c6.landing.stop': `
+        <li>Gas a ralentí (<kbd>1</kbd>) y palanca <b>atrás</b> (<kbd>S</kbd>): sin frenos, lo para el patín de cola.</li>
+        <li>Recto con el timón (<kbd>Q</kbd>/<kbd>E</kbd>) y alas a nivel con los alerones.</li>
+        <li>Parado: palanca al centro (<kbd>Inicio</kbd>). Para volver a salir, que tiren otra vez de la cuerda (<kbd>P</kbd>) con el rotor parado.</li>`,
+  'guide.cierva_c6.landing.go': `
+        <li>Gas <b>a fondo</b> (<kbd>0</kbd>) con la palanca un poco adelante: el rotor aún gira.</li>
+        <li>A 60-65 km/h, palanca algo atrás: se va al aire a ~60 km/h.</li>
+        <li>Si el rotor ha bajado de ~100 rpm, mejor para: sin prerrotador, solo queda la cuerda.</li>`,
+  'guide.cierva_c19.ground.title': 'Despegue en el Cierva C.19 Mk IV',
+  'guide.cierva_c19.ground.steps': `
+        <li>Freno de rotor quitado (<kbd>B</kbd>) y freno de parking puesto (<kbd>O</kbd>).</li>
+        <li>Gas a algo más de la mitad (<kbd>R</kbd>/<kbd>F</kbd>, unas 1600 rpm de motor) y mantén el <b>embrague del rotor</b> (<kbd>P</kbd>): lo lleva a unas 175 rpm en medio minuto.</li>
+        <li>Suelta <kbd>P</kbd> y el parking (<kbd>O</kbd>) y gas <b>a fondo</b> con la palanca <b>adelante</b> (mantén <kbd>W</kbd>): la cola se levanta un poco y el disco, que no se inclina, frena menos.</li>
+        <li>Hacia 55 km/h, palanca <b>a medias atrás</b> (toques de <kbd>S</kbd>): se va al aire a ~60 km/h tras unos 130 m (200 con pasajero). Sube a ~95 km/h con la palanca casi neutra (unos 3 m/s solo, la mitad con pasajero).</li>`,
+  'guide.cierva_c19.ground.note': 'Se gobierna <b>como un avión</b>: la cabeza del rotor va fija al pilón y la palanca mueve los alerones del ala y la profundidad; la barra de pies, el timón. A poca velocidad <b>apenas obedecen</b>: así era, y por eso Cierva pasó después al mando directo (C.19 Mk V y C.30). La profundidad sube mucho más de lo que baja: la palanca a fondo atrás levanta el morro.',
+  'guide.cierva_c19.ground.warn': 'Lleva <b>patín de cola</b>, no rueda: en tierra solo se dirige con el timón en el soplo de la hélice. Con la palanca toda atrás en la carrera el disco frena tanto que no pasa de ~45 km/h. Frena con suavidad: las ruedas están cerca del centro de gravedad y <b>puede capotar</b>.',
+  'guide.cierva_c19.flight.tips': `
+        <li><b>Velocidad con la palanca</b> (profundidad): neutra, ~105 km/h; adelante acelera (unos 155 a fondo de gas), atrás frena. Responde despacio: espera a que se asiente.</li>
+        <li><b>Altura con el gas</b> (<kbd>R</kbd>/<kbd>F</kbd>): más gas sube, menos gas baja.</li>
+        <li><b>Virajes con los alerones</b> (<kbd>A</kbd>/<kbd>D</kbd>) y un poco de timón al mismo lado (<kbd>Q</kbd>/<kbd>E</kbd>).</li>
+        <li>El rotor, ancho y grande, gira despacio: <b>~175 rpm</b> es lo normal.</li>
+        <li><b>Sin motor</b> planea a ~95 km/h bajando unos 4 m/s: el ala ayuda.</li>`,
+  'guide.cierva_c19.flight.land': `
+        <li>Alinéate con la pista desde lejos y reduce gas (<kbd>F</kbd>; <kbd>1</kbd> = ralentí).</li>
+        <li>Mantén ~95 km/h con la palanca hasta cerca del suelo.</li>
+        <li>Recogida a unos 5-8 m (mantén <kbd>S</kbd>): se posa a ~45 km/h, patín y ruedas casi a la vez. Con la palanca toda atrás baja empinado, a ~45 km/h y 5 m/s.</li>`,
+  'guide.cierva_c19.landing.stop': `
+        <li>Gas a ralentí (<kbd>1</kbd>) y palanca <b>atrás</b> (<kbd>S</kbd>).</li>
+        <li>Recto con el timón (<kbd>Q</kbd>/<kbd>E</kbd>) y frenos <b>con suavidad</b> (<kbd>Espacio</kbd>): de golpe, capota.</li>
+        <li>Parado: parking (<kbd>O</kbd>), palanca al centro (<kbd>Inicio</kbd>) y freno de rotor (<kbd>B</kbd>).</li>`,
+  'guide.cierva_c19.landing.go': `
+        <li>Gas <b>a fondo</b> (<kbd>0</kbd>) con la palanca <b>adelante</b> (<kbd>W</kbd>), sin frenos.</li>
+        <li>Hacia 55 km/h, palanca a medias atrás (<kbd>S</kbd>): se va al aire a ~60 km/h.</li>
+        <li>Si el rotor ha perdido muchas vueltas, para y vuelve a embragarlo (<kbd>P</kbd>).</li>`,
   'doc.title': 'Autogiro · Simulador sobre el mundo real',
   'lang.label': 'Idioma',
   'common.close': 'Cerrar',
@@ -98,7 +151,7 @@ const es: Dict = {
   'ac.ela10.tag': 'Turbo',
   'ac.cierva.tag': 'Histórico',
   'ac.generic.short': 'Biplaza abierto tipo MTOsport · Rotax 912',
-  'ac.ela07.short': 'Tándem abierto · Rotax 914',
+  'ac.ela07.short': 'Tándem abierto · Rotax 912',
   'ac.ela10.short': 'Cabina cerrada en tándem · Rotax 914',
   'ac.cierva.short': 'Homenaje a Juan de la Cierva · tripala',
   'ac.generic.maker': 'Biplaza de escuela tipo MTOsport',
@@ -134,9 +187,60 @@ const es: Dict = {
   'plan.time': 'Hora',
   'plan.wind': 'Viento',
   'plan.sky': 'Cielo',
+  // aire del día y tiempo real (src/menu/weatherMenu.ts)
+  'plan.air': 'Aire',
+  'plan.da': 'Altitud de densidad {ft} ft ({m} m)',
+  'plan.daWait': 'Altitud de densidad: buscando la elevación…',
+  'wx.loading': 'Consultando el tiempo de ahora en {place}…',
+  'wx.timeout': 'no contesta',
+  'wx.offline': 'sin conexión',
+  'wx.error': 'No se pudo traer el tiempo real ({msg}). Siguen los ajustes que había.',
+  'wx.done': 'Tiempo real en {place} (dato de las {time}, hora local):',
+  'wx.dew': 'rocío {c} °C',
+  'wx.gusts': 'rachas de {kt} kt',
+  'wx.cover': 'nubes {pct} %',
+  'wx.vis': 'visibilidad {v}',
+  'wx.precip': 'precipitación {mm} mm/h',
+  'wx.notYet': 'La lluvia, la niebla y la visibilidad todavía no se simulan.',
+  'sky.visibility': 'Visibilidad',
+  'sky.visClear': '30 km o más',
+  'sky.precip': 'Precipitación',
+  'sky.precip.none': 'Ninguna',
+  'sky.precip.drizzle': 'Llovizna',
+  'sky.precip.rain': 'Lluvia',
+  'sky.precip.shower': 'Chubasco',
+  'sky.precip.snow': 'Nieve',
+  'sky.dew': 'Rocío · humedad',
+  'sky.note.fog': 'Niebla de radiación: una capa de unos {m} m en la que se ve a {v}; por encima, despejado. Se va cuando calienta el sol.',
+  'sky.note.nofog.dry': '',
+  'sky.note.nofog.wind': 'Aire casi saturado, pero con este viento no cuaja la niebla: se queda en nubes bajas.',
+  'sky.note.nofog.cloud': 'Aire casi saturado, pero con el cielo cubierto el suelo no se enfría: no hay niebla de radiación.',
+  'sky.note.nofog.day': 'Aire casi saturado: habrá niebla de radiación de noche y al amanecer, con poco viento.',
+  'sky.note.fogbank': 'Niebla.',
+  'sky.note.dust': 'Calima.',
+  'sky.note.haze': 'Bruma.',
+  'sky.note.base': 'Base de las nubes a unos {m} m ({ft} ft) sobre la salida.',
+  'sky.note.vis': 'Se ve a {v}.',
+  'sky.note.wet': 'Pista mojada: los frenos agarran un tercio menos.',
+  'sky.note.snow': 'Pista con nieve: los frenos agarran menos de la mitad.',
+  'wx.code.fog': 'niebla',
+  'wx.code.drizzle': 'llovizna',
+  'wx.code.rain': 'lluvia',
+  'wx.code.snow': 'nieve',
+  'wx.code.showers': 'chubascos',
+  'wx.code.snowShowers': 'chubascos de nieve',
+  'wx.code.storm': 'tormenta',
+  'wx.isaNote': '15 °C y 1013,25 hPa a nivel del mar, 6,5 °C menos por cada 1000 m: en la salida{elev}, {c} °C',
+  'wx.atElev': ' ({m} m)',
+  'wx.manualNote': 'Temperatura en el suelo de la salida (hacia arriba, 6,5 °C menos cada 1000 m) y QNH del día',
+  'wx.elev': 'salida a {m} m',
   'plan.scenery': 'Escenario',
   'plan.solo': 'Solo piloto',
   'plan.pax': 'Con pasajero',
+  'plan.floats': 'con flotadores',
+  'menu.floatsD': 'Flotadores del fabricante: {kg} kg más',
+  'menu.floatsAmphib': 'Flotadores anfibios del fabricante ({kg} kg más): ruedas que suben y bajan con la tecla Y',
+  'menu.floatsBuiltIn': 'De serie: dos flotadores Edo, sin ruedas. Sale desde el agua',
   'plan.onRunway': 'En pista',
   'plan.inFlight': 'En vuelo',
   'plan.sun': 'Orto {rise} · ocaso {set}',
@@ -244,6 +348,27 @@ const es: Dict = {
   'locgroup.nav': 'Navarra',
   'locgroup.pv': 'País Vasco',
   'loc.inFlight': 'salida en vuelo a {m} m sobre el suelo',
+  'loc.onWater': 'con flotadores, posado en el agua; sin ellos, en vuelo a {m} m',
+  'locgroup.water': 'En el agua (hidroautogiros)',
+  'toast.noWheels': 'Sin ruedas no se sale de una pista: empiezas en vuelo. Amariza en un lago o en el mar',
+  // aviso de datos del mapa cortados (src/net/netWatch.ts)
+  'net.title.web': 'Tu navegador está bloqueando datos del mapa',
+  'net.title.app': 'No llegan datos del mapa',
+  'net.missing': 'No cargan:',
+  'net.fix.web':
+    'Casi siempre es un bloqueador de anuncios o de rastreo (Adblock Plus, AdBlock, uBlock Origin, Privacy Badger…) o la protección de rastreo del navegador. Añade esta página a sus excepciones (o desactívalo aquí) y recarga. La app de escritorio no tiene este problema.',
+  'net.fix.app':
+    'Comprueba la conexión a Internet y que el cortafuegos, el antivirus o un filtro de DNS o de anuncios de todo el sistema (AdGuard, Pi-hole, NextDNS…) no bloqueen el juego.',
+  'net.close': 'Cerrar',
+  'net.svc.ofm': 'OpenFreeMap: edificios, agua, árboles, puentes y carreteras (sin él, el mar es tierra firme)',
+  'net.svc.esri': 'Esri: la foto del terreno fuera de España',
+  'net.svc.pnoa': 'PNOA del IGN: la foto del terreno en España',
+  'net.svc.mdt': 'MDT del IGN: el relieve en España',
+  'net.svc.terrarium': 'Relieve mundial (AWS): el relieve fuera de España',
+  'net.svc.power': 'OpenInfraMap: los tendidos eléctricos',
+  'net.svc.meteo': 'Open-Meteo: el tiempo real',
+  'net.svc.search': 'Nominatim: la búsqueda de lugares en el mapa',
+  'net.svc.google': 'Google: el escenario fotorrealista 3D',
   'pad.none': '· no detectado',
   'gpu.integrated': '⚠ Gráfica integrada ({name}). Irá lento.',
   'gpu.howto': 'Cómo usar la gráfica dedicada (NVIDIA / AMD)',
@@ -256,14 +381,28 @@ const es: Dict = {
 
   // avisos breves
   'toast.camera': 'Cámara: {name}',
+  'toast.gearDown': 'Tren abajo: para tomar en tierra (nunca en el agua)',
+  'toast.gearUp': 'Tren arriba: para el agua',
+  'toast.retractDown': 'Tren abajo (Y)',
+  'toast.retractUp': 'Tren arriba: más rápido; bájalo antes de tomar (Y)',
   'toast.rotorBrakeOn': 'Freno de rotor: PUESTO',
   'toast.rotorBrakeOff': 'Freno de rotor: QUITADO',
   'toast.engineOn': 'Motor: en marcha',
   'toast.engineOff': 'Motor: parado',
   'toast.parkOn': 'Freno de parking: PUESTO',
   'toast.parkOff': 'Freno de parking: QUITADO',
+  // arranque con cuerda (Cierva C.6, sin prerrotador: sim/autogyro.ts, ropeTorque)
+  'toast.ropePull': 'El personal de tierra tira de la cuerda: el rotor se lanza…',
+  'toast.ropeFree': 'Cuerda suelta: rotor a {rpm} rpm',
+  'toast.ropeAir': 'Sin prerrotador: el rotor solo se lanza con la cuerda, parado en tierra',
+  'toast.ropeMoving': 'Hay que parar: rodando no se puede tirar de la cuerda',
+  'toast.ropeTurning': 'Espera a que el rotor se pare para enrollar la cuerda',
   'toast.lightsOn': 'Luces: ENCENDIDAS',
   'toast.lightsOff': 'Luces: APAGADAS',
+  'toast.hudCockpitOn': 'Relojes en pantalla: VISIBLES en cabina',
+  'toast.hudCockpitOff': 'Relojes en pantalla: OCULTOS en cabina (solo los del panel)',
+  'toast.hudOutsideOn': 'Relojes en pantalla: VISIBLES en las vistas exteriores',
+  'toast.hudOutsideOff': 'Relojes en pantalla: OCULTOS en las vistas exteriores',
   'toast.mouseStickOn': 'Ratón como palanca: SÍ',
   'toast.mouseStickOff': 'Ratón como palanca: NO',
   'toast.wheelThrottle': 'Rueda del ratón: GAS',
@@ -294,6 +433,9 @@ const es: Dict = {
   'hud.prerot': 'PRERROTADOR',
   'hud.rotorBrake': 'FRENO ROTOR',
   'hud.parkBrake': 'FRENO PARKING',
+  'hud.gearDown': 'TREN ABAJO',
+  'hud.gearUp': 'TREN ARRIBA',
+  'hud.gearMoving': 'TREN EN MOVIMIENTO',
   'hud.mouseStick': 'RATÓN = PALANCA',
   'hud.wheelThrottle': 'RUEDA = GAS',
   'hud.camera': 'Cámara: {name}',
@@ -326,6 +468,7 @@ const es: Dict = {
   'warn.prerotBrake': '¡FRENO DE ROTOR PUESTO! (B)',
   'warn.gearWater': '¡TREN ABAJO SOBRE EL AGUA! (Y)',
   'warn.gearLand': '¡TREN ARRIBA SOBRE TIERRA! (Y)',
+  'warn.gearUp': '¡TREN ARRIBA! (Y)',
 
   // accidentes
   'obj.tree': 'un árbol',
@@ -334,6 +477,7 @@ const es: Dict = {
   'obj.pylon': 'una torre de un tendido eléctrico',
   'obj.vehicle': 'un vehículo',
   'obj.wire': 'un cable eléctrico',
+  'obj.windsock': 'el mástil de una manga de viento',
   'crash.wire.rotor': 'El disco del rotor ha enganchado un cable del tendido a {kmh} km/h. Las palas lo cortan o se parten contra él y el rotor se desequilibra: casi nunca se ven a tiempo, por eso se vuela por encima de las torres y no de los cables.',
   'crash.wire.prop.title': 'La hélice ha cortado un cable',
   'crash.wire.prop': 'La hélice ha golpeado un cable del tendido a {kmh} km/h y se ha roto.',
@@ -596,6 +740,59 @@ const en: Dict = {
         <li><b>Full throttle</b> (<kbd>0</kbd>) with the stick <b>forward</b> (<kbd>W</kbd>), no brakes.</li>
         <li>At about 60 km/h pull back <b>slowly but fully</b> (<kbd>S</kbd>): it lifts off at ~65–70 km/h.</li>
         <li>If the rotor has lost a lot of rpm, better stop and prerotate again (<kbd>P</kbd>).</li>`,
+  // Cierva C.6bis (1925): fixed head, ailerons, elevator and rudder; no prerotator (rope) and no brakes
+  'guide.cierva_c6.ground.title': 'Cierva C.6bis takeoff',
+  'guide.cierva_c6.ground.steps': `
+        <li><b>There is no prerotator</b>: stopped and at idle, press <kbd>P</kbd> and the <b>ground crew pull the rope</b> wound under the blades: in ~15 s the rotor reaches about 50–55 rpm. Only with the aircraft still and the rotor stopped.</li>
+        <li>When they let go of the rope, open to <b>full throttle</b> (<kbd>0</kbd>) with the stick <b>slightly forward</b> (taps of <kbd>W</kbd>): the tail lifts a little and the fixed disc drags less while the airflow spins it up. <b>There are no brakes</b>: the tail skid holds and slows it.</li>
+        <li>Keep straight with the pedals (<kbd>Q</kbd>/<kbd>E</kbd>) and wings level with the ailerons (<kbd>A</kbd>/<kbd>D</kbd>); if you leave them alone, the assist does it for you.</li>
+        <li>At about 60–65 km/h ease the stick <b>slightly back</b> (taps of <kbd>S</kbd>): with the rotor at ~120 rpm it lifts off at ~60 km/h (the museum gives a 125 m run; here it is longer). Climb at ~75 km/h with the stick centred: barely 1 m/s.</li>`,
+  'guide.cierva_c6.ground.note': 'It is flown <b>like an aeroplane</b>: the rotor head is fixed and the stick moves the two ailerons at the ends of the outrigger spars and the elevator; the pedals move the rudder. At low speed they <b>hardly respond</b>: that is how it was. Full forward stick during the run puts it on its nose skid.',
+  'guide.cierva_c6.ground.warn': 'Narrow track and no fin: if it swerves or leans as it gets light, it <b>tips over onto a wing tip</b>. The rotary engine spins as a whole with the propeller: with power it rolls left.',
+  'guide.cierva_c6.flight.tips': `
+        <li><b>Airspeed with the stick</b> (elevator): forward speeds up, back slows down. Centred, about 77 km/h; do not exceed ~115.</li>
+        <li><b>Height with the throttle</b> (<kbd>R</kbd>/<kbd>F</kbd>): at full throttle it barely climbs 1 m/s (110 hp for 840 kg).</li>
+        <li><b>Turns</b> with ailerons (<kbd>A</kbd>/<kbd>D</kbd>) and rudder (<kbd>Q</kbd>/<kbd>E</kbd>): slow; below ~50 km/h they hardly respond.</li>
+        <li>With the stick back and little power it comes down almost vertically, at 20–40 km/h, as it was shown in 1925.</li>
+        <li><b>Engine off</b> it glides at ~80 km/h, sinking about 4–5 m/s.</li>`,
+  'guide.cierva_c6.flight.land': `
+        <li>Line up from far out, throttle to idle (<kbd>1</kbd>) and ~80 km/h with the stick.</li>
+        <li>Flare at about 7–8 m (hold <kbd>S</kbd>): it settles at 30–40 km/h with almost no ground roll.</li>
+        <li>Keep straight with the rudder as soon as it touches: on this gear it swerves quickly.</li>`,
+  'guide.cierva_c6.landing.stop': `
+        <li>Throttle to idle (<kbd>1</kbd>) and stick <b>back</b> (<kbd>S</kbd>): with no brakes, the tail skid stops it.</li>
+        <li>Straight with the rudder (<kbd>Q</kbd>/<kbd>E</kbd>) and wings level with the ailerons.</li>
+        <li>Stopped: stick centred (<kbd>Home</kbd>). To go again, have the crew pull the rope again (<kbd>P</kbd>) with the rotor stopped.</li>`,
+  'guide.cierva_c6.landing.go': `
+        <li><b>Full throttle</b> (<kbd>0</kbd>) with the stick slightly forward: the rotor is still turning.</li>
+        <li>At 60–65 km/h ease the stick slightly back: it lifts off at ~60 km/h.</li>
+        <li>If the rotor has dropped below ~100 rpm, better stop: with no prerotator, only the rope is left.</li>`,
+  'guide.cierva_c19.ground.title': 'Cierva C.19 Mk IV takeoff',
+  'guide.cierva_c19.ground.steps': `
+        <li>Rotor brake off (<kbd>B</kbd>) and parking brake on (<kbd>O</kbd>).</li>
+        <li>A little over half throttle (<kbd>R</kbd>/<kbd>F</kbd>, about 1600 engine rpm) and hold the <b>rotor clutch</b> (<kbd>P</kbd>): it takes the rotor to about 175 rpm in half a minute.</li>
+        <li>Release <kbd>P</kbd> and the parking brake (<kbd>O</kbd>) and go to <b>full throttle</b> with the stick <b>forward</b> (hold <kbd>W</kbd>): the tail comes up a little and the disc, which does not tilt, drags less.</li>
+        <li>At about 55 km/h, stick <b>halfway back</b> (taps of <kbd>S</kbd>): it lifts off at ~60 km/h after about 130 m (200 with a passenger). Climb at ~95 km/h with the stick almost neutral (about 3 m/s solo, half that with a passenger).</li>`,
+  'guide.cierva_c19.ground.note': 'It is flown <b>like an aeroplane</b>: the rotor head is fixed to the pylon and the stick moves the wing ailerons and the elevator; the rudder bar moves the rudder. At low speed they <b>hardly respond</b>: that is how it was, and why Cierva later moved to direct control (C.19 Mk V and C.30). The elevator goes up much further than down: full back stick raises the nose.',
+  'guide.cierva_c19.ground.warn': 'It has a <b>tail skid</b>, not a wheel: on the ground it is steered only by the rudder in the propeller slipstream. With the stick fully back during the run the disc drags so much that it will not pass ~45 km/h. Brake gently: the wheels are close to the centre of gravity and it <b>can nose over</b>.',
+  'guide.cierva_c19.flight.tips': `
+        <li><b>Speed with the stick</b> (elevator): neutral, ~105 km/h; forward speeds up (about 155 at full throttle), back slows down. It responds slowly: wait for it to settle.</li>
+        <li><b>Height with the throttle</b> (<kbd>R</kbd>/<kbd>F</kbd>): more power climbs, less descends.</li>
+        <li><b>Turn with the ailerons</b> (<kbd>A</kbd>/<kbd>D</kbd>) and a little rudder to the same side (<kbd>Q</kbd>/<kbd>E</kbd>).</li>
+        <li>The big, wide-bladed rotor turns slowly: <b>~175 rpm</b> is normal.</li>
+        <li><b>Engine off</b> it glides at ~95 km/h, sinking about 4 m/s: the wing helps.</li>`,
+  'guide.cierva_c19.flight.land': `
+        <li>Line up with the runway from far out and reduce power (<kbd>F</kbd>; <kbd>1</kbd> = idle).</li>
+        <li>Hold ~95 km/h with the stick until close to the ground.</li>
+        <li>Flare at about 5-8 m (hold <kbd>S</kbd>): it touches down at ~45 km/h, skid and wheels almost together. With the stick fully back it comes down steeply, at ~45 km/h and 5 m/s.</li>`,
+  'guide.cierva_c19.landing.stop': `
+        <li>Throttle to idle (<kbd>1</kbd>) and stick <b>back</b> (<kbd>S</kbd>).</li>
+        <li>Keep straight with the rudder (<kbd>Q</kbd>/<kbd>E</kbd>) and brake <b>gently</b> (<kbd>Space</kbd>): brake hard and it noses over.</li>
+        <li>Stopped: parking brake (<kbd>O</kbd>), stick centred (<kbd>Home</kbd>) and rotor brake (<kbd>B</kbd>).</li>`,
+  'guide.cierva_c19.landing.go': `
+        <li><b>Full throttle</b> (<kbd>0</kbd>) with the stick <b>forward</b> (<kbd>W</kbd>), no brakes.</li>
+        <li>At about 55 km/h, stick halfway back (<kbd>S</kbd>): it lifts off at ~60 km/h.</li>
+        <li>If the rotor has lost a lot of rpm, stop and clutch it in again (<kbd>P</kbd>).</li>`,
   'help.title': 'Controls',
   'help.keys': `
         <div><kbd>W</kbd><kbd>S</kbd> / <kbd>↑</kbd><kbd>↓</kbd></div><div>Stick forward / back (holds its position; <kbd>Home</kbd> centres it)</div>
@@ -607,18 +804,22 @@ const en: Dict = {
         <div><kbd>B</kbd></div><div>Rotor brake</div>
         <div><kbd>Space</kbd> · <kbd>O</kbd></div><div>Wheel brakes · parking brake</div>
         <div><kbd>M</kbd></div><div>Engine on / off</div>
+        <div><kbd>F2</kbd></div><div>Practice engine failure: the instructor closes the throttle (<kbd>F2</kbd> again to go around); with real failures in the menu, a failure</div>
         <div><kbd>L</kbd></div><div>Exterior lights (navigation, strobes and landing)</div>
         <div><kbd>U</kbd></div><div>Crop spraying (Gyro Tractor): open or close the boom valve</div>
+        <div><kbd>Y</kbd></div><div>Gear: amphibious (amphibious floats) up for water; retractable (Sigilo) up in flight to go faster</div>
         <div><kbd>Tab</kbd></div><div>Labels and arrows for the other pilots (multiplayer)</div>
+        <div><kbd>&#96;</kbd> (hold)</div><div>Talk on the voice radio (multiplayer, with the radio on; the key left of 1)</div>
         <div><kbd>C</kbd> · <kbd>V</kbd></div><div>Change camera · look back</div>
         <div>Mouse (drag) · wheel</div><div>Look around · zoom</div>
         <div><kbd>K</kbd> · middle button</div><div>Mouse as stick · in that mode, wheel = zoom / throttle</div>
         <div><kbd>J</kbd></div><div>Side flying guide (takeoff, flight and landing)</div>
-        <div><kbd>I</kbd> · <kbd>H</kbd></div><div>Hide instruments · this help</div>
+        <div><kbd>I</kbd> · <kbd>H</kbd></div><div>Show or hide the on-screen gauges (cockpit and outside views remembered separately) · this help</div>
         <div><kbd>F3</kbd></div><div>Performance telemetry (FPS, CPU, GPU, memory)</div>
+        <div><kbd>F4</kbd></div><div>Flight replay: <kbd>Space</kbd> pause, <kbd>←</kbd><kbd>→</kbd> skip, <kbd>J</kbd> slow motion, <kbd>C</kbd> camera; track as GPX and KML</div>
         <div><kbd>Backspace</kbd> · <kbd>Esc</kbd></div><div>Restart · menu</div>`,
   'help.pad':
-    'Xbox-style gamepad: left stick = stick, right stick = pedals, triggers = throttle, A = prerotator, B = brakes, LB/RB = trim, Y = crop spraying. Joystick: axes configurable in the menu.',
+    'Xbox-style gamepad: left stick = stick, right stick = pedals, triggers = throttle, A = prerotator, B = brakes, LB/RB = trim, Y = crop spraying, X = radio (hold). Joystick: axes and radio button configurable in the menu.',
   'crash.eyebrow': 'Crash',
   'crash.retry': 'Retry',
   'crash.menu': 'Menu',
@@ -721,6 +922,10 @@ const en: Dict = {
   'menu.optional': 'Optional',
   'menu.pickAircraft': 'Pick your aircraft',
   'menu.passengerT': 'With passenger',
+  'menu.floatsT': 'With floats',
+  'menu.floatsD': "Maker's floats: {kg} kg more",
+  'menu.floatsAmphib': "Maker's amphibious floats ({kg} kg more): wheels go up and down with the Y key",
+  'menu.floatsBuiltIn': 'Standard fit: twin Edo floats, no wheels. Departs from the water',
   'menu.passengerD': 'At maximum take-off weight: {kg} kg',
   'menu.whereFrom': 'Where do you start?',
   'menu.mapSub': 'Over 48,000 airfields with their runways, or any point on the globe',
@@ -740,10 +945,19 @@ const en: Dict = {
   'menu.buildingsD': 'From OpenStreetMap, with their roofs',
   'menu.treesT': '3D trees',
   'menu.treesD': 'Detected in the orthophoto',
+  'menu.terrainWindT': 'Terrain wind and thermals',
+  'menu.terrainWindD':
+    'Ridge lift, lee sink, shelter behind hangars and trees, thermals driven by sun and ground, and wind shear by time of day. Turbulence comes from the site: 25 % leaves it as is',
   'menu.powerT': 'Power lines',
   'menu.powerD': 'High, medium and low voltage pylons and wires from OpenStreetMap; you can hit them',
   'menu.trafficT': 'Traffic',
   'menu.trafficD': 'Cars, vans, lorries and buses on the OpenStreetMap roads: lanes, give way, roundabouts and traffic lights',
+  'menu.airTrafficT': 'Air traffic',
+  'menu.airTrafficD': 'Other gyroplanes at the airfields: they taxi, take off, fly circuits and call on the radio. Daytime and fair weather only; not in rooms or flight school',
+  'menu.airTrafficDensityT': 'How much air traffic',
+  'menu.airTraffic.low': 'Light',
+  'menu.airTraffic.normal': 'Normal',
+  'menu.airTraffic.high': 'Busy',
   'menu.catastroT': 'Fill in with the Catastro',
   'menu.catastroD': 'Buildings missing from OpenStreetMap (Spain, downloaded by municipality)',
   'menu.keyLocal': 'Stored only on this computer.',
@@ -768,7 +982,7 @@ const en: Dict = {
   'ac.ela10.tag': 'Turbo',
   'ac.cierva.tag': 'Historic',
   'ac.generic.short': 'Open two-seater, MTOsport style · Rotax 912',
-  'ac.ela07.short': 'Open tandem · Rotax 914',
+  'ac.ela07.short': 'Open tandem · Rotax 912',
   'ac.ela10.short': 'Enclosed tandem cabin · Rotax 914',
   'ac.cierva.short': 'A tribute to Juan de la Cierva · three blades',
   'ac.generic.maker': 'MTOsport-style training two-seater',
@@ -803,9 +1017,62 @@ const en: Dict = {
   'plan.time': 'Time',
   'plan.wind': 'Wind',
   'plan.sky': 'Sky',
+  'plan.air': 'Air',
+  'plan.da': 'Density altitude {ft} ft ({m} m)',
+  'plan.daWait': 'Density altitude: looking up the elevation…',
+  'wx.real': 'Live weather',
+  'wx.realSub': 'Conditions right now at the departure: wind, clouds, temperature, pressure, time and date',
+  'wx.credit': 'Weather data by',
+  'wx.air': 'Temperature and pressure',
+  'wx.isa': 'Standard atmosphere (ISA)',
+  'wx.oat': 'Ground temperature',
+  'wx.loading': 'Fetching the current weather at {place}…',
+  'wx.timeout': 'no answer',
+  'wx.offline': 'no connection',
+  'wx.error': 'Could not fetch the live weather ({msg}). Your settings are unchanged.',
+  'wx.done': 'Live weather at {place} (data from {time} local time):',
+  'wx.dew': 'dew point {c} °C',
+  'wx.gusts': 'gusting {kt} kt',
+  'wx.cover': 'cloud {pct} %',
+  'wx.vis': 'visibility {v}',
+  'wx.precip': 'precipitation {mm} mm/h',
+  'wx.notYet': 'Rain, fog and visibility are not simulated yet.',
+  'sky.visibility': 'Visibility',
+  'sky.visClear': '30 km or more',
+  'sky.precip': 'Precipitation',
+  'sky.precip.none': 'None',
+  'sky.precip.drizzle': 'Drizzle',
+  'sky.precip.rain': 'Rain',
+  'sky.precip.shower': 'Shower',
+  'sky.precip.snow': 'Snow',
+  'sky.dew': 'Dew point · humidity',
+  'sky.note.fog': 'Radiation fog: a layer of about {m} m with {v} visibility; clear above it. It burns off as the sun warms up.',
+  'sky.note.nofog.dry': '',
+  'sky.note.nofog.wind': 'Nearly saturated air, but too windy for fog to form: it stays as low cloud.',
+  'sky.note.nofog.cloud': 'Nearly saturated air, but under an overcast the ground does not cool: no radiation fog.',
+  'sky.note.nofog.day': 'Nearly saturated air: expect radiation fog at night and dawn in light winds.',
+  'sky.note.fogbank': 'Fog.',
+  'sky.note.dust': 'Dust haze.',
+  'sky.note.haze': 'Haze.',
+  'sky.note.base': 'Cloud base about {m} m ({ft} ft) above the departure.',
+  'sky.note.vis': 'Visibility {v}.',
+  'sky.note.wet': 'Wet runway: a third less braking grip.',
+  'sky.note.snow': 'Snow on the runway: less than half the braking grip.',
+  'wx.code.fog': 'fog',
+  'wx.code.drizzle': 'drizzle',
+  'wx.code.rain': 'rain',
+  'wx.code.snow': 'snow',
+  'wx.code.showers': 'showers',
+  'wx.code.snowShowers': 'snow showers',
+  'wx.code.storm': 'thunderstorm',
+  'wx.isaNote': '15 °C and 1013.25 hPa at sea level, 6.5 °C less every 1000 m: at the departure{elev}, {c} °C',
+  'wx.atElev': ' ({m} m)',
+  'wx.manualNote': 'Temperature on the ground at the departure (6.5 °C less every 1000 m above) and the day’s QNH',
+  'wx.elev': 'departure at {m} m',
   'plan.scenery': 'Scenery',
   'plan.solo': 'Pilot only',
   'plan.pax': 'With passenger',
+  'plan.floats': 'on floats',
   'plan.onRunway': 'On the runway',
   'plan.inFlight': 'In flight',
   'plan.sun': 'Sunrise {rise} · sunset {set}',
@@ -920,6 +1187,42 @@ const en: Dict = {
   'locgroup.nav': 'Navarre',
   'locgroup.pv': 'Basque Country',
   'loc.inFlight': 'starts in flight, {m} m above the ground',
+  'loc.onWater': 'on floats, afloat on the water; otherwise in flight at {m} m',
+  'locgroup.water': 'On the water (seaplane gyros)',
+  'toast.noWheels': 'No wheels, so no runway departure: you start in flight. Land on a lake or the sea',
+  'net.title.web': 'Your browser is blocking map data',
+  'net.title.app': 'Map data is not arriving',
+  'net.missing': 'Not loading:',
+  'net.fix.web':
+    'This is almost always an ad or tracker blocker (Adblock Plus, AdBlock, uBlock Origin, Privacy Badger…) or the browser’s tracking protection. Add this page to its exceptions (or turn it off here) and reload. The desktop app does not have this problem.',
+  'net.fix.app':
+    'Check your Internet connection and that no firewall, antivirus or system-wide DNS/ad filter (AdGuard, Pi-hole, NextDNS…) is blocking the game.',
+  'net.close': 'Close',
+  'net.svc.ofm': 'OpenFreeMap: buildings, water, trees, bridges and roads (without it the sea is solid ground)',
+  'net.svc.esri': 'Esri: ground imagery outside Spain',
+  'net.svc.pnoa': 'IGN PNOA: ground imagery in Spain',
+  'net.svc.mdt': 'IGN MDT: terrain relief in Spain',
+  'net.svc.terrarium': 'World relief (AWS): terrain outside Spain',
+  'net.svc.power': 'OpenInfraMap: power lines',
+  'net.svc.meteo': 'Open-Meteo: live weather',
+  'net.svc.search': 'Nominatim: place search on the map',
+  'net.svc.google': 'Google: photorealistic 3D scenery',
+  'loc.marmenor': 'Mar Menor',
+  'loc.marmenor.note': "Murcia · Europe's largest saltwater lagoon: flat water, 20 km long",
+  'loc.sanjuan': 'San Juan reservoir',
+  'loc.sanjuan.note': 'Madrid · the Alberche reservoir among pine woods',
+  'loc.palmabahia': 'Bay of Palma',
+  'loc.palmabahia.note': 'Majorca · in front of Palma cathedral',
+  'loc.sanabriaagua': 'Lake Sanabria · on the water',
+  'loc.sanabriaagua.note': 'Zamora · the largest glacial lake in the Iberian Peninsula',
+  'loc.lakehood': 'Anchorage · Lake Hood',
+  'loc.lakehood.note': 'Alaska · the busiest seaplane base in the world',
+  'loc.vancouverhb': 'Vancouver · harbour water aerodrome',
+  'loc.vancouverhb.note': 'British Columbia · Coal Harbour, in front of the towers',
+  'loc.comoidro': 'Lake Como · Como seaplane base',
+  'loc.comoidro.note': 'Lombardy · the oldest seaplane base still in use (1913)',
+  'loc.malelagoon': 'Malé · seaplane lagoon',
+  'loc.malelagoon.note': 'Maldives · next to the airport, where seaplanes leave for the atolls',
   'pad.none': '· not detected',
   'gpu.integrated': '⚠ Integrated graphics ({name}). It will run slowly.',
   'gpu.howto': 'How to use the dedicated GPU (NVIDIA / AMD)',
@@ -930,16 +1233,31 @@ const en: Dict = {
   'load.error': 'Error loading the scenery: {msg}',
 
   'toast.camera': 'Camera: {name}',
+  'toast.gearDown': 'Gear down: for landing on land (never on water)',
+  'toast.gearUp': 'Gear up: for water',
+  'toast.retractDown': 'Gear down (Y)',
+  'toast.retractUp': 'Gear up: faster; lower it before landing (Y)',
   'toast.rotorBrakeOn': 'Rotor brake: ON',
   'toast.rotorBrakeOff': 'Rotor brake: OFF',
   'toast.engineOn': 'Engine: running',
   'toast.engineOff': 'Engine: stopped',
   'toast.parkOn': 'Parking brake: ON',
   'toast.parkOff': 'Parking brake: OFF',
+  'toast.ropePull': 'The ground crew pull the rope: the rotor spins up…',
+  'toast.ropeFree': 'Rope off: rotor at {rpm} rpm',
+  'toast.ropeAir': 'No prerotator: the rotor can only be spun up with the rope, stopped on the ground',
+  'toast.ropeMoving': 'Stop first: the crew cannot pull the rope while you roll',
+  'toast.ropeTurning': 'Wait for the rotor to stop to wind the rope',
   'toast.lightsOn': 'Lights: ON',
   'toast.lightsOff': 'Lights: OFF',
+  'toast.hudCockpitOn': 'On-screen gauges: SHOWN in the cockpit',
+  'toast.hudCockpitOff': 'On-screen gauges: HIDDEN in the cockpit (panel only)',
+  'toast.hudOutsideOn': 'On-screen gauges: SHOWN in outside views',
+  'toast.hudOutsideOff': 'On-screen gauges: HIDDEN in outside views',
   'lights.label': 'Lights',
   'lights.title': 'Exterior lights (L)',
+  'hudBtn.label': 'Gauges',
+  'hudBtn.title': 'On-screen gauges (I): cockpit and outside views are remembered separately',
   'toast.mouseStickOn': 'Mouse as stick: ON',
   'toast.mouseStickOff': 'Mouse as stick: OFF',
   'toast.wheelThrottle': 'Mouse wheel: THROTTLE',
@@ -967,6 +1285,9 @@ const en: Dict = {
   'hud.prerot': 'PREROTATOR',
   'hud.rotorBrake': 'ROTOR BRAKE',
   'hud.parkBrake': 'PARKING BRAKE',
+  'hud.gearDown': 'GEAR DOWN',
+  'hud.gearUp': 'GEAR UP',
+  'hud.gearMoving': 'GEAR IN TRANSIT',
   'hud.mouseStick': 'MOUSE = STICK',
   'hud.wheelThrottle': 'WHEEL = THROTTLE',
   'hud.camera': 'Camera: {name}',
@@ -997,6 +1318,7 @@ const en: Dict = {
   'warn.prerotBrake': 'ROTOR BRAKE ON! (B)',
   'warn.gearWater': 'GEAR DOWN OVER WATER! (Y)',
   'warn.gearLand': 'GEAR UP OVER LAND! (Y)',
+  'warn.gearUp': 'GEAR UP! (Y)',
 
   'obj.tree': 'a tree',
   'obj.building': 'a building',
@@ -1004,6 +1326,7 @@ const en: Dict = {
   'obj.pylon': 'a power pylon',
   'obj.vehicle': 'a vehicle',
   'obj.wire': 'a power line',
+  'obj.windsock': 'a windsock mast',
   'crash.wire.rotor': 'The rotor disc caught a power line at {kmh} km/h. The blades cut it or break against it and the rotor goes out of balance: wires are almost never seen in time, which is why you fly over the pylons, not over the span.',
   'crash.wire.prop.title': 'The propeller cut a wire',
   'crash.wire.prop': 'The propeller hit a power line at {kmh} km/h and broke.',
@@ -1504,7 +1827,7 @@ const en: Dict = {
   'loc.cartagena.note': 'The walled city by the Caribbean',
   'ac.generic': 'Generic open tandem',
   'ac.generic.note': 'Open two-seater, MTOsport style',
-  'ac.ela07.note': 'ELA Aviación (Córdoba, Spain) · open tandem · Rotax 914',
+  'ac.ela07.note': 'ELA Aviación (Córdoba, Spain) · open tandem · Rotax 912',
   'ac.ela10.note': 'ELA Aviación (Córdoba, Spain) · enclosed tandem cabin, high tail · Rotax 914',
   'ac.cierva.note': 'A tribute to Juan de la Cierva, inventor of the autogiro · three-blade direct-control rotor, radial engine, no rudder · Museo del Aire replica',
 
@@ -1529,6 +1852,24 @@ const en: Dict = {
   'pt.pata derecha': 'the right landing-gear leg',
   'pt.pilón': 'the rotor pylon',
   'pt.deriva ventral': 'the ventral fin',
+  'pt.contenedor izquierdo': 'the left side pod',
+  'pt.contenedor derecho': 'the right side pod',
+  'pt.viga de cola': 'the tail boom',
+  'pt.góndola izquierda': 'the left gear nacelle',
+  'pt.góndola derecha': 'the right gear nacelle',
+  'pt.compuertas del tren de morro': 'the nose gear doors',
+  'pt.viga izquierda': 'the left boom',
+  'pt.viga derecha': 'the right boom',
+  'pt.tobera': 'the nozzle',
+  'pt.cúpula': 'the canopy',
+  'pt.barra de fumigación izquierda': 'the left spray boom',
+  'pt.barra de fumigación derecha': 'the right spray boom',
+  'pt.anillo': 'the fan duct',
+  'pt.quilla': 'the keel',
+  'pt.carenado de la rueda de morro': 'the nose wheel fairing',
+  'pt.eje del tren': 'the gear axle',
+  'pt.ala izquierda': 'the left wing',
+  'pt.ala derecha': 'the right wing',
 
   // piezas y uniones del despiece (sim/wreck/parts.ts, por id)
   'part.pod': 'the pod',
@@ -1626,7 +1967,20 @@ const ES_PART_ARTICLE: Record<string, string> = {
   'pata izquierda': 'la',
   'pata derecha': 'la',
   'deriva ventral': 'la',
+  'viga de cola': 'la',
   flotadores: 'los',
+  'góndola izquierda': 'la',
+  'góndola derecha': 'la',
+  'compuertas del tren de morro': 'las',
+  'viga izquierda': 'la',
+  'viga derecha': 'la',
+  tobera: 'la',
+  'cúpula': 'la',
+  'barra de fumigación izquierda': 'la',
+  'barra de fumigación derecha': 'la',
+  quilla: 'la',
+  'ala izquierda': 'la',
+  'ala derecha': 'la',
 }
 
 const DICTS: Record<Lang, Dict> = { es, en }

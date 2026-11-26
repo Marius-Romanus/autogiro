@@ -23,7 +23,10 @@ export type Action =
   | 'lights'
   | 'guide'
   | 'spray'
+  | 'gear'
   | 'telemetry'
+  | 'failure'
+  | 'vrCenter'
 
 const ACTION_KEYS: Record<string, Action> = {
   KeyC: 'camera',
@@ -42,8 +45,14 @@ const ACTION_KEYS: Record<string, Action> = {
   KeyJ: 'guide',
   // fumigación (solo el Gyro Tractor)
   KeyU: 'spray',
+  // tren anfibio (solo con flotadores anfibios: src/sim/floatKit.ts)
+  KeyY: 'gear',
   // telemetría de rendimiento (src/hud/Telemetry.ts)
   F3: 'telemetry',
+  // fallo de motor: simulacro del instructor (o uno real, según el menú): sim/powerplant.ts
+  F2: 'failure',
+  // realidad virtual: recentrar la vista (src/vr)
+  F8: 'vrCenter',
   Equal: 'zoomIn',
   NumpadAdd: 'zoomIn',
   Minus: 'zoomOut',
@@ -96,14 +105,19 @@ export class Input {
   private gpThrottleSeen = false
   private lastGpThrottle = -2
   private gpSprayDown = false
+  /**
+   * Mandos de realidad virtual (los rellena src/vr/Vr.ts mientras dura la sesión; null fuera de
+   * ella): palanquitas como las de un mando de consola, gas por velocidad (−1…1), freno y prerrotador.
+   */
+  xr: { pitch: number; roll: number; yaw: number; throttle: number; brake: number; prerotator: boolean } | null = null
 
   private settings: Settings
   constructor(settings: Settings, el: HTMLElement) {
     this.settings = settings
     window.addEventListener('keydown', (e) => {
       const target = e.target as HTMLElement | null
-      // (F3 sí: no escribe nada y el foco suele quedarse en un interruptor del menú)
-      if (target?.tagName === 'INPUT' && e.code !== 'F3') return
+      // (F2 y F3 sí: no escriben nada y el foco suele quedarse en un interruptor del menú)
+      if (target?.tagName === 'INPUT' && e.code !== 'F3' && e.code !== 'F2') return
       // Con el desplegable abierto, sus teclas (Esc, flechas, letras) son suyas
       // (con la lista abierta el foco está en la <option>, no en el <select>)
       const sel = target?.closest?.('select')
@@ -114,7 +128,7 @@ export class Input {
       }
       this.keys.add(e.code)
       // (F3 abre «buscar siguiente» en el navegador)
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Backspace', 'F1', 'F3'].includes(e.code)) e.preventDefault()
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Backspace', 'F1', 'F2', 'F3'].includes(e.code)) e.preventDefault()
     })
     window.addEventListener('keyup', (e) => this.keys.delete(e.code))
     window.addEventListener('blur', () => {
@@ -332,6 +346,24 @@ export class Input {
         if (gp.buttons[1]?.pressed) ctl.prerotator = true
       }
       break
+    }
+
+    // --- mandos de realidad virtual: igual que el mando de consola ---
+    const x = this.xr
+    if (x) {
+      const dz = (v: number, d = 0.1) => (Math.abs(v) < d ? 0 : (v - Math.sign(v) * d) / (1 - d))
+      const p = dz(x.pitch)
+      const r = dz(x.roll)
+      const y = dz(x.yaw)
+      if (p || r) {
+        pitch = Math.max(-1, Math.min(1, this.keyStick + expo(p) * inv))
+        roll = expo(r)
+        this.analog = true
+      }
+      if (y) yaw = expo(y)
+      this.throttle = Math.max(0, Math.min(1, this.throttle + dz(x.throttle, 0.15) * dt * 0.6))
+      if (x.prerotator) ctl.prerotator = true
+      ctl.wheelBrake = Math.max(ctl.wheelBrake, x.brake)
     }
 
     this.pitch = pitch

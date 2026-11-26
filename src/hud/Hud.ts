@@ -2,6 +2,7 @@
 
 import { t } from '../i18n.ts'
 import type { TachSpec } from '../sim/engines.ts'
+import type { AsiSpec } from '../sim/airframes.ts'
 
 export interface HudData {
   iasKmh: number
@@ -19,9 +20,20 @@ export interface HudData {
   windFrom: number
   windKt: number
   warnings: string[]
+  /** precauciones (ámbar): reserva de combustible, simulacro, pérdida de potencia (sim/powerplant.ts) */
+  cautions?: string[]
+  /** combustible utilizable: fracción del depósito (0..1) y litros; falta si el aparato no gasta */
+  fuel?: number
+  fuelL?: number
+  /** luces de aviso: reserva de combustible, presión de aceite baja, simulacro de fallo de motor */
+  fuelLow?: boolean
+  oilLow?: boolean
+  drill?: boolean
   prerot: boolean
   rotorBrake: boolean
   parkBrake: boolean
+  /** tren de unos flotadores anfibios (si el aparato lo lleva) */
+  gear?: 'down' | 'up' | 'moving'
   engineOn: boolean
   camName: string
   onGround: boolean
@@ -44,7 +56,11 @@ export interface HudData {
   rotorArcs?: { green: [number, number]; red: number }
   /** escala del cuentarrevoluciones del motor del aparato */
   tach?: TachSpec
+  /** escala del velocímetro del aparato (si no, 0-200 km/h) */
+  asi?: AsiSpec
 }
+
+const DEFAULT_ASI: AsiSpec = { max: 200, step: 40, minor: 10, green: [45, 150], yellow: [150, 180], red: 180 }
 
 const ROTAX_TACH: TachSpec = { max: 7000, step: 1000, minor: 500, green: [1400, 5500], yellow: [5500, 5800], red: 5800 }
 
@@ -54,6 +70,12 @@ export class Hud {
   private ctx: CanvasRenderingContext2D
   private dpr = 1
   visible = true
+  /**
+   * Borde inferior (px) de la pila de avisos rojos, precauciones ámbar e indicación del centro de
+   * arriba; 0 si no hay ninguno. main.ts pone ahí debajo los avisos de texto («toast») para que no se
+   * pisen.
+   */
+  stackBottom = 0
   private acc = 0
   private blink = 0
 
@@ -227,11 +249,12 @@ export class Hud {
     const r = this.face(c, x, y, s, t('hud.airspeed'), 'km/h')
     const a0 = Math.PI * 0.62
     const a1 = Math.PI * 2.38
-    const A = (v: number) => this.valueAngle(v, 0, 200, a0, a1)
-    this.arc(c, x, y, r * 0.88, A(45), A(150), '#2ecc71', r * 0.07)
-    this.arc(c, x, y, r * 0.88, A(150), A(180), '#f1c40f', r * 0.07)
-    this.arc(c, x, y, r * 0.88, A(180), A(186), '#e74c3c', r * 0.1)
-    this.ticks(c, x, y, r, 0, 200, a0, a1, 40, 10, (v) => `${v}`)
+    const sc = d.asi ?? DEFAULT_ASI
+    const A = (v: number) => this.valueAngle(v, 0, sc.max, a0, a1)
+    this.arc(c, x, y, r * 0.88, A(sc.green[0]), A(sc.green[1]), '#2ecc71', r * 0.07)
+    this.arc(c, x, y, r * 0.88, A(sc.yellow[0]), A(sc.yellow[1]), '#f1c40f', r * 0.07)
+    this.arc(c, x, y, r * 0.88, A(sc.red), A(sc.red + sc.max * 0.03), '#e74c3c', r * 0.1)
+    this.ticks(c, x, y, r, 0, sc.max, a0, a1, sc.step, sc.minor, (v) => `${v}`)
     this.digital(c, x, y + r * 0.27, r, `${Math.round(d.iasKmh)}`)
     this.needle(c, x, y, r, A(d.iasKmh))
   }
@@ -394,6 +417,7 @@ export class Hud {
   private bars(c: CanvasRenderingContext2D, x: number, y: number, h: number, d: HudData): void {
     c.save()
     const w = 14
+    if (d.fuel !== undefined) this.fuelBar(c, Math.max(4, x - 24), y, h, w, d)
     // gas
     roundRect(c, x, y, w, h, 6)
     c.fillStyle = 'rgba(0,0,0,0.5)'
@@ -419,6 +443,34 @@ export class Hud {
     c.fillStyle = 'rgba(255,255,255,0.7)'
     c.fillText(t('hud.trim'), x2 + w / 2, y - 6)
     c.restore()
+  }
+
+  /** Combustible utilizable: barra (ámbar en la reserva) y los litros debajo. */
+  private fuelBar(c: CanvasRenderingContext2D, x: number, y: number, h: number, w: number, d: HudData): void {
+    roundRect(c, x, y, w, h, 6)
+    c.fillStyle = 'rgba(0,0,0,0.5)'
+    c.fill()
+    const f = Math.max(0, Math.min(1, d.fuel ?? 0))
+    const fh = f * (h - 4)
+    const low = d.fuelLow === true
+    roundRect(c, x + 2, y + h - 2 - fh, w - 4, fh, 4)
+    c.fillStyle = low ? (this.blink % 1 < 0.6 ? '#ffb23a' : '#7a5212') : '#7ee08a'
+    c.fill()
+    // marcas de cuartos
+    c.fillStyle = 'rgba(255,255,255,0.35)'
+    for (let i = 1; i < 4; i++) c.fillRect(x + 3, y + 2 + ((h - 4) * i) / 4, w - 6, 1)
+    c.fillStyle = 'rgba(255,255,255,0.7)'
+    c.font = '600 10px "Barlow Condensed", Barlow, system-ui, sans-serif'
+    c.textAlign = 'center'
+    c.fillText(t('hud.fuel'), x + w / 2, y - 6)
+    // litros encima del rótulo (debajo de la barra van las atribuciones del mapa)
+    const txt = `${Math.round(d.fuelL ?? 0)} l`
+    c.font = '700 11px "Barlow Condensed", Barlow, system-ui, sans-serif'
+    const tw = c.measureText(txt).width + 6
+    c.fillStyle = 'rgba(0,0,0,0.55)'
+    c.fillRect(x + w / 2 - tw / 2, y - 31, tw, 14)
+    c.fillStyle = low ? '#ffb23a' : '#f4f8ff'
+    c.fillText(txt, x + w / 2, y - 20)
   }
 
   private sidePanel(c: CanvasRenderingContext2D, x: number, yTop: number, h: number, d: HudData): void {
@@ -483,6 +535,14 @@ export class Hud {
       // frenos en rojo: tienen que saltar a la vista antes de prerrotar o rodar
       [t('hud.rotorBrake'), d.rotorBrake, '#ff6b5a'],
       [t('hud.parkBrake'), d.parkBrake, '#ff6b5a'],
+      // luces de aviso del motor (sim/powerplant.ts)
+      [t('hud.tagOil'), d.oilLow === true, '#ff6b5a'],
+      [t('hud.tagFuel'), d.fuelLow === true, '#ffb23a'],
+      [t('hud.tagDrill'), d.drill === true, '#ffb23a'],
+      // tren anfibio: azul arriba (agua), verde abajo (tierra), ámbar mientras se mueve
+      [t('hud.gearUp'), d.gear === 'up', '#4fc3f7'],
+      [t('hud.gearDown'), d.gear === 'down', '#7ee08a'],
+      [t('hud.gearMoving'), d.gear === 'moving', '#ffcf3a'],
       [t('hud.mouseStick'), d.mouseStick, '#4fc3f7'],
       [t('hud.wheelThrottle'), d.wheelThrottle, '#4fc3f7'],
     ]
@@ -524,12 +584,43 @@ export class Hud {
   }
 
   private drawWarnings(c: CanvasRenderingContext2D, d: HudData, W: number): void {
+    // precauciones en ámbar, debajo de los avisos rojos (reserva, simulacro, pérdida de potencia)
+    const cautions = d.cautions ?? []
+    // la pila: avisos de 40 px, precauciones de 34 e indicación (bordes de cada caja: y−20…y+12,
+    // y−18…y+10 e y−19…y+11)
+    const nw = d.warnings.length
+    this.stackBottom = d.hint
+      ? 84 + nw * 40 + cautions.length * 34 + 11
+      : cautions.length
+        ? 84 + nw * 40 + (cautions.length - 1) * 34 + 10
+        : nw
+          ? 84 + (nw - 1) * 40 + 12
+          : 0
+    if (cautions.length) {
+      c.save()
+      c.font = '800 16px "Barlow Condensed", Barlow, system-ui, sans-serif'
+      c.textAlign = 'center'
+      let y = 84 + d.warnings.length * 40
+      for (const w of cautions) {
+        const tw = c.measureText(w).width + 32
+        roundRect(c, W / 2 - tw / 2, y - 18, tw, 28, 8)
+        c.fillStyle = 'rgba(40,28,6,0.78)'
+        c.fill()
+        c.strokeStyle = '#ffb23a'
+        c.lineWidth = 1.5
+        c.stroke()
+        c.fillStyle = '#ffc861'
+        c.fillText(w, W / 2, y + 2)
+        y += 34
+      }
+      c.restore()
+    }
     if (d.hint) {
       c.save()
       c.font = '700 16px "Barlow Condensed", Barlow, system-ui, sans-serif'
       c.textAlign = 'center'
       const tw = c.measureText(d.hint).width + 32
-      const y = 84 + d.warnings.length * 40
+      const y = 84 + d.warnings.length * 40 + cautions.length * 34
       roundRect(c, W / 2 - tw / 2, y - 19, tw, 30, 10)
       c.fillStyle = 'rgba(20,24,30,0.72)'
       c.fill()

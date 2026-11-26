@@ -33,7 +33,7 @@ import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferG
 import type { VectorTile } from '@mapbox/vector-tile'
 import type { GeoFrame } from './GeoFrame.ts'
 import type { HeightSource } from './HeightSource.ts'
-import { classifyRings, fetchVectorTile, loadOrthoMosaic, xToLon, yToLat, Z } from './mapTiles.ts'
+import { classifyRings, fetchVectorTile, latToY, loadOrthoMosaic, lonToX, xToLon, yToLat, Z } from './mapTiles.ts'
 import { Slicer, TileLayer, type LayerTile } from './TileLayer.ts'
 
 /** Umbrales del detector de copas (sRGB 0..255). */
@@ -115,6 +115,38 @@ export class Trees extends TileLayer<TreeTile> {
     return false
   }
 
+  /**
+   * Altura (m) del árbol más alto cuya copa queda a menos de `r` metros de (lat°, lon°): 0 si no hay
+   * ninguno y −1 si esa tesela aún no está cargada. Para el viento (abrigo y rugosidad del arbolado).
+   */
+  canopyAtGeo(lat: number, lon: number, r: number): number {
+    const n = 2 ** this.zoom
+    const t = this.tiles.get(`${Math.floor(lonToX(lon, n))}/${Math.floor(latToY(lat, n))}`)
+    if (!t || (t.state !== 'ready' && t.state !== 'empty')) return -1
+    if (!t.count || !t.hit) return 0
+    t.frame.geoToWorld(lat, lon, 0, _q)
+    const cs = (2 * t.half) / GRID
+    const cx = Math.floor((_q.x + t.half) / cs)
+    const cz = Math.floor((_q.z + t.half) / cs)
+    let best = 0
+    for (let j = cz - 1; j <= cz + 1; j++) {
+      for (let i = cx - 1; i <= cx + 1; i++) {
+        if (i < 0 || j < 0 || i >= GRID || j >= GRID) continue
+        const cell = j * GRID + i
+        for (let k = t.cellStart[cell]; k < t.cellStart[cell + 1]; k++) {
+          const o = 5 * t.order[k]
+          const h = t.hit
+          const dx = _q.x - h[o]
+          const dz = _q.z - h[o + 1]
+          const rr = r + h[o + 2]
+          // (la copa va del 30 % al 95 % de la altura del árbol)
+          if (dx * dx + dz * dz < rr * rr) best = Math.max(best, (h[o + 4] - h[o + 3]) / 0.65)
+        }
+      }
+    }
+    return best
+  }
+
   override dispose(): void {
     super.dispose()
     this.material.dispose()
@@ -156,12 +188,20 @@ export class Trees extends TileLayer<TreeTile> {
     const south = yToLat(t.y + 1, n)
     const west = xToLon(t.x, n)
     const east = xToLon(t.x + 1, n)
+    let vtError: unknown = null
     const [vt, ortho] = await Promise.all([
-      fetchVectorTile(t.x, t.y, signal).catch(() => null),
+      fetchVectorTile(t.x, t.y, signal).catch((e) => {
+        vtError = e
+        return null
+      }),
       loadOrthoMosaic(this.imageryUrl, t.x, t.y, signal),
       this.heights.ensure(south - 0.001, west - 0.001, north + 0.001, east + 0.001),
     ])
     if (signal.aborted) return
+    // Sin el mapa no se sabe dónde está el agua: el mar verdoso o las rocas con algas de la foto
+    // saldrían llenos de árboles (bahía de Botafogo, Campo del Sur). Mejor ninguno hasta que llegue:
+    // la tesela queda fallida y TileLayer la vuelve a pedir.
+    if (!vt) throw vtError ?? new Error('sin la tesela vectorial')
     if (!ortho) {
       t.state = 'empty'
       return
@@ -171,8 +211,9 @@ export class Trees extends TileLayer<TreeTile> {
     const slicer = new Slicer(6)
     // metros por píxel del mosaico en esta latitud
     const mpp = (40075016.7 * Math.cos((t.frame.latDeg * Math.PI) / 180)) / n / W
-    const excl = vt ? await exclusionMask(vt, W, mpp, slicer, signal) : null
+    const excl = await exclusionMask(vt, W, mpp, slicer, signal)
     if (signal.aborted) return
+    if (!excl) throw new Error('no se pudo dibujar la máscara de agua y calles')
 
     // 1) puntuación por píxel
     const px = ortho.data
@@ -246,6 +287,8 @@ export class Trees extends TileLayer<TreeTile> {
     const byKind: Record<Kind, TreeInst[]> = { round: [], pine: [], cypress: [] }
     const col = new Color()
     for (let k = 0; k < total; k++) {
+      // (al principio: al final del bucle, las candidatas descartadas se lo saltaban)
+      if ((k & 1023) === 0 && k > 0 && !(await slicer.yield(signal))) return
       const x = cand[3 * k]
       const y = cand[3 * k + 1]
       const cov = cand[3 * k + 2]
@@ -289,7 +332,6 @@ export class Trees extends TileLayer<TreeTile> {
       col.setRGB(Math.min(1, (r / 255) * 0.98), Math.min(1, (g / 255) * 1.12), Math.min(1, (b / 255) * 1.05), SRGBColorSpace)
       const p = t.frame.geoToWorld(lat, lon, h - 0.35, new Vector3())
       byKind[kind].push({ p, w: width, h: height, rot: rnd * Math.PI * 2, r: col.r, g: col.g, b: col.b })
-      if ((k & 1023) === 0 && !(await slicer.yield(signal))) return
     }
     if (signal.aborted || this.disposed) return
     const list = [...byKind.round, ...byKind.pine, ...byKind.cypress]
@@ -401,12 +443,20 @@ async function exclusionMask(vt: VectorTile, size: number, mpp: number, slicer: 
     ctx.strokeStyle = '#fff'
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
+    // El lienzo apunta las órdenes y las dibuja de golpe cuando se lee: leer un píxel cada poco
+    // hace que dibuje por tandas (el resultado es el mismo), y así ese trabajo entra en los tramos
+    // que mide el Slicer en vez de caer todo junto en el getImageData del final (25 ms seguidos).
+    let ops = 0
+    const pause = (): Promise<boolean> => {
+      ctx.getImageData(0, 0, 1, 1)
+      return slicer.yield(signal)
+    }
     const draw = async (layerName: string, widthOf: (props: Record<string, unknown>) => number, polyBuffer = 0) => {
       const layer = vt.layers[layerName]
       if (!layer) return
       const k = size / layer.extent
       for (let i = 0; i < layer.length; i++) {
-        if ((i & 31) === 0 && !(await slicer.yield(signal))) return
+        if ((i & 31) === 0 && !(await pause())) return
         const f = layer.feature(i)
         const props = f.properties as Record<string, unknown>
         const geom = f.loadGeometry()
@@ -422,6 +472,8 @@ async function exclusionMask(vt: VectorTile, size: number, mpp: number, slicer: 
               ctx.lineWidth = polyBuffer
               ctx.stroke(path)
             }
+            // (una sola entidad de edificios trae a veces miles de polígonos)
+            if ((++ops & 255) === 0 && !(await pause())) return
           }
         } else if (f.type === 2) {
           const w = widthOf(props)

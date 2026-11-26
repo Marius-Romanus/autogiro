@@ -46,7 +46,8 @@ function fillPlaces(cc: string): void {
     const groups = new Map<string, HTMLOptGroupElement>()
     for (const l of sites()) {
       if (locationCountry(l) !== SPAIN) continue
-      const g = l.region ?? 'scenic'
+      // (las salidas en el agua, juntas: son para los hidroautogiros)
+      const g = l.water ? 'water' : (l.region ?? 'scenic')
       let og = groups.get(g)
       if (!og) {
         og = document.createElement('optgroup')

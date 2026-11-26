@@ -38,6 +38,7 @@ import { OVERLAY_LAYER } from '../render/Graphics.ts'
 import type { StreetLightEffect } from '../render/StreetLightEffect.ts'
 import { setNightLights } from '../render/nightLights.ts'
 import { viewerLight } from '../render/SunShadows.ts'
+import { hideWhenEmpty } from '../render/emptyDraws.ts'
 import { GeoFrame } from '../world/GeoFrame.ts'
 import { BOAT_STRIDE, BOAT_TYPE, FERRY_TYPE, FLAG, STRIDE, TRAIN_TYPE, type FromWorker, type ToWorker } from './protocol.ts'
 import { VTYPES } from './sim.ts'
@@ -191,6 +192,8 @@ export class Traffic {
     this.group.matrixAutoUpdate = false
     // dan sombra del sol como los edificios (render/SunShadows.ts)
     this.group.userData.worldShadowCaster = true
+    // todo ya iluminado (alfa 0) o en la capa de superposiciones: fuera del pase de normales (Graphics.ts)
+    this.group.userData.litOnly = true
     this.material = makeMaterial()
     this.shipMaterial = makeMaterial(true)
     const geos = vehicleGeometries()
@@ -281,7 +284,10 @@ export class Traffic {
   }
 
   private makeMesh(g: BufferGeometry, capacity: number, material = this.material): InstancedMesh {
-    const m = new InstancedMesh(g, material, capacity)
+    // (un tipo de vehículo sin ninguno a la vista no se dibuja: render/emptyDraws.ts; casi todos
+    // —trenes, tranvías, barcos…— están vacíos casi siempre, y eran más de cien dibujos de cero
+    // triángulos por fotograma entre la escena y las sombras)
+    const m = hideWhenEmpty(new InstancedMesh(g, material, capacity))
     m.instanceMatrix.setUsage(DynamicDrawUsage)
     m.setColorAt(0, new Color(1, 1, 1))
     m.instanceColor!.setUsage(DynamicDrawUsage)
@@ -294,7 +300,7 @@ export class Traffic {
 
   /** malla de barcos quietos (en el grupo del marco de la región) */
   private makeStaticMesh(g: BufferGeometry, capacity: number, kind: number): InstancedMesh {
-    const m = new InstancedMesh(g, kind >= 7 ? this.shipMaterial : this.material, capacity)
+    const m = hideWhenEmpty(new InstancedMesh(g, kind >= 7 ? this.shipMaterial : this.material, capacity))
     m.setColorAt(0, new Color(1, 1, 1))
     m.count = 0
     m.frustumCulled = false

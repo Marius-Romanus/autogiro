@@ -11,55 +11,88 @@
 // borde sale limpio) y G = cuánto oleaje admite esa agua (mar 1, lago, río, piscina).
 // Los puentes y pantalanes del mapa se recortan: van por encima del agua.
 
-import type { VectorTile, VectorTileFeature } from '@mapbox/vector-tile'
+import { VectorTile } from '@mapbox/vector-tile'
+import { PbfReader } from 'pbf'
 import type { Vector2, Vector3, Vector4 } from 'three'
 import type { GeoFrame } from './GeoFrame.ts'
-import { fetchVectorTile, latToY, lonToX, yToLat } from './mapTiles.ts'
+import { fetchVectorTileBytes, latToY, lonToX, yToLat } from './mapTiles.ts'
+import { rasterize, type Raster } from './waterRaster.ts'
+import type { WaterJob, WaterResult } from './water.worker.ts'
 import { WATER_LEVELS, WATER_SLOTS, WATER_TILE, WATER_ZOOMS, waterMaskTexture, waterMaskUniforms } from '../render/Water.ts'
 
 const DEG = Math.PI / 180
 const SIZE = WATER_TILE
-/** margen del lienzo (px) para que el suavizado no note el borde de la tesela */
-const PAD = 6
 const LAYER_BYTES = SIZE * SIZE * 2
 /** elipsoide WGS84 */
 const WGS_A = 6378137
 const WGS_E2 = 0.00669437999014
 
-/** Oleaje que admite cada clase de agua (canal G): el mar abierto todo, una piscina casi nada. */
-const ENERGY: Record<string, number> = { ocean: 1, lake: 0.55, river: 0.3, dock: 0.3, pond: 0.2, swimming_pool: 0.1 }
 
-/** Ancho (m) con el que un puente tapa el agua, por clase de vía. */
-const BRIDGE_WIDTH: Record<string, number> = {
-  motorway: 15,
-  trunk: 13,
-  primary: 11,
-  secondary: 9,
-  tertiary: 8,
-  minor: 6,
-  service: 4.5,
-  track: 3.5,
-  path: 2.5,
-  rail: 6,
-  transit: 6,
-  busway: 7,
-  pier: 3.5,
+// ---------------------------------------------------------------------------
+// Dibujo de las teselas: en un worker (water.worker.ts, con el porqué en waterRaster.ts); si no
+// se puede, en este hilo, como siempre.
+// ---------------------------------------------------------------------------
+
+/** undefined: sin probar todavía · null: no hay worker que valga */
+let worker: Worker | null | undefined
+let nextJob = 0
+const jobs = new Map<number, { resolve: (r: Raster) => void; reject: (e: Error) => void }>()
+
+function rasterHere(bytes: ArrayBuffer, z: number, mpp: number): Raster {
+  return rasterize(new VectorTile(new PbfReader(new Uint8Array(bytes))), z, mpp, SIZE)
 }
 
-interface Raster {
-  /** R y G intercalados (SIZE²·2), o null si toda la tesela vale `fill` */
-  data: Uint8Array | null
-  fill: [number, number]
+function dropWorker(): void {
+  worker?.terminate()
+  worker = null
+  for (const j of jobs.values()) j.reject(new Error('sin worker'))
+  jobs.clear()
+}
+
+function rasterTile(bytes: ArrayBuffer, z: number, mpp: number): Promise<Raster> {
+  if (worker === undefined) {
+    try {
+      worker = new Worker(new URL('./water.worker.ts', import.meta.url), { type: 'module', name: 'agua' })
+      worker.onmessage = (e: MessageEvent<WaterResult>) => {
+        const job = jobs.get(e.data.id)
+        if (!job) return
+        jobs.delete(e.data.id)
+        if (e.data.error === undefined) return job.resolve({ data: e.data.data ?? null, fill: e.data.fill ?? [0, 0] })
+        // no sabe dibujar (un navegador sin lienzos en los workers): no se le pide más
+        job.reject(new Error(e.data.error))
+        dropWorker()
+      }
+      worker.onerror = dropWorker
+    } catch {
+      worker = null
+    }
+  }
+  const w = worker
+  if (!w) return Promise.resolve().then(() => rasterHere(bytes, z, mpp))
+  return new Promise<Raster>((resolve, reject) => {
+    const job: WaterJob = { id: nextJob++, bytes, z, mpp, size: SIZE }
+    jobs.set(job.id, { resolve, reject })
+    // (el búfer es de todas las capas que usan la tesela: se copia, no se transfiere)
+    w.postMessage(job)
+  }).catch(() => rasterHere(bytes, z, mpp))
 }
 
 interface Entry {
   state: 'loading' | 'ready' | 'failed'
   raster: Raster | null
   abort: AbortController
-  /** último uso (para vaciar la caché) o momento del fallo */
+  /** último uso (para vaciar la caché) */
   stamp: number
+  /** fallos seguidos (un corte de red): se reintenta cada vez más espaciado, sin rendirse */
   fails: number
+  /** si falló, cuándo (reloj de la máscara, s) se puede volver a pedir */
+  retryAt: number
 }
+
+/** Espera (s) antes de volver a pedir una tesela que ha fallado `fails` veces seguidas: 5, 10, 20, 40, 60… */
+const retryDelay = (fails: number): number => Math.min(60, 5 * 2 ** (fails - 1))
+/** último aviso en la consola por un fallo de descarga (reloj de la máscara, s) */
+let lastWarn = -Infinity
 
 interface Level {
   z: number
@@ -301,15 +334,12 @@ export class WaterMask {
   private request(z: number, x: number, y: number, key: string): Entry {
     const old = this.cache.get(key)
     if (old) {
-      if (old.state !== 'failed') {
-        old.stamp = this.clock
-        return old
-      }
-      // un corte de red: se reintenta a los 15 s, tres veces
-      if (old.fails > 3 || this.clock - old.stamp < 15) return old
+      old.stamp = this.clock
+      // un corte de red: se vuelve a pedir pasado un rato (cada vez más largo) mientras haga falta
+      if (old.state !== 'failed' || this.clock < old.retryAt) return old
     }
     const fails = old?.fails ?? 0
-    const entry: Entry = { state: 'loading', raster: null, abort: new AbortController(), stamp: this.clock, fails }
+    const entry: Entry = { state: 'loading', raster: null, abort: new AbortController(), stamp: this.clock, fails, retryAt: 0 }
     const n = 2 ** z
     if (y < 0 || y >= n) {
       // más allá del borde de Mercator (los polos)
@@ -323,18 +353,23 @@ export class WaterMask {
     this.cache.set(key, entry)
     this.loading++
     const lat = yToLat(y + 0.5, n)
-    fetchVectorTile(((x % n) + n) % n, y, entry.abort.signal, z)
-      .then((vt) => {
+    fetchVectorTileBytes(((x % n) + n) % n, y, entry.abort.signal, z)
+      .then((bytes) => rasterTile(bytes, z, (2 * Math.PI * WGS_A * Math.cos(lat * DEG)) / n / (SIZE - 1)))
+      .then((raster) => {
         if (entry.abort.signal.aborted) return
-        entry.raster = rasterize(vt, z, (2 * Math.PI * WGS_A * Math.cos(lat * DEG)) / n / (SIZE - 1))
+        entry.raster = raster
         entry.state = 'ready'
       })
       .catch((err) => {
         if (entry.abort.signal.aborted) return
         entry.state = 'failed'
-        entry.stamp = this.clock
         entry.fails = fails + 1
-        if (entry.fails === 1) console.warn('Agua: no se pudo cargar la tesela', key, err)
+        entry.retryAt = this.clock + retryDelay(entry.fails)
+        // (un aviso por corte, no uno por tesela: en un corte fallan las ~60 a la vez)
+        if (this.clock - lastWarn > 30) {
+          lastWarn = this.clock
+          console.warn('Agua: no se pudo cargar la tesela', key, '(se reintentará)', err)
+        }
       })
       .finally(() => this.loading--)
     return entry
@@ -358,114 +393,12 @@ export class WaterMask {
 
   /** Vacía de la caché lo que lleva más tiempo sin usarse (lo subido a la textura sigue en ella). */
   private prune(): void {
-    const old = [...this.cache.entries()].filter(([, e]) => e.state !== 'loading').sort((a, b) => a[1].stamp - b[1].stamp)
+    // Las fallidas se quedan mientras se sigan pidiendo: llevan la cuenta de la espera. Si se
+    // borraran, se volverían a pedir en el fotograma siguiente (en un corte, ~60 peticiones por
+    // fotograma). Las que ya nadie pide (la cámara se ha ido), fuera.
+    for (const [k, e] of this.cache) if (e.state === 'failed' && this.clock - e.stamp > 5) this.cache.delete(k)
+    const old = [...this.cache.entries()].filter(([, e]) => e.state === 'ready').sort((a, b) => a[1].stamp - b[1].stamp)
     for (let i = 0; i < old.length - 40; i++) this.cache.delete(old[i][0])
   }
 }
 
-// ---------------------------------------------------------------------------
-// Dibujo de una tesela
-// ---------------------------------------------------------------------------
-
-let canvasA: OffscreenCanvas | null = null
-let canvasB: OffscreenCanvas | null = null
-
-function pathOf(f: VectorTileFeature): Path2D {
-  const path = new Path2D()
-  for (const ring of f.loadGeometry()) {
-    for (let j = 0; j < ring.length; j++) {
-      if (j === 0) path.moveTo(ring[j].x, ring[j].y)
-      else path.lineTo(ring[j].x, ring[j].y)
-    }
-    if (f.type === 3) path.closePath()
-  }
-  return path
-}
-
-/** mpp: metros por texel de esta tesela. */
-function rasterize(vt: VectorTile, z: number, mpp: number): Raster {
-  const water = vt.layers.water
-  if (!water || water.length === 0) return { data: null, fill: [0, 0] }
-  const side = SIZE + 2 * PAD
-  canvasA ??= new OffscreenCanvas(side, side)
-  canvasB ??= new OffscreenCanvas(side, side)
-  const ctx = canvasA.getContext('2d')!
-  ctx.setTransform(1, 0, 0, 1, 0, 0)
-  ctx.globalCompositeOperation = 'source-over'
-  ctx.fillStyle = '#000'
-  ctx.fillRect(0, 0, side, side)
-  // el texel 0 cae sobre el borde de la tesela y el último sobre el opuesto: dos teselas
-  // vecinas comparten esos valores y no hay costura
-  const k = (SIZE - 1) / water.extent
-  ctx.setTransform(k, 0, 0, k, PAD + 0.5, PAD + 0.5)
-  // lo más revuelto encima: un río que desemboca en un lago o en el mar toma su oleaje
-  const feats: Array<{ f: VectorTileFeature; e: number }> = []
-  for (let i = 0; i < water.length; i++) {
-    const f = water.feature(i)
-    if (f.type !== 3) continue
-    const p = f.properties as Record<string, unknown>
-    // cauces secos y lagunas de temporada (en la foto suelen ser tierra) y ríos soterrados
-    if (p.intermittent === 1 || p.brunnel === 'tunnel') continue
-    feats.push({ f, e: ENERGY[String(p.class)] ?? 0.3 })
-  }
-  if (feats.length === 0) return { data: null, fill: [0, 0] }
-  feats.sort((a, b) => a.e - b.e)
-  for (const { f, e } of feats) {
-    ctx.fillStyle = `rgb(255,${Math.round(e * 255)},0)`
-    ctx.fill(pathOf(f), 'nonzero')
-  }
-  // puentes y pantalanes: por encima del agua (a z10 o menos ya no abultan un texel)
-  const roads = z >= 12 ? vt.layers.transportation : undefined
-  if (roads) {
-    const kr = (SIZE - 1) / roads.extent
-    ctx.setTransform(kr, 0, 0, kr, PAD + 0.5, PAD + 0.5)
-    ctx.fillStyle = '#000'
-    ctx.strokeStyle = '#000'
-    ctx.lineCap = 'butt'
-    ctx.lineJoin = 'round'
-    for (let i = 0; i < roads.length; i++) {
-      const f = roads.feature(i)
-      const p = f.properties as Record<string, unknown>
-      const cls = String(p.class)
-      if (p.brunnel !== 'bridge' && cls !== 'pier' && cls !== 'bridge') continue
-      if (f.type === 3) ctx.fill(pathOf(f), 'nonzero')
-      else if (f.type === 2) {
-        // (ancho en unidades de la tesela: el lienzo ya está escalado)
-        ctx.lineWidth = (BRIDGE_WIDTH[cls] ?? 5) / mpp / kr
-        ctx.stroke(pathOf(f))
-      }
-    }
-  }
-  // suavizado de un texel: la orilla queda en el 0,5 y al ampliar sale un borde limpio
-  const out = canvasB.getContext('2d', { willReadFrequently: true })!
-  out.filter = 'none'
-  out.fillStyle = '#000'
-  out.fillRect(0, 0, side, side)
-  out.filter = 'blur(1px)'
-  out.drawImage(canvasA, 0, 0)
-  const img = out.getImageData(PAD, PAD, SIZE, SIZE).data
-  const data = new Uint8Array(LAYER_BYTES)
-  let lo = 255
-  let hi = 0
-  for (let i = 0, j = 0; i < img.length; i += 4, j += 2) {
-    const r = img[i]
-    data[j] = r
-    data[j + 1] = img[i + 1]
-    if (r < lo) lo = r
-    if (r > hi) hi = r
-  }
-  // toda de agua (mar abierto) o toda seca: no hace falta guardarla
-  if (hi === 0) return { data: null, fill: [0, 0] }
-  if (lo === 255) {
-    const g = data[1]
-    let same = true
-    for (let j = 1; j < data.length; j += 2) {
-      if (data[j] !== g) {
-        same = false
-        break
-      }
-    }
-    if (same) return { data: null, fill: [255, g] }
-  }
-  return { data, fill: [0, 0] }
-}

@@ -22,9 +22,11 @@ import {
   Mesh,
   NoColorSpace,
   NoToneMapping,
+  type Object3D,
   PCFShadowMap,
   PerspectiveCamera,
   PlaneGeometry,
+  Quaternion,
   RedFormat,
   RepeatWrapping,
   Scene,
@@ -35,6 +37,7 @@ import {
   Vector3,
   WebGLRenderer,
   type Texture,
+  type WebGLRenderTarget,
 } from 'three'
 import {
   BlendFunction,
@@ -68,6 +71,8 @@ import { GroundDetailEffect } from './GroundDetailEffect.ts'
 import { LandingLightEffect } from './LandingLightEffect.ts'
 import { StreetLightEffect } from './StreetLightEffect.ts'
 import { patchAerialWater, WaterSurface } from './Water.ts'
+import { patchAerialWeather, WeatherLayer } from './Weather.ts'
+import { PrecipitationPass } from '../fx/Precipitation.ts'
 import { perf } from '../hud/perf.ts'
 import {
   csUniforms,
@@ -83,6 +88,10 @@ import {
 
 type ShaderMaterialLike = { fragmentShader: string; needsUpdate: boolean }
 
+/**
+ * Capa de las piezas del aparato (y de los trozos sueltos de un accidente): se iluminan con las
+ * luces reales y escriben alfa 0. El pase de normales del terreno no las dibuja.
+ */
 export const LIGHT_LAYER = 10
 /**
  * Superposiciones transparentes (discos de desenfoque, vidrios): se ven, pero no
@@ -145,6 +154,18 @@ function patchCloudsNearScene(src: string): string {
       'viewZ = getViewZ(depth);\n    if (-viewZ < cloudsSceneIgnore) { viewZ = 0.0; return 0.0; }\n    return -viewZ / dot(rayDirection, vCameraDirection);',
     )
 }
+/** Una vista de la realidad virtual (src/vr): un ojo, con su trozo del búfer del visor. */
+export interface EyeView {
+  /** ojo → mundo */
+  matrix: Matrix4
+  projection: Matrix4
+  /** campo vertical total (grados): solo para el tamaño angular de un píxel */
+  fov: number
+  x: number
+  y: number
+  w: number
+  h: number
+}
 const _camEcef = new Vector3()
 const _camGeo = new Geodetic()
 
@@ -172,11 +193,23 @@ export class Graphics {
   private agl = 0
   /** altura elipsoidal de la cámara, coseno del cenit del sol y vertical (mundo) en la cámara */
   private camHeight = 0
+  /** altura elipsoidal de la cámara (m) */
+  get cameraHeight(): number {
+    return this.camHeight
+  }
   private sunMu = 1
   private readonly camUp = new Vector3(0, 1, 0)
   readonly detail: GroundDetailEffect
   /** mar, lagos y ríos: reflejo del cielo, brillo del sol y oleaje sobre el color de la foto */
   readonly water = new WaterSurface()
+  /** bruma, niebla, velo de la lluvia y suelo mojado (parche del efecto de atmósfera, Weather.ts) */
+  readonly weather = new WeatherLayer()
+  /** lluvia y nieve alrededor de la cámara (tras la atmósfera: no las ilumina ni las vela el terreno) */
+  readonly precip: PrecipitationPass
+  /** lo que la niebla deja pasar del cielo a los materiales iluminados (main lo aplica a la luz de cielo) */
+  fogSkyScale = 1
+  /** intensidad de la luz de cielo sin niebla (main la baja cuando ya hay mapa de entorno) */
+  skyLightBase = 1
   /** foco de aterrizaje sobre el terreno (tras la iluminación del efecto de atmósfera) */
   readonly landingLight: LandingLightEffect
   /** luz de las farolas sobre el terreno (la rellena src/traffic/Traffic.ts) */
@@ -195,6 +228,8 @@ export class Graphics {
   private geometryNormals = false
   /** se llama antes (true) y después (false) de dibujar el pase de normales */
   normalPassHook: ((on: boolean) => void) | null = null
+  /** grupos `litOnly` ocultos mientras se dibuja el pase de normales */
+  private readonly hiddenInNormals: Object3D[] = []
   private bloomOn = true
   gpuName = ''
   gpuIntegrated = false
@@ -248,7 +283,12 @@ export class Graphics {
     this.skyMaterial.blendDstAlpha = ZeroFactor
     this.sky = new Mesh(new PlaneGeometry(2, 2), this.skyMaterial)
     this.sky.frustumCulled = false
-    this.sky.renderOrder = -1
+    // Después de todo lo opaco (orden 0): va en el plano lejano con prueba de profundidad y sin
+    // escribirla, así que solo se calcula donde no hay nada delante. Dibujado lo primero, como
+    // estaba, su sombreador (dispersión de la atmósfera, sol, luna y estrellas) se ejecutaba en
+    // toda la pantalla y luego el terreno lo tapaba. Antes que las mallas de solo profundidad de
+    // los tendidos (orden 100), que si no le taparían el fondo.
+    this.sky.renderOrder = 50
     this.scene.add(this.sky)
 
     // Sol y luz de cielo para los objetos con materiales iluminados (el autogiro)
@@ -288,10 +328,31 @@ export class Graphics {
       camera.layers.disable(OVERLAY_LAYER)
       // (el relieve global cambia aquí a su material de normales: World.normalPass)
       this.normalPassHook?.(true)
+      // Lo ya iluminado no entra: sus píxeles llevan alfa 0 y el efecto de atmósfera no les aplica
+      // su luz, así que la normal que quedara ahí no se lee nunca. Eran unas 180 llamadas de dibujo
+      // por fotograma para nada. El aparato va por capa (LIGHT_LAYER) y no ocultando su grupo: de él
+      // cuelga el foco de aterrizaje, y si el foco desaparece aquí cambia la cuenta de luces de la
+      // escena y three.js recalcula el programa de cada material iluminado en cada fotograma.
+      // Los grupos sin luces dentro (edificios, árboles…: `userData.litOnly`), ocultándolos.
+      camera.layers.disable(LIGHT_LAYER)
+      const hidden = this.hiddenInNormals
+      for (const o of this.scene.children) {
+        if (o.userData.litOnly && o.visible) {
+          o.visible = false
+          hidden.push(o)
+        }
+      }
+      // las matrices ya están al día: las acaba de calcular el pase de la escena
+      const autoUpdate = this.scene.matrixWorldAutoUpdate
+      this.scene.matrixWorldAutoUpdate = false
       try {
         renderNormals(...args)
       } finally {
+        this.scene.matrixWorldAutoUpdate = autoUpdate
+        for (const o of hidden) o.visible = true
+        hidden.length = 0
         this.normalPassHook?.(false)
+        camera.layers.enable(LIGHT_LAYER)
         camera.layers.enable(OVERLAY_LAYER)
       }
     }
@@ -308,8 +369,9 @@ export class Graphics {
     // el sol sobre el terreno también se multiplica por la sombra de edificios y árboles
     // …y donde la máscara dice que hay agua, se ilumina como agua (Water.ts)
     ;(this.aerial as any).setFragmentShader(
-      patchAerialWater(patchAerialNearClouds(patchAerialShader((this.aerial as any).getFragmentShader()))),
+      patchAerialWeather(patchAerialWater(patchAerialNearClouds(patchAerialShader((this.aerial as any).getFragmentShader())))),
     )
+    for (const [name, uniform] of this.weather.uniforms) this.aerial.uniforms.set(name, uniform)
     this.aerial.uniforms.set('cloudsNearMask', this.cloudNearMask)
     for (const [name, uniform] of this.water.uniforms) this.aerial.uniforms.set(name, uniform)
     // Máscara de iluminación en el canal alfa del propio render: los materiales
@@ -329,6 +391,8 @@ export class Graphics {
       cm.needsUpdate = true
     }
     this.loadCloudTextures()
+    // la cima de la niebla ondula con el mismo ruido de las nubes
+    this.weather.noise.value = this.clouds.shapeTexture as Texture
     this.clouds.lightShafts = false
     ;(this.aerial as any).stbnTexture = this.clouds.stbnTexture
     this.clouds.events.addEventListener('change', (e: any) => this.wireClouds(e.property))
@@ -360,6 +424,8 @@ export class Graphics {
     this.streetLight = new StreetLightEffect(camera)
     this.cloudsPass = new EffectPass(camera, this.detail, this.clouds, this.aerial, this.landingLight, this.streetLight, this.nanGuard)
     composer.addPass(this.cloudsPass)
+    this.precip = new PrecipitationPass(camera)
+    composer.addPass(this.precip)
 
     this.bloom = new BloomEffect({ intensity: 0.3, luminanceThreshold: 0.9, luminanceSmoothing: 0.25, mipmapBlur: true })
     this.tone = new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC })
@@ -454,7 +520,7 @@ export class Graphics {
   }
 
   /** Configura nubes por preset. groundEllipsoid: altura elipsoidal del terreno local. */
-  setClouds(preset: CloudPreset, groundEllipsoid: number, quality: Quality): void {
+  setClouds(preset: CloudPreset, groundEllipsoid: number, quality: Quality, baseAgl: number | null = null): void {
     const c = this.clouds
     const enabled = preset !== 'clear'
     if (enabled !== this.cloudsEnabled) {
@@ -486,7 +552,20 @@ export class Graphics {
       scattered: { coverage: 0.34, base: 1150, h1: 800, h2: 1500, density: 0.2, repeat: 190 },
       overcast: { coverage: 0.62, base: 900, h1: 900, h2: 1600, density: 0.24, repeat: 110 },
     }
-    const p = presets[preset]
+    const p = { ...presets[preset] }
+    // base más baja que la del preset (fórmula de Espy, sim/weather.ts): estratos con techo, más
+    // llanos y cerrados cuanto más bajos
+    if (baseAgl !== null && baseAgl < p.base) {
+      const low = Math.min(1, Math.max(0, (p.base - baseAgl) / p.base))
+      p.base = baseAgl
+      if (preset === 'overcast') {
+        p.coverage += 0.2 * low
+        // (un estrato tiene 200–500 m de espesor: se puede subir por encima)
+        p.h1 += (280 - p.h1) * low
+        p.h2 += (300 - p.h2) * low
+        p.density *= 1 + 0.6 * low
+      }
+    }
     // capas densas (la de cirros a 7500 m es casi transparente y queda fuera)
     this.cloudBottom = g + p.base
     this.cloudTop = g + p.base + Math.max(p.h1, 250 + p.h2)
@@ -550,6 +629,7 @@ export class Graphics {
     const ratio = { low: Math.min(dpr, 0.8), medium: Math.min(dpr, 1), high: Math.min(dpr, 1.5), ultra: Math.min(dpr, 2) }[q]
     this.renderer.setPixelRatio(ratio)
     this.sunShadows.setQuality(q)
+    this.precip.setQuality(q)
     const shadowSize = q === 'low' ? 1024 : q === 'ultra' ? 4096 : 2048
     if (this.sunLight.shadow.mapSize.x !== shadowSize) {
       this.sunLight.shadow.mapSize.setScalar(shadowSize)
@@ -631,22 +711,14 @@ export class Graphics {
     this.sunLight.worldToECEFMatrix.copy(worldToECEF)
     this.sunLight.target.position.copy(focus)
     this.sunLight.update()
+    this.updateWeatherLight(focus)
     this.skyLight.sunDirection.copy(sun)
     this.skyLight.worldToECEFMatrix.copy(worldToECEF)
     this.skyLight.position.copy(focus)
     this.skyLight.update()
     // dirección del sol en el mundo
     this.sunDirWorld.copy(sun).transformDirection(_inv.copy(worldToECEF).invert())
-    // normal "arriba" en espacio de vista para el terreno (cuando no hay pase de normales)
-    if (!this.geometryNormals) {
-      this.camera.updateMatrixWorld()
-      _z.set(0, 1, 0).transformDirection(this.camera.matrixWorldInverse)
-      const d = this.flatNormal.image.data as Float32Array
-      d[0] = _z.x * 0.5 + 0.5
-      d[1] = _z.y * 0.5 + 0.5
-      d[2] = _z.z * 0.5 + 0.5
-      this.flatNormal.needsUpdate = true
-    }
+    this.updateFlatNormal()
 
     // receptor de sombra
     if (groundY !== null && agl < 80) {
@@ -663,8 +735,70 @@ export class Graphics {
     } else this.shadowCatcher.visible = false
   }
 
+  /** Normal "arriba" en espacio de vista para el terreno (cuando no hay pase de normales). */
+  private updateFlatNormal(): void {
+    if (this.geometryNormals) return
+    this.camera.updateMatrixWorld()
+    _z.set(0, 1, 0).transformDirection(this.camera.matrixWorldInverse)
+    const d = this.flatNormal.image.data as Float32Array
+    d[0] = _z.x * 0.5 + 0.5
+    d[1] = _z.y * 0.5 + 0.5
+    d[2] = _z.z * 0.5 + 0.5
+    this.flatNormal.needsUpdate = true
+  }
+
+  /**
+   * Bruma y niebla sobre las luces reales (aparato, edificios, árboles): el sol directo se atenúa
+   * con lo que hay por encima del aparato y la luz de cielo recibe lo que la capa difunde. Y la luz
+   * con la que se pinta la propia niebla: sol y difusa que llegan a la cámara (sonda de sol).
+   */
+  private updateWeatherLight(focus: Vector3): void {
+    const wx = this.weather
+    const c = this.sunLight.color
+    const p = _p2
+    const mu = Math.max(this.sunMu, 0)
+    this.skyLight.sh.getIrradianceAt(_n.copy(this.camUp), _sky)
+    // Para la bruma y la niebla, que ocupan kilómetros, no vale la sonda de sol (un punto junto al
+    // aparato: con el sol bajo la tapan un árbol o un hangar y la niebla entera se quedaba a oscuras):
+    // el sol que deja pasar el cielo del día, por su cobertura.
+    const cover = this.cloudsEnabled ? this.water.cloudCover : 0
+    p.set(1 - cover, 0.45 * cover)
+    wx.sun.value.set(c.r, c.g, c.b).multiplyScalar(p.x)
+    // (la luz que atraviesa las nubes sale casi blanca: se le quita casi todo el tono del sol)
+    const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+    wx.amb.value
+      .set(c.r + (lum - c.r) * 0.7, c.g + (lum - c.g) * 0.7, c.b + (lum - c.b) * 0.7)
+      .multiplyScalar(mu * p.y)
+      .add(_sky.max(_zero))
+    if (!wx.active) {
+      this.sunLight.intensity = 1
+      this.fogSkyScale = 1
+      this.skyLight.intensity = this.skyLightBase
+      return
+    }
+    // altura del aparato sobre el suelo de la salida (el foco está en el mundo; la cámara, cerca)
+    const h = this.camHeight - wx.ground + (focus.y - this.camera.position.y)
+    const tv = wx.above(h)
+    const direct = Math.exp(-tv / Math.max(this.sunMu, 0.06))
+    const skyT = 1 / (1 + 0.1125 * tv)
+    this.sunLight.intensity = direct
+    // lo que pierde el sol directo vuelve como difusa (respecto a la luz de cielo que ya había)
+    const sunL = (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) * mu * p.x
+    const skyL = Math.max(0.2126 * _sky.x + 0.7152 * _sky.y + 0.0722 * _sky.z, 1e-6)
+    this.fogSkyScale = Math.min(skyT + (sunL * Math.max(skyT - direct, 0)) / skyL, 12)
+    this.skyLight.intensity = this.skyLightBase * this.fogSkyScale
+  }
+
   render(dt: number): void {
+    this.prepareFrame(dt)
+    this.composer.render(dt)
+  }
+
+  /** Lo que se hace una vez por fotograma, se dibuje una vista o las dos de la realidad virtual. */
+  private prepareFrame(dt: number): void {
     // (perf.mark: secciones de la telemetría, tecla F3; sin ella no hacen nada)
+    // (la medida pendiente de la sonda de sol, si ya llegó)
+    this.sunProbe.poll()
     perf.mark('shadows')
     this.sunShadows.render(this.renderer, this.scene, this.camera, this.sunDirWorld, this.agl, this.worldToECEF)
     perf.mark('light')
@@ -672,8 +806,91 @@ export class Graphics {
     this.sunProbe.update(dt, this.renderer, this.camera)
     this.updateViewerLight()
     this.water.update(dt, this.camera.position)
+    this.weather.update(dt, this.camHeight, this.sunMu, this.cloudBottom, this.cloudTop)
     perf.labelPasses(this.composer.passes, this.passKey)
-    this.composer.render(dt)
+  }
+
+  // ---- Realidad virtual (src/vr) ----
+
+  /** tamaño de cada ojo mientras dura la sesión: el lienzo y los búferes no siguen a la ventana */
+  private vrSize: { w: number; h: number } | null = null
+  private vrVignette = 0
+
+  get vrActive(): boolean {
+    return this.vrSize !== null
+  }
+  get vrWidth(): number {
+    return this.vrSize?.w ?? 0
+  }
+  get vrHeight(): number {
+    return this.vrSize?.h ?? 0
+  }
+
+  /** Búferes del compositor al tamaño de un ojo del visor (se dibujan los dos con los mismos). */
+  beginVr(w: number, h: number): void {
+    if (!this.vrSize) {
+      this.vrVignette = this.vignette.darkness
+      // (el oscurecido de las esquinas es de pantalla: en cada ojo sería un túnel)
+      this.vignette.darkness = 0
+    }
+    if (this.vrSize?.w === w && this.vrSize.h === h) return
+    this.vrSize = { w, h }
+    this.renderer.setPixelRatio(1)
+    this.renderer.setSize(w, h, false)
+    this.composer.setSize(w, h, false)
+  }
+
+  /** Vuelta a la pantalla normal (quien llama repone la calidad con setQuality). */
+  endVr(): void {
+    if (!this.vrSize) return
+    this.vrSize = null
+    this.vignette.darkness = this.vrVignette
+  }
+
+  /**
+   * Dibuja las vistas de la realidad virtual con la misma cadena que la pantalla normal: sombras,
+   * sonda de sol, agua y tiempo una vez (con la cámara de la cabeza, que es como llega `camera`), y
+   * el compositor entero por cada ojo. Lo que el último pase mandaría a la pantalla va al trozo
+   * del búfer del visor (`target`) de ese ojo. `eye` avisa antes y después de cada ojo (historial
+   * de las nubes por ojo: src/vr/cloudsStereo.ts).
+   */
+  renderEyes(dt: number, eyes: EyeView[], target: WebGLRenderTarget, eye?: (i: number, begin: boolean) => void): void {
+    this.prepareFrame(dt)
+    const cam = this.camera
+    const r = this.renderer
+    _savePos.copy(cam.position)
+    _saveQuat.copy(cam.quaternion)
+    _saveProj.copy(cam.projectionMatrix)
+    _saveProjInv.copy(cam.projectionMatrixInverse)
+    const fov = cam.fov
+    const setRenderTarget = r.setRenderTarget
+    r.setRenderTarget = (rt, ...rest) => setRenderTarget.call(r, rt ?? target, ...rest)
+    try {
+      for (let i = 0; i < eyes.length; i++) {
+        const e = eyes[i]
+        e.matrix.decompose(cam.position, cam.quaternion, _scale)
+        cam.projectionMatrix.copy(e.projection)
+        cam.projectionMatrixInverse.copy(e.projection).invert()
+        cam.fov = e.fov
+        cam.updateMatrixWorld(true)
+        this.updateFlatNormal()
+        target.viewport.set(e.x, e.y, e.w, e.h)
+        target.scissor.set(e.x, e.y, e.w, e.h)
+        target.scissorTest = true
+        eye?.(i, true)
+        // (el tiempo de los efectos avanza con el primer ojo: los dos ven el mismo instante)
+        this.composer.render(i === 0 ? dt : 0)
+        eye?.(i, false)
+      }
+    } finally {
+      r.setRenderTarget = setRenderTarget
+      cam.position.copy(_savePos)
+      cam.quaternion.copy(_saveQuat)
+      cam.projectionMatrix.copy(_saveProj)
+      cam.projectionMatrixInverse.copy(_saveProjInv)
+      cam.fov = fov
+      cam.updateMatrixWorld(true)
+    }
   }
 
   /** Nombre de cada pase del compositor en la telemetría. */
@@ -730,6 +947,8 @@ export class Graphics {
   }
 
   resize(container: HTMLElement): void {
+    // en realidad virtual manda el tamaño del visor (beginVr)
+    if (this.vrSize) return
     const w = container.clientWidth
     const h = container.clientHeight
     this.camera.aspect = w / h
@@ -742,7 +961,14 @@ export class Graphics {
 const _z = new Vector3()
 const _n = new Vector3()
 const _sky = new Vector3()
+const _zero = new Vector3()
+const _p2 = { x: 1, y: 0, set(x: number, y: number) { this.x = x; this.y = y } }
 const _inv = new Matrix4()
+const _savePos = new Vector3()
+const _saveQuat = new Quaternion()
+const _saveProj = new Matrix4()
+const _saveProjInv = new Matrix4()
+const _scale = new Vector3()
 
 /** Mezcla normal en color pero sin tocar el alfa del búfer (que es la máscara de iluminación). */
 export function keepAlpha<T extends Material>(m: T): T {

@@ -8,7 +8,7 @@
 // - Choques entre aparatos (rotor y fuselaje), chat (Intro) y lista de pilotos.
 
 import './multiplayer.css'
-import { Group, Quaternion, Vector3, type PerspectiveCamera, type Scene, type Texture } from 'three'
+import { Group, Quaternion, Vector3, type Object3D, type PerspectiveCamera, type Scene, type Texture } from 'three'
 import { Ellipsoid } from '@takram/three-geospatial'
 import { CG, GEOM, type Autogyro, type Controls } from '../sim/autogyro.ts'
 import type { World } from '../world/World.ts'
@@ -24,6 +24,7 @@ import {
   MAX_PLAYERS,
   MP_PATH,
   NAME_MAX,
+  RADIO_ON,
   cleanName,
   isValidCode,
   normalizeCode,
@@ -44,6 +45,8 @@ import {
   type ScreenInset,
 } from './RemoteAircraft.ts'
 import { createOnlineHelp, hostKind, type OnlineHelp } from './onlineHelp.ts'
+import { Radio } from './radio/Radio.ts'
+import { waveIcon } from './radio/radioUi.ts'
 
 /** Lo que el multijugador lee de la aplicación (main.ts). */
 export interface MpApp {
@@ -57,8 +60,11 @@ export interface MpApp {
     readonly renderer: { readonly toneMappingExposure: number }
     readonly sunDirWorld: Vector3
   }
-  /** luces exteriores del aparato propio (se difunden a la sala) */
-  readonly view: { readonly lights: { readonly on: boolean } }
+  /**
+   * luces exteriores del aparato propio (se difunden a la sala); palanca (gatillo PTT) y cabina
+   * (pantalla de la radio del panel) para la radio de voz
+   */
+  readonly view: { readonly lights: { readonly on: boolean }; readonly parts?: { stick?: Object3D }; readonly cockpit?: { radio: number } }
   /** panel de instrumentos (las flechas de borde no lo pisan) */
   readonly hud?: { readonly visible: boolean }
   readonly settings: Settings
@@ -88,8 +94,8 @@ function rotorRadiusOf(aircraft: string): number {
   return airframeById(aircraftById(aircraft).id).rotor.radius
 }
 /** inputs del menú que fija el anfitrión */
-const ROOM_INPUTS = ['depmode-map', 'depmode-place', 'country', 'location', 'btn-worldmap', 'customLat', 'customLon', 'customHeading', 'hour', 'dayOfYear', 'windFrom', 'windSpeed', 'turbulence', 'clouds']
-const COND_KEYS = ['locationId', 'customLat', 'customLon', 'customHeading', 'customName', 'hour', 'dayOfYear', 'windFrom', 'windSpeed', 'turbulence', 'clouds', 'collisions'] as const
+const ROOM_INPUTS = ['depmode-map', 'depmode-place', 'country', 'location', 'btn-worldmap', 'customLat', 'customLon', 'customHeading', 'hour', 'dayOfYear', 'windFrom', 'windSpeed', 'turbulence', 'terrainWind', 'clouds', 'btn-realwx', 'isaAir', 'oatC', 'qnh', 'visibility', 'precipKind', 'dewC']
+const COND_KEYS = ['locationId', 'customLat', 'customLon', 'customHeading', 'customName', 'hour', 'dayOfYear', 'windFrom', 'windSpeed', 'turbulence', 'terrainWind', 'clouds', 'isa', 'oatC', 'qnh', 'dewPointC', 'visibility', 'precip', 'weatherCode', 'windGustKt', 'collisions'] as const
 
 // puntos del fuselaje para los choques (respecto al CG, ejes cuerpo)
 const BODY_PTS = [
@@ -176,6 +182,9 @@ export class Multiplayer {
   private panelAt = 0
   /** caja de la lista de pilotos en vuelo (las flechas de borde la esquivan) */
   private hudRect: DOMRect | null = null
+  /** radio de voz (src/net/radio/): PTT, micrófono y receptor */
+  readonly radio: Radio
+  private talkSeen = 0
 
   // interfaz
   private ui!: {
@@ -214,6 +223,37 @@ export class Multiplayer {
     app.gfx.scene.add(this.group)
     this.save() // fija el nombre por defecto para que no cambie en cada recarga
     this.buildUI()
+    // radio de voz: su bloque va en la sección del menú; el audio, por este mismo WebSocket
+    const mp = this
+    this.radio = new Radio(
+      {
+        get inRoom() {
+          return mp.inRoom
+        },
+        get myId() {
+          return mp.myId
+        },
+        peers: this.peers,
+        get menuOpen() {
+          return mp.app.menuOpen
+        },
+        get hudVisible() {
+          return mp.app.hud?.visible !== false
+        },
+        get ac() {
+          return mp.app.ac
+        },
+        get world() {
+          return mp.app.world
+        },
+        get view() {
+          return mp.app.view
+        },
+        sendBinary: (d) => this.sendBinary(d),
+        toast: (m) => this.hooks.toast(m),
+      },
+      this.ui.section,
+    )
     this.refreshUI()
     // idioma: los textos fijos llevan data-i18n (los cambia i18n.applyI18n); aquí, los generados
     onLangChange(() => {
@@ -267,9 +307,11 @@ export class Multiplayer {
     }
     this.setStatus(t('mp.connecting'))
     const sock = new WebSocket(url)
+    sock.binaryType = 'arraybuffer'
     this.ws = sock
     sock.onopen = () => this.flushPending()
-    sock.onmessage = (e) => this.onMessage(String(e.data))
+    // (los binarios son la voz de la radio)
+    sock.onmessage = (e) => (typeof e.data === 'string' ? this.onMessage(e.data) : this.radio.onBinary(e.data as ArrayBuffer))
     sock.onclose = () => this.onClose(sock)
   }
 
@@ -280,6 +322,14 @@ export class Multiplayer {
 
   private send(m: ClientMsg): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(m))
+  }
+
+  /** Mensaje binario (voz de la radio); no sale si la conexión va atascada (se perdería tarde). */
+  private sendBinary(data: Uint8Array<ArrayBuffer>): boolean {
+    const ws = this.ws
+    if (!ws || ws.readyState !== WebSocket.OPEN || !this.inRoom || ws.bufferedAmount > 65536) return false
+    ws.send(data)
+    return true
   }
 
   private onClose(sock: WebSocket): void {
@@ -313,8 +363,9 @@ export class Multiplayer {
     }
   }
 
-  private profile(): { name: string; aircraft: string; passenger: boolean } {
-    return { name: this.stored.name, aircraft: aircraftById(this.app.settings.aircraft).id, passenger: this.app.settings.passenger }
+  private profile(): { name: string; aircraft: string; passenger: boolean; floats: boolean; radio: number } {
+    const s = this.app.settings
+    return { name: this.stored.name, aircraft: aircraftById(s.aircraft).id, passenger: s.passenger, floats: s.floats, radio: this.radio.flags }
   }
 
   create(): void {
@@ -345,6 +396,7 @@ export class Multiplayer {
     this.cond = null
     this.reconnectTries = 0
     this.clearPeers()
+    this.radio.roomLeft()
     this.lockConditions(false)
     const sock = this.ws
     this.ws = null
@@ -415,7 +467,7 @@ export class Multiplayer {
         return
       case 'profile': {
         const p = this.peers.get(m.id)
-        if (p) p.setInfo({ ...p.info, name: m.name, aircraft: m.aircraft, passenger: m.passenger })
+        if (p) p.setInfo({ ...p.info, name: m.name, aircraft: m.aircraft, passenger: m.passenger, floats: m.floats, radio: m.radio })
         this.refreshUI()
         return
       }
@@ -497,7 +549,17 @@ export class Multiplayer {
       windFrom: s.windFrom,
       windSpeed: s.windSpeed,
       turbulence: s.turbulence,
+      terrainWind: s.terrainWind,
       clouds: s.clouds,
+      // aire del día y lo que trae el tiempo real (src/sim/airMass.ts, src/menu/openMeteo.ts)
+      isa: s.isa,
+      oatC: s.oatC,
+      qnh: s.qnh,
+      dewPointC: s.dewPointC,
+      visibility: s.visibility,
+      precip: s.precip,
+      weatherCode: s.weatherCode,
+      windGustKt: s.windGustKt,
       simTime: this.app.simDate.getTime(),
       collisions: this.stored.collisions,
     }
@@ -574,9 +636,12 @@ export class Multiplayer {
       this.prevState = app.state
       // cambios de nombre o de aparato
       const prof = this.profile()
-      const key = `${prof.name}|${prof.aircraft}|${prof.passenger}`
+      const key = `${prof.name}|${prof.aircraft}|${prof.passenger}|${prof.floats}|${prof.radio}`
       if (key !== this.lastProfile) {
-        if (this.lastProfile) this.send({ t: 'profile', ...prof })
+        if (this.lastProfile) {
+          this.send({ t: 'profile', ...prof })
+          this.refreshUI()
+        }
         this.lastProfile = key
       }
       if (this.isHost) this.pollHostConditions(now)
@@ -602,6 +667,13 @@ export class Multiplayer {
         p.updateTag(cam, show, this.stored.tags, alt, W, H, inset)
       }
       this.checkCollisions(now, w, shift)
+    }
+
+    // radio de voz (PTT, receptor e indicadores), con las poses de los demás ya puestas
+    this.radio.update()
+    if (this.radio.talkVersion !== this.talkSeen) {
+      this.talkSeen = this.radio.talkVersion
+      this.panelAt = 0 // la lista de pilotos muestra al momento quién habla
     }
 
     if (now - this.panelAt > 250) {
@@ -1039,17 +1111,18 @@ export class Multiplayer {
     where.className = `mp-where-note ${kind}${where.childNodes.length ? '' : ' hidden'}`
     ui.list.replaceChildren()
     if (!inRoom) return
-    const rows: { name: string; color: string; host: boolean; aircraft: string; me: boolean }[] = [
+    const rows: { name: string; color: string; host: boolean; aircraft: string; me: boolean; radio: boolean }[] = [
       {
         name: this.stored.name,
         color: PEER_COLORS[this.slot % PEER_COLORS.length],
         host: this.isHost,
         aircraft: this.app.settings.aircraft,
         me: true,
+        radio: (this.radio.flags & RADIO_ON) !== 0,
       },
     ]
     for (const p of this.peers.values())
-      rows.push({ name: p.info.name, color: p.color, host: p.info.id === this.hostId, aircraft: p.info.aircraft, me: false })
+      rows.push({ name: p.info.name, color: p.color, host: p.info.id === this.hostId, aircraft: p.info.aircraft, me: false, radio: ((p.info.radio ?? 0) & RADIO_ON) !== 0 })
     for (const row of rows) {
       const li = el('li')
       const dot = el('i', 'mp-dot')
@@ -1057,6 +1130,12 @@ export class Multiplayer {
       li.append(dot, el('b', '', row.name))
       if (row.me) li.append(el('span', 'mp-badge', t('mp.you')))
       if (row.host) li.append(el('span', 'mp-badge host', t('mp.host')))
+      // radio de voz encendida
+      if (row.radio) {
+        const b = el('span', 'mp-badge rd-badge', t('radio.badge'))
+        b.title = t('radio.badgeTitle')
+        li.append(b)
+      }
       li.append(el('small', 'muted', aircraftName(aircraftById(row.aircraft))))
       ui.list.append(li)
     }
@@ -1082,6 +1161,10 @@ export class Multiplayer {
       const dot = el('i', 'mp-dot')
       dot.style.background = p.color
       li.append(dot, el('b', '', p.info.name))
+      // radio de voz: ondas si se le oye ahora, apagadas si solo la tiene encendida
+      const talk = this.radio.talking(p.info.id)
+      if (talk || (p.info.radio ?? 0) & RADIO_ON) li.append(waveIcon(talk ? 'rd-wave' : 'rd-wave rd-idle'))
+      li.classList.toggle('rd-talking', talk > 0)
       let info: string
       if (!p.active) info = t(p.status === ST_LOADING ? 'mp.loading' : 'mp.noSignal')
       else if (p.status === ST_PAUSED) info = t('mp.inMenu')
@@ -1110,7 +1193,7 @@ function bearing(a: Vector3, b: Vector3): number {
 // ---------------------------------------------------------------------------
 // Geometría de choque: puntos del fuselaje y disco del rotor
 // ---------------------------------------------------------------------------
-class Shape {
+export class Shape {
   readonly body = BODY_PTS.map(() => new Vector3())
   readonly hub = new Vector3()
   readonly normal = new Vector3()
@@ -1124,7 +1207,7 @@ const _b = new Vector3()
 const _mine = new Shape()
 const _theirs = new Shape()
 
-function shapeOf(pose: AircraftPose, s: Shape, rotorR: number): Shape {
+export function shapeOf(pose: AircraftPose, s: Shape, rotorR: number): Shape {
   s.r = rotorR
   for (let i = 0; i < BODY_PTS.length; i++) s.body[i].copy(BODY_PTS[i]).applyQuaternion(pose.quat).add(pose.pos)
   s.hub.copy(pose.hubBody).applyQuaternion(pose.quat).add(pose.pos)
@@ -1155,7 +1238,7 @@ function discHit(s: Shape, pts: Vector3[]): boolean {
   return false
 }
 
-function shapesHit(a: Shape, b: Shape): boolean {
+export function shapesHit(a: Shape, b: Shape): boolean {
   // fuselaje contra fuselaje
   for (const p of a.body) for (const q of b.body) if (p.distanceToSquared(q) < 0.95 * 0.95) return true
   // palas contra fuselaje o palas

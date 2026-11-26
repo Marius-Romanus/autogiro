@@ -1,3 +1,5 @@
+// (lo primero: envuelve fetch antes de que nada pida datos, y avisa si un bloqueador corta los del mapa)
+import './net/netWatch.ts'
 import {
   CubeCamera,
   HalfFloatType,
@@ -21,13 +23,18 @@ import { usesIgnTerrain, World, type GroundSample } from './world/World.ts'
 import { hasIgnTerrain } from './world/HeightSource.ts'
 import { setupCatastroMenu } from './world/catastro/catastroMenu.ts'
 import { Autogyro, defaultControls, type Environment, type GroundProvider } from './sim/autogyro.ts'
-import { isaDensity, WindModel } from './sim/atmosphere.ts'
+import { WindModel } from './sim/atmosphere.ts'
+import { WindField } from './world/WindField.ts'
+import { AirModel } from './sim/airMass.ts'
+import { WeatherSystem } from './fx/WeatherSystem.ts'
 import { PilotAssist } from './sim/assist.ts'
 import { AircraftView, SHADOW_ONLY_LAYER } from './aircraft/AircraftView.ts'
 import { BEAM } from './aircraft/AircraftLights.ts'
-import { AIRCRAFT, aircraftById, aircraftName, aircraftNote } from './aircraft/catalog.ts'
+import { AIRCRAFT, aircraftById, aircraftName, aircraftNote, aircraftUrl } from './aircraft/catalog.ts'
 import { airframeById } from './sim/airframes.ts'
 import { Input } from './input/Input.ts'
+import { Vr, VR_DETAIL } from './vr/Vr.ts'
+import { setupVrUi } from './vr/vrUi.ts'
 import { camName, CameraRig, headingOf } from './camera/CameraRig.ts'
 import { Hud, type HudData } from './hud/Hud.ts'
 import { Guide } from './hud/Guide.ts'
@@ -36,14 +43,23 @@ import { perf } from './hud/perf.ts'
 import { gpuHelpHtml } from './hud/gpuHelp.ts'
 import { Sound } from './audio/Sound.ts'
 import { Multiplayer } from './net/Multiplayer.ts'
+import { AirTraffic } from './airtraffic/AirTraffic.ts'
 import { CrashSystem, type AircraftState, type CrashWorld } from './crash/CrashSystem.ts'
 import { LocalWater } from './world/LocalWater.ts'
 import { CropSprayer } from './fx/SprayFx.ts'
+import { GearButton } from './hud/GearButton.ts'
 import type { RoomConditions } from './net/protocol.ts'
 import { WorldMap, type MapPick } from './menu/WorldMap.ts'
 import { buildLocationSelect, localizeLocationSelect, showDeparture, syncCurrentDeparture } from './menu/locationSelect.ts'
 import { menuBack, refreshMenuUi, setupMenuUi, updateAxisBars } from './menu/menuUi.ts'
+import { setupFuelMenu } from './menu/fuelMenu.ts'
+import { applyPowerplantSettings, powerplantFrame, powerplantGuide, powerplantHud, requestFailure, toggleEngine } from './hud/engineUi.ts'
+import { setupWeatherMenu, syncAirControls } from './menu/weatherMenu.ts'
+import { setupSkyMenu, syncSkyControls } from './menu/skyMenu.ts'
 import { localUtcOffset } from './menu/sun.ts'
+import { School } from './school/School.ts'
+import { setupSchoolMenu } from './school/schoolMenu.ts'
+import { Replay } from './replay/Replay.ts'
 
 const DT = 1 / 240
 const KT = 0.514444
@@ -91,9 +107,15 @@ class App {
   guide: Guide
   /** panel de rendimiento (F3) */
   telemetry: Telemetry
+  /** realidad virtual en la cabina (src/vr) */
+  vr!: Vr
   sound = new Sound()
   mp: Multiplayer
+  /** otros autogiros en los aeródromos (src/airtraffic) */
+  airTraffic!: AirTraffic
   wind = new WindModel()
+  /** viento del terreno: relieve, obstáculos, térmicas y perfil del día (src/world/WindField.ts, src/sim/wind) */
+  windField = new WindField()
   assist = new PilotAssist()
   ground = new GroundCache()
   ctl = defaultControls()
@@ -121,7 +143,13 @@ class App {
   private envTex: Texture | null = null
   private envRT: WebGLRenderTarget | null = null
   private groundEllipsoid = 650
+  /** aire del día (temperatura y QNH del menú, anclados en el suelo de la salida): sim/airMass.ts */
+  private air = new AirModel()
+  /** visibilidad, niebla, lluvia y nieve (src/fx/WeatherSystem.ts) */
+  private wx!: WeatherSystem
   private toastTimer = 0
+  /** el botón «Relojes» ya refleja el estado del panel (updateHud) */
+  private hudBtnSynced = false
   private worldKey = ''
   private orbitT = 0
   /** mapa del mundo del menú para elegir la salida (src/menu/WorldMap.ts) */
@@ -130,6 +158,12 @@ class App {
   crashSys: CrashSystem
   /** fumigación del Gyro Tractor (src/fx/SprayFx.ts) */
   spray: CropSprayer
+  /** botón «Tren» de la barra superior, solo con tren que se recoge (src/hud/GearButton.ts) */
+  gearBtn = new GearButton()
+  /** escuela: ejercicios con nota y la nota de cada toma (src/school) */
+  school: School
+  /** grabación continua, repetición del vuelo y traza GPX/KML (src/replay) */
+  replay: Replay
   private crashShown = false
   /** estado al principio del fotograma (para rebobinar choques con obstáculos) */
   private snap: AircraftState = { pos: new Vector3(), quat: new Quaternion(), vel: new Vector3(), omega: new Vector3() }
@@ -145,6 +179,7 @@ class App {
     this.gfx.scene.add(this.view.root)
     this.crashSys = new CrashSystem(this.gfx.scene, { sun: this.gfx.sunLight, sky: this.gfx.skyLight })
     this.spray = new CropSprayer(this.gfx.scene, { sun: this.gfx.sunLight, sky: this.gfx.skyLight })
+    this.wx = new WeatherSystem(this.gfx)
     this.input = new Input(this.settings, this.gfx.renderer.domElement)
     // interruptores y llave del panel, pulsables en la vista de cabina
     this.view.cockpit.bindPointer(
@@ -167,6 +202,7 @@ class App {
     const skyQuad = new Mesh(new PlaneGeometry(2, 2), this.envSky)
     skyQuad.frustumCulled = false
     this.envScene.add(skyQuad)
+    this.replay = new Replay(this, { wind: this.wv, toast: (m, secs) => this.toast(m, secs) })
 
     this.loadAircraft()
 
@@ -176,15 +212,79 @@ class App {
       applyConditions: (c) => this.applyRoomConditions(c),
       respawn: () => this.spawn(),
       collide: (title, detail) => {
-        if (this.ac.crash || this.state !== 'flying') return
+        if (this.ac.crash || this.state !== 'flying' || this.replay.frozen) return
         this.ac.crash = { title, detail, cause: 'obstacle' }
         // choque en el aire con otro aparato: las palas se llevan el golpe
         this.showCrash(['bladeA1', 'bladeB2'])
       },
     })
 
+    // tráfico aéreo de los aeródromos (src/airtraffic): chocar con uno es como chocar con otro piloto
+    this.airTraffic = new AirTraffic({
+      scene: this.gfx.scene,
+      collide: (title, detail) => {
+        if (this.ac.crash || this.state !== 'flying' || this.replay.frozen) return
+        this.ac.crash = { title, detail, cause: 'obstacle' }
+        this.showCrash(['bladeA1', 'bladeB2'])
+      },
+    })
+
+    // escuela (src/school/School.ts): prepara sus ejercicios con los ajustes del menú y recoloca el aparato
+    this.school = new School({
+      settings: this.settings,
+      ac: this.ac,
+      scene: this.gfx.scene,
+      world: () => this.world,
+      state: () => this.state,
+      menuOpen: () => this.menuOpen,
+      inRoom: () => this.mp.inRoom,
+      location: () => this.currentLocation(),
+      restart: () => {
+        this.loadAircraft()
+        this.lastStart = this.settings.start
+        this.lastPassenger = this.settings.passenger
+        this.applySettings(false)
+        this.spawn()
+        this.closeMenu()
+      },
+      place: (x, z, heading, agl, speed) => this.schoolPlace(x, z, heading, agl, speed),
+      altimeterFt: (p) => {
+        const w = this.world
+        if (!w) return 0
+        const g = w.frame.worldToGeo(p)
+        return this.air.altimeter((w.mode === 'google' ? g.h - this.location.geoid : g.h) - 1.05) * 3.28084
+      },
+      throttle: () => this.input.throttle,
+      toast: (msg, secs) => this.toast(msg, secs),
+      refreshMenu: () => this.refreshMenu(),
+      // «Ver repetición de la toma»: la repetición se abre sola unos segundos antes del último contacto
+      replay: () => void this.replay.open(),
+      frozen: () => this.replay.frozen,
+    })
+
+    // realidad virtual (src/vr): la sesión, su interfaz y la vuelta a la pantalla normal
+    this.vr = new Vr({
+      gfx: this.gfx,
+      input: this.input,
+      toast: (msg, secs) => this.toast(msg, secs),
+      restoreScreen: () => {
+        this.applyVrDetail()
+        this.gfx.setQuality(this.quality, this.world?.realGeometry ?? false)
+        this.last = performance.now()
+      },
+      entered: () => {
+        this.rig.setMode('cockpit', this.ac, 0)
+        this.applyVrDetail()
+        this.toast(t('vr.entered'), 6)
+      },
+      ptt: (held) => (this.mp.radio.extPtt = held),
+      radio: () => this.vrRadio(),
+    })
+    setupVrUi(this.vr, { enter: (kind) => this.enterVr(kind), exit: () => this.vr.exit(), detailChanged: () => this.applyVrDetail() })
+
     ;(window as any).app = this // depuración desde la consola
     this.setupMenu()
+    setupSchoolMenu(this.school, this.settings, () => this.mp.inRoom)
     this.applySettings(true)
     requestAnimationFrame((t) => this.loop(t))
   }
@@ -194,9 +294,11 @@ class App {
   /** Carga (o cambia) el modelo 3D del aparato elegido en el menú. Su geometría de vuelo se aplica en spawn()/fly(). */
   private loadAircraft(): void {
     const m = aircraftById(this.settings.aircraft)
-    if (m.id === this.loadedAircraft) return
-    this.loadedAircraft = m.id
-    void this.view.load(`${import.meta.env.BASE_URL}${m.url}`, airframeById(m.id)).then(() => {
+    // (con flotadores es otro modelo: el del juego anfibio, sin el tren de ruedas)
+    const url = aircraftUrl(m, this.settings.floats)
+    if (url === this.loadedAircraft) return
+    this.loadedAircraft = url
+    void this.view.load(`${import.meta.env.BASE_URL}${url}`, airframeById(m.id, this.settings.floats)).then(() => {
       this.view.setPassenger(this.settings.passenger)
       this.spray.setNozzles(this.view.sprayNozzles)
       if (this.envTex) this.view.setEnvMap(this.envTex)
@@ -236,6 +338,10 @@ class App {
 
   private spawn(): void {
     const s = this.settings
+    // vuelo nuevo: fuera de la repetición y grabación desde cero
+    this.replay.reset()
+    // (con el menú abierto, aún no se ha salido: «Volar»)
+    this.departed = !this.menuOpen
     const loc = this.currentLocation()
     this.location = loc
     const key = this.worldKeyFor(loc)
@@ -257,11 +363,14 @@ class App {
     this.loadingT = 0
     this.groundSeenT = 0
     // geometría de vuelo del aparato elegido (ruedas, hélice, cola): ver sim/airframes.ts
-    this.ac.setAirframe(airframeById(s.aircraft))
+    this.ac.setAirframe(airframeById(s.aircraft, s.floats))
     this.ac.setLoad(s.passenger)
+    // combustible del menú y fallos de motor (sim/powerplant.ts)
+    applyPowerplantSettings(this.ac, s, true)
+    this.lastFuelPct = s.fuelPct
     this.view.setPassenger(s.passenger)
     // fumigador: tolva cargada (hasta el peso máximo) y paso cerrado
-    this.spray.reset(airframeById(s.aircraft).sprayer, this.view.sprayNozzles, this.ac)
+    this.spray.reset(airframeById(s.aircraft, s.floats).sprayer, this.view.sprayNozzles, this.ac)
     this.ac.crash = null
     this.crashSys.reset()
     this.crashShown = false
@@ -278,7 +387,38 @@ class App {
     this.rotorBrake = true
     this.ctl = defaultControls()
     // guía lateral: en pista, pasos del despegue; en el aire, cómo volar
-    this.guide.reset(s.start === 'runway' && (Boolean(loc.runway) || loc.id === 'custom'))
+    // (con flotadores, una salida en el agua también empieza a flote: pasos del despegue)
+    this.guide.reset(s.start === 'runway' && (Boolean(loc.runway) || loc.id === 'custom' || (loc.water === true && Boolean(this.ac.af.floats?.length))))
+    // escuela: el ejercicio en curso vuelve a empezar
+    this.school.onSpawn()
+  }
+
+  /** Escuela: recoloca el aparato donde empieza un ejercicio (en el suelo si `agl` es null). */
+  private schoolPlace(x: number, z: number, heading: number, agl: number | null, speed: number): boolean {
+    const s = this.sample
+    if (!this.world?.sampleGround(x, z, 9000, s, 9000)) return false
+    if (agl === null) {
+      this.ac.placeOnGround(x, z, s.y, heading)
+      this.input.throttle = 0
+      this.input.parkBrake = true
+      this.rotorBrake = true
+    } else {
+      this.ac.placeInAir(x, s.y + agl, z, heading, speed)
+      this.input.throttle = 0.62
+      this.input.parkBrake = false
+      this.rotorBrake = false
+    }
+    this.ac.setGear(agl === null, true)
+    this.input.trim = 0
+    this.input.keyStick = 0
+    this.assist.reset()
+    this.ground.p0.set(x, s.y, z)
+    this.ground.n.copy(s.normal)
+    this.ground.valid = true
+    this.prevPos.copy(this.ac.pos)
+    this.guide.reset(agl === null)
+    this.rig.setMode(this.rig.mode, this.ac, s.y)
+    return true
   }
 
   /** Coloca el aparato en el punto de salida con la mejor altura de suelo conocida. */
@@ -287,12 +427,28 @@ class App {
     const loc = this.location
     const x = this.spawnXZ.x
     const z = this.spawnXZ.z
-    if (s.start === 'runway' && (loc.runway || loc.id === 'custom')) {
+    const af = this.ac.af
+    const floats = Boolean(af.floats?.length)
+    // en el suelo: en pista, en el punto del mapa o, con flotadores, en una salida en el agua; un
+    // hidroautogiro sin ruedas (Wilford) no sale de una pista: empieza en vuelo
+    let onSurface = s.start === 'runway' && (loc.runway || loc.id === 'custom' || (loc.water === true && floats))
+    if (onSurface && af.keelGear && loc.runway) {
+      onSurface = false
+      this.toast(t('toast.noWheels'))
+    }
+    if (onSurface) {
       this.ac.placeOnGround(x, z, groundY, loc.heading)
+      // tren anfibio: abajo en tierra, recogido si sale flotando en el agua
+      const w = this.world?.waterSample(x, groundY, z, false)
+      this.ac.setGear(!(loc.water || (w && w.water > 0.5 && normal.y > 0.998)), true)
       this.input.throttle = 0
+      // (a flote no hay freno que valga: deriva con el viento hasta que se arranca)
+      if (loc.water) this.input.parkBrake = false
     } else {
       const agl = loc.airAGL ?? 300
       this.ac.placeInAir(x, groundY + agl, z, loc.heading, 29.5)
+      // (en el aire, con el tren anfibio arriba: se baja para tomar en tierra)
+      this.ac.setGear(false, true)
       this.input.throttle = 0.62
       this.input.parkBrake = false
       this.rotorBrake = false
@@ -358,6 +514,7 @@ class App {
     ac.rotor.normalRate.applyQuaternion(q)
     this.ground.applyMatrix(m)
     this.rig.rebase(m)
+    this.vr.rebase(m)
     this.gfx.detail.rebase(m)
     this.gfx.water.rebase(m)
     this.spray.rebase(m)
@@ -371,7 +528,8 @@ class App {
   // Bucle principal
   // -------------------------------------------------------------------------
   private loop(t: number): void {
-    requestAnimationFrame((tt) => this.loop(tt))
+    // (con el visor de realidad virtual puesto, los fotogramas los da el visor)
+    this.vr.schedule((tt) => this.loop(tt))
     const dt = Math.min(0.1, Math.max(0.0005, (t - this.last) / 1000))
     this.last = t
     this.fps += (1 / dt - this.fps) * 0.05
@@ -384,8 +542,19 @@ class App {
     this.handleActions()
     this.ctl.prerotator = false
     this.ctl.wheelBrake = 0
-    if (!this.menuOpen) this.input.update(dt, this.ctl)
-    if (this.settings.assist && !this.menuOpen && this.state === 'flying')
+    // repetición (src/replay): física, mandos, hora y viento parados mientras se ve y en la pausa de después
+    const rp = this.replay.active
+    const frozen = this.replay.frozen
+    // realidad virtual: fuera del vuelo (menú, repetición) se vuelve a la pantalla; en él, sus mandos
+    if (this.vr.active) {
+      if (this.menuOpen || rp) this.vr.exit()
+      else this.vr.controls((a) => this.input.trigger(a))
+    }
+    if (!this.menuOpen && !frozen) this.input.update(dt, this.ctl)
+    // combustible y fallos: avisos y, en un simulacro, el gas sujeto a ralentí
+    const ppMsg = frozen ? null : powerplantFrame(ac, this.input)
+    if (ppMsg) this.toast(ppMsg, 3.5)
+    if (this.settings.assist && !this.menuOpen && !frozen && this.state === 'flying')
       this.assist.apply(dt, ac, this.ctl, {
         pitchActive: this.input.keyPitch,
         rollActive: this.input.keyRoll,
@@ -395,32 +564,46 @@ class App {
     this.ctl.rotorBrake = this.rotorBrake
 
     // tiempo simulado (avanza en tiempo real)
-    this.simDate = new Date(this.simDate.getTime() + dt * 1000)
-    this.gfx.setDate(this.simDate)
+    if (!frozen) this.simDate = new Date(this.simDate.getTime() + dt * 1000)
+    this.gfx.setDate(rp ? this.replay.date : this.simDate)
 
     if (w) {
+      // viento del terreno en el punto del aparato (también con el menú abierto: va adelantando el relieve)
+      if (this.state !== 'crashed' && !frozen) {
+        this.windField.tempC = this.air.groundTempC()
+        this.wind.local = this.windField.update(dt, w, ac.pos, Math.max(0, ac.agl), this.simDate.getTime())
+      }
       if (this.state === 'loading') this.updateLoading(dt)
-      else if (this.state === 'flying' && !this.menuOpen) this.stepPhysics(dt)
+      else if (this.state === 'flying' && !this.menuOpen && !frozen) this.stepPhysics(dt)
       this.updateGround()
       if (this.state === 'flying') this.maybeRebase()
     }
     // accidente: los restos siguen su física (y mueven al aparato para la cámara)
     perf.mark('aircraft')
     this.crashSys.prepare(this.view, this.gfx.renderer, this.gfx.camera)
-    if (this.state === 'crashed' && this.crashSys.active && !this.menuOpen) {
+    if (this.state === 'crashed' && this.crashSys.active && !this.menuOpen && !frozen) {
       this.crashSys.update(dt, ac, this.gfx.camera)
       if (!this.crashShown && this.crashSys.settled) this.showCrashPanel()
     }
 
-    // el modelo primero (la cámara de cabina usa su posición de este fotograma)
-    this.view.update(ac, dt, this.ctl)
+    // el modelo primero (la cámara de cabina usa su posición de este fotograma); en la repetición, el grabado
+    if (rp) this.replay.update(dt)
+    else this.view.update(ac, dt, this.ctl)
 
     // cámara
     const look = this.input.consumeLook()
-    if (look.dx || look.dy) this.rig.look(look.dx, look.dy)
-    if (look.wheel) this.rig.zoom(look.wheel)
+    const inVr = this.vr.active && !this.menuOpen && !rp
+    if (inVr) this.vr.look(look.dx, look.dy)
+    else {
+      if (look.dx || look.dy) this.rig.look(look.dx, look.dy)
+      if (look.wheel) this.rig.zoom(look.wheel)
+    }
     const groundY = this.ground.valid ? this.ground.heightAt(this.gfx.camera.position.x, this.gfx.camera.position.z, this.wv2) : -1e6
-    if (this.state === 'loading' && !this.ground.valid) {
+    if (inVr) {
+      // realidad virtual: la cabeza del piloto, sin la cámara de cabina (ni su vibración ni sus suavizados)
+      this.view.setCockpitView(true)
+      this.vr.frame(dt, { eye: this.view.eyeWorld(this.vrEye), quat: ac.quat, crashed: this.state === 'crashed' }, this.vrHud)
+    } else if (this.state === 'loading' && !this.ground.valid) {
       // vista provisional
     } else if (this.menuOpen && this.state !== 'crashed') {
       // modo exhibición: órbita lenta alrededor del aparato
@@ -434,31 +617,56 @@ class App {
         cam.fov = 50
         cam.updateProjectionMatrix()
       }
-    } else {
+    } else if (rp) this.replay.camera(dt, this.input.dragging)
+    else {
       this.rig.timeScale = this.state === 'crashed' ? this.crashSys.timeScale : 1
       this.rig.update(dt, ac, this.view, groundY, this.input.dragging)
     }
     this.view.lights.update(dt, this.gfx.camera, this.gfx.renderer.toneMappingExposure, this.gfx.sunDirWorld.y)
     // fumigación: caldo de las boquillas, gotas en el aire y nivel de la tolva
     const sprayGround = this.ground.valid ? this.ground.heightAt(ac.pos.x, ac.pos.z, this.wv2) : null
-    const sprayMsg = this.spray.update(dt, ac, this.view.root, this.wv, sprayGround, this.state === 'flying' && !this.menuOpen)
+    const sprayMsg = this.spray.update(dt, ac, this.view.root, this.wv, sprayGround, this.state === 'flying' && !this.menuOpen && !frozen)
     if (sprayMsg) this.toast(sprayMsg)
     // agua: chapoteos, estela, rociones y soplado del rotor (src/fx/WaterFx.ts); el ruido del chapoteo
     // va por el sonido de los accidentes
     if (ac.onWater && this.sound.output) this.crashSys.attachAudio(this.sound.output.ctx, this.sound.output.node)
-    this.crashSys.updateWater(dt, ac, this.gfx.camera, this.state === 'flying' && !this.menuOpen, this.wv, this.waterDepthFn, this.surfaceFn)
+    if (!frozen) this.crashSys.updateWater(dt, ac, this.gfx.camera, this.state === 'flying' && !this.menuOpen, this.wv, this.waterDepthFn, this.surfaceFn)
 
     // luces / atmósfera
     if (w) {
       perf.mark('env')
       const gY = this.ground.valid ? this.ground.heightAt(ac.pos.x, ac.pos.z, this.wv2) : null
-      this.gfx.update(w.frame.worldToECEF, ac.pos, gY, this.ground.n, ac.agl)
+      if (rp) this.replay.updateGfx()
+      else this.gfx.update(w.frame.worldToECEF, ac.pos, gY, this.ground.n, ac.agl)
       this.updateEnvMap(dt, w.frame.worldToECEF)
       this.gfx.camera.updateMatrixWorld()
+      // lluvia y nieve alrededor de la cámara, gotas en los vidrios y su sonido
+      this.wx.frame(dt, {
+        camera: this.gfx.camera,
+        view: this.view,
+        vel: ac.vel,
+        tas: ac.tas,
+        wind: this.wv,
+        cockpit: this.rig.mode === 'cockpit' && !this.menuOpen && !rp,
+        camH: this.gfx.cameraHeight,
+        acH: this.gfx.cameraHeight + ac.pos.y - this.gfx.camera.position.y,
+        audio: this.sound.output,
+        quiet: this.menuOpen,
+      })
       // tendidos: su interruptor, en vivo
       if (w.power) w.power.enabled = this.settings.power
       perf.mark('world')
+      // (cargando la salida no hay fotograma que cuidar: terreno y capas se ponen al día cuanto antes)
+      w.settling = this.state === 'loading'
       w.update()
+      // mangas de viento: el viento del sitio a la altura de la boca, con rachas (src/world/Windsocks.ts)
+      w.windsocks?.update(dt, this.gfx.camera, {
+        field: this.settings.terrainWind ? this.windField : null,
+        settings: this.wind.settings,
+        simMs: this.simDate.getTime(),
+        exposure: this.gfx.renderer.toneMappingExposure,
+        sunY: this.gfx.sunDirWorld.y,
+      })
       // tráfico (src/traffic): hora local del lugar, aparato posado para que lo esquiven
       if (w.traffic) {
         perf.mark('traffic')
@@ -475,24 +683,56 @@ class App {
     }
     perf.mark('mp')
     this.mp.update(dt)
+    // tráfico aéreo: fuera de las salas y de los ejercicios de la escuela; vuela de día y con buen tiempo
+    this.airTraffic.update(dt, {
+      world: w,
+      camera: this.gfx.camera,
+      player: ac,
+      flying: this.state === 'flying',
+      running: !this.menuOpen && !frozen && !rp,
+      enabled: this.settings.airTraffic && !this.mp.inRoom && !this.school.active,
+      density: this.settings.airTrafficDensity,
+      wind: this.wind.settings,
+      windField: this.settings.terrainWind ? this.windField : null,
+      simMs: this.simDate.getTime(),
+      rho: this.env.rho,
+      vfr: this.gfx.sunDirWorld.y > 0.03 && this.settings.visibility >= 5000 && this.settings.precip <= 0,
+      exposure: this.gfx.renderer.toneMappingExposure,
+      sunY: this.gfx.sunDirWorld.y,
+      audio: this.sound.output,
+      cockpit: this.rig.mode === 'cockpit' && !this.menuOpen,
+    })
     // focos de aterrizaje sobre el terreno: el propio y los de los demás pilotos
     const lights = this.view.lights
-    this.gfx.landingLight.setBeams([lights.beam, ...this.mp.landingBeams()], BEAM.angle, BEAM.penumbra, lights.knee)
+    this.gfx.landingLight.setBeams([lights.beam, ...this.mp.landingBeams(), ...this.airTraffic.landingBeams()], BEAM.angle, BEAM.penumbra, lights.knee)
     // con el mapa del mundo abierto la escena no se ve: la GPU es para el globo
-    if (!this.worldMap.isOpen) this.gfx.render(dt)
+    if (this.vr.active) this.vr.render(dt)
+    else if (!this.worldMap.isOpen) this.gfx.render(dt)
 
+    this.school.update(dt, this.ctl)
     perf.mark('hud')
     this.updateHud(dt)
     this.guide.update(dt, {
-      active: !this.menuOpen && this.state !== 'crashed' && Boolean(this.world),
+      active: !this.menuOpen && !rp && this.state !== 'crashed' && Boolean(this.world),
       onGround: this.state === 'loading' ? this.guide.phase !== 'flight' : ac.onGround,
       groundSpeed: ac.groundSpeed,
       throttle: this.input.throttle,
       cierva: this.settings.aircraft === 'cierva',
+      aircraft: this.settings.aircraft,
+      emergency: this.state === 'flying' ? powerplantGuide(ac) : null,
+      // con flotadores, en el agua o yendo a ella (sin ruedas, o con el tren anfibio arriba)
+      water: Boolean(ac.af.floats?.length) && (ac.onWater || ac.af.keelGear === true || (ac.af.amphib !== undefined && !ac.gearDown)),
     })
     this.updateSound(dt)
+    // grabación continua del vuelo (src/replay)
+    this.replay.record(dt)
     this.toastTimer -= dt
     if (this.toastTimer <= 0) $('toast').classList.remove('show')
+    // el aviso de texto va debajo de la pila de avisos del HUD (motor, aceite, reserva…): no se pisan
+    const tb = this.hud.stackBottom
+    const top = tb > 0 ? `${Math.round(tb + 8)}px` : ''
+    const toastEl = $('toast')
+    if (toastEl.style.top !== top) toastEl.style.top = top
     perf.endFrame()
     this.telemetry.update(this.telemetryInfo)
   }
@@ -520,6 +760,7 @@ class App {
       camera: this.menuOpen ? t('tel.menu') : camName(this.rig.mode),
       clock: fmtHour(hour),
       peers: this.mp.inRoom ? this.mp.peers.size : -1,
+      wind: this.windField.describe(),
       tiles: (w?.tiles as unknown as TelemetryInfo['tiles']) ?? null,
       layers: w
         ? [
@@ -532,6 +773,41 @@ class App {
     }
   }
   private wv2 = new Vector3()
+
+  // ---- realidad virtual (src/vr) ----
+  private vrEye = new Vector3()
+  /** alarmas, precauciones e indicación del último fotograma, para la tablilla de avisos del visor */
+  private vrHud: HudData | null = null
+
+  /** Entra en realidad virtual (con visor, o los dos ojos en pantalla): desde el menú, empieza el vuelo. */
+  private enterVr(kind: 'xr' | 'screen'): void {
+    // (la sesión hay que pedirla dentro del gesto del jugador: antes de nada)
+    const opening = this.vr.enter(kind)
+    if (this.menuOpen) this.fly()
+    void opening
+  }
+
+  /**
+   * Detalle del terreno en el visor (perfiles de src/vr/Vr.ts): con la sesión abierta, menos teselas y,
+   * salvo en «Completo», sin el pase de normales del relieve; fuera de ella, lo de la calidad elegida.
+   */
+  private applyVrDetail(): void {
+    const d = this.vr.active ? VR_DETAIL[this.vr.prefs.detail] : null
+    const w = this.world
+    if (w && w.detailScale !== (d?.terrain ?? 1)) {
+      w.detailScale = d?.terrain ?? 1
+      w.applyQuality(this.quality)
+    }
+    if (d) this.gfx.useGeometryNormals(d.normals && (w?.realGeometry ?? false) && (this.quality === 'high' || this.quality === 'ultra'))
+  }
+
+  /** Quién habla por la radio de la sala, para la tablilla de avisos. */
+  private vrRadio(): string {
+    const r = this.mp.radio
+    if (r.tx) return t('vr.radioTx')
+    for (const p of this.mp.peers.values()) if (r.talking(p.info.id)) return t('vr.radioRx', { name: p.info.name })
+    return ''
+  }
   /** agua y superficie alrededor del aparato, para los efectos del agua */
   private readonly waterDepthFn = (x: number, z: number): number => this.ground.water.depthAt(x, z)
   private readonly surfaceFn = (x: number, z: number): number | null => (this.ground.valid ? this.ground.heightAt(x, z, this.wv3) : null)
@@ -561,7 +837,8 @@ class App {
       const settled = progress >= 0.999 && this.loadingT - this.groundSeenT > 1.5
       if (settled || this.loadingT - this.groundSeenT > 20) {
         this.groundEllipsoid = w.frame.worldToGeo(new Vector3(this.spawnXZ.x, s.y, this.spawnXZ.z)).h
-        this.gfx.setClouds(this.settings.clouds, this.groundEllipsoid, this.quality)
+        this.wx.setGround(this.groundEllipsoid)
+        this.gfx.setClouds(this.settings.clouds, this.groundEllipsoid, this.quality, this.wx.cloudBaseAgl)
         this.state = 'flying'
         $('loading').classList.add('hidden')
       }
@@ -579,7 +856,11 @@ class App {
     const h = Math.min(DT, dt / n)
     const geo = w.frame.worldToGeo(ac.pos)
     const msl = w.mode === 'google' ? geo.h - this.location.geoid : geo.h
-    this.env.rho = isaDensity(msl)
+    // densidad, temperatura, rocío y presión del aire a esta altitud (en ISA, la densidad de siempre)
+    this.air.elev = w.mode === 'google' ? this.groundEllipsoid - this.location.geoid : this.groundEllipsoid
+    this.air.fill(this.env, msl)
+    // pista mojada o con nieve: menos agarre de las ruedas (1 en seco)
+    this.env.grip = this.wx.grip
     this.prevPos.copy(ac.pos)
     this.snap.pos.copy(ac.pos)
     this.snap.quat.copy(ac.quat)
@@ -588,6 +869,13 @@ class App {
     for (let i = 0; i < n && !ac.crash; i++) {
       this.wind.sample(h, Math.max(0, ac.agl), ac.tas, this.wv)
       ac.step(h, this.ctl, this.env)
+      // escuela: la toma se mira paso a paso (solo lee)
+      this.school.step(h, ac, this.ctl)
+    }
+    // arranque con cuerda (Cierva C.6, sin prerrotador): lo que pasa con la cuerda y el personal de tierra
+    if (ac.ropeMsg) {
+      this.toast(t(ac.ropeMsg, { rpm: Math.round(ac.rotor.rpm) }), 3)
+      ac.ropeMsg = null
     }
     // colisión con edificios/árboles (tiles 3D)
     if (!ac.crash && w.mode === 'google' && ac.vel.length() > 4) {
@@ -741,8 +1029,9 @@ class App {
     this.envTex = this.envRT.texture
     this.view.setEnvMap(this.envTex)
     this.mp.setEnvMap(this.envTex)
+    this.airTraffic.setEnvMap(this.envTex)
     this.world?.setEnvMap(this.envTex)
-    this.gfx.skyLight.intensity = 0.35
+    this.gfx.skyLightBase = 0.35
   }
 
   // -------------------------------------------------------------------------
@@ -750,6 +1039,8 @@ class App {
   // -------------------------------------------------------------------------
   private handleActions(): void {
     for (const a of this.input.consumeActions()) {
+      // en la repetición, la cámara y Esc son suyos y los mandos de pilotar no hacen nada
+      if (this.replay.active && this.replay.action(a)) continue
       switch (a) {
         case 'pause':
           // en Ajustes, Esc vuelve a las pestañas del menú
@@ -760,14 +1051,24 @@ class App {
         case 'help':
           $('help').classList.toggle('hidden')
           break
+        case 'vrCenter':
+          if (this.vr.active) {
+            this.vr.recenter()
+            this.toast(t('vr.centered'))
+          }
+          break
         case 'camera': {
           if (this.menuOpen) break
+          if (this.vr.active) {
+            this.toast(t('vr.cockpitOnly'))
+            break
+          }
           const m = this.rig.next(this.ac, this.ground.heightAt(this.ac.pos.x, this.ac.pos.z, this.wv2))
           this.toast(t('toast.camera', { name: camName(m) }))
           break
         }
         case 'cameraBack':
-          this.rig.toggleLookBack()
+          if (!this.vr.active) this.rig.toggleLookBack()
           break
         case 'reset':
           if (this.world) this.spawn()
@@ -777,16 +1078,32 @@ class App {
           this.toast(t(this.rotorBrake ? 'toast.rotorBrakeOn' : 'toast.rotorBrakeOff'))
           break
         case 'engine':
-          this.ac.engineOn = !this.ac.engineOn
-          this.toast(t(this.ac.engineOn ? 'toast.engineOn' : 'toast.engineOff'))
+          // (un motor gripado, sin combustible o con el carburador helado no arranca)
+          this.toast(toggleEngine(this.ac))
+          break
+        case 'failure':
+          // F2: simulacro del instructor o, con fallos reales, uno de verdad
+          if (!this.menuOpen && this.state === 'flying') requestFailure(this.ac)
           break
         case 'parkBrake':
           this.input.parkBrake = !this.input.parkBrake
           this.toast(t(this.input.parkBrake ? 'toast.parkOn' : 'toast.parkOff'))
           break
-        case 'hud':
-          this.hud.visible = !this.hud.visible
+        case 'hud': {
+          // con el visor puesto no hay relojes en pantalla: la tecla enseña u oculta la tablilla de avisos
+          if (this.vr.active) {
+            this.toast(t(this.vr.togglePanel() ? 'vr.panelOn' : 'vr.panelOff'))
+            break
+          }
+          // se recuerda por separado en cabina (ya tiene su panel 3D) y en las cámaras exteriores
+          const cockpit = this.rig.mode === 'cockpit'
+          const key = cockpit ? 'hudCockpit' : 'hudOutside'
+          this.settings[key] = !this.settings[key]
+          saveSettings(this.settings)
+          // (updateHud lo aplica al panel y al botón en el siguiente fotograma)
+          this.toast(t(`toast.hud${cockpit ? 'Cockpit' : 'Outside'}${this.settings[key] ? 'On' : 'Off'}`), 2.6)
           break
+        }
         case 'lights':
           this.toggleLights()
           break
@@ -795,6 +1112,18 @@ class App {
           break
         case 'spray':
           if (!this.menuOpen && this.state === 'flying') this.toast(this.spray.toggle())
+          break
+        case 'gear':
+          // tren de unos flotadores anfibios (floatKit.ts): sube o baja en unos segundos
+          if (!this.menuOpen && this.state === 'flying' && this.ac.af.amphib) {
+            this.ac.setGear(!this.ac.gearDown)
+            this.toast(t(this.ac.gearDown ? 'toast.gearDown' : 'toast.gearUp'))
+          } else if (!this.menuOpen && this.state === 'flying' && this.ac.af.retractGear) {
+            // tren retráctil (Sigilo): en tierra no se puede recoger
+            if (this.ac.gearDown && this.ac.onGround) break
+            this.ac.setGear(!this.ac.gearDown)
+            this.toast(t(this.ac.gearDown ? 'toast.retractDown' : 'toast.retractUp'))
+          }
           break
         case 'mouseStick':
           this.input.mouseStick = !this.input.mouseStick
@@ -837,23 +1166,38 @@ class App {
     this.toast(t(l.on ? 'toast.lightsOn' : 'toast.lightsOff'))
   }
 
-  private toast(msg: string): void {
+  private toast(msg: string, secs = 1.8): void {
     const el = $('toast')
     el.textContent = msg
     el.classList.add('show')
-    this.toastTimer = 1.8
+    this.toastTimer = secs
   }
 
   // -------------------------------------------------------------------------
   // HUD y sonido
   // -------------------------------------------------------------------------
   private updateHud(dt: number): void {
+    // relojes en pantalla según la cámara (tecla I): en cabina y fuera se recuerdan por separado
+    const hudOn = this.rig.mode === 'cockpit' ? this.settings.hudCockpit : this.settings.hudOutside
+    if (hudOn !== this.hud.visible || !this.hudBtnSynced) {
+      this.hud.visible = hudOn
+      this.hudBtnSynced = true
+      const b = $('btn-hud')
+      b.classList.toggle('on', hudOn)
+      b.setAttribute('aria-pressed', String(hudOn))
+    }
+    // botón «Tren» (tecla Y): solo con tren que se recoge; en la repetición, donde estaba el grabado
+    const af = this.ac.af
+    this.gearBtn.update(af.amphib ? 'amphib' : af.retractGear ? 'retract' : null, this.replay.active ? this.replay.ac.gearPos : this.ac.gearPos)
+    // repetición: instrumentos y cabina con lo grabado
+    if (this.replay.active) return this.replay.updateHud(dt)
     const ac = this.ac
     const w = this.world
     const sf = ac.specificForceBody
     const geo = w ? w.frame.worldToGeo(ac.pos) : { lat: 0, lon: 0, h: 0 }
     const msl = w && w.mode === 'google' ? geo.h - (this.location?.geoid ?? 0) : geo.h
-    const altFt = (msl - 1.05) * 3.28084
+    // altímetro calado al QNH del día: con calor marca menos de la altura real (en ISA, la real)
+    const altFt = this.air.altimeter(msl - 1.05) * 3.28084
     const hdg = (((headingOf(ac) * 180) / Math.PI) + 360) % 360
     const ws = this.wind.settings
     const show = this.state !== 'loading' && !this.menuOpen
@@ -866,10 +1210,11 @@ class App {
       ;($('hud') as HTMLCanvasElement).style.opacity = '0'
     } else {
       ;($('hud') as HTMLCanvasElement).style.opacity = '1'
+      const pph = powerplantHud(ac)
       hd = {
           iasKmh: ac.ias * 3.6,
           altFt,
-          vsFpm: ac.vs * 196.85,
+          vsFpm: ac.vs * this.air.vsiFactor(msl) * 196.85,
           rotorRpm: ac.rotor.rpm,
           engineRpm: ac.engineOn || ac.engineRpm > 50 ? ac.engineRpm : 0,
           heading: hdg,
@@ -881,8 +1226,15 @@ class App {
           gsKmh: ac.groundSpeed * 3.6,
           windFrom: ws.fromDeg,
           windKt: ws.speed / KT,
-          warnings: this.state === 'flying' ? ac.warnings : [],
-          prerot: this.ctl.prerotator,
+          warnings: this.state === 'flying' ? [...ac.warnings, ...pph.warnings] : [],
+          cautions: this.state === 'flying' ? pph.cautions : [],
+          fuel: pph.fuel,
+          fuelL: pph.fuelL,
+          fuelLow: pph.fuelLow,
+          oilLow: pph.oilLow,
+          drill: pph.drill,
+          // (con cuerda, el C.6: encendido mientras tiran de ella)
+          prerot: ac.af.ropeStart ? ac.ropeLeft > 0 : this.ctl.prerotator,
           rotorBrake: this.rotorBrake,
           parkBrake: this.input.parkBrake,
           engineOn: ac.engineOn,
@@ -900,8 +1252,12 @@ class App {
           rpmWarn: ac.rpmWarnScale,
           rotorArcs: ac.af.slowedRotor ? { green: [100, 380], red: 400 } : undefined,
           tach: ac.af.engine.tach,
+          asi: ac.af.asi,
+          gear: ac.af.amphib || ac.af.retractGear ? (ac.gearPos >= 1 ? 'down' : ac.gearPos <= 0 ? 'up' : 'moving') : undefined,
         }
       this.hud.draw(hd, dt)
+      this.replay.noteHud(hd)
+      this.vrHud = hd
     }
     // hilo de guiñada (siempre) y panel de instrumentos 3D (en cabina o con la cámara cerca)
     this.view.cockpit.update(dt, ac, this.wv, this.gfx.camera.position, this.hud, hd, this.rig.mode === 'cockpit' || this.gfx.camera.position.distanceTo(ac.pos) < 6)
@@ -924,6 +1280,7 @@ class App {
   }
 
   private updateSound(dt: number): void {
+    if (this.replay.active) return this.sound.update(this.replay.soundState(), dt)
     const ac = this.ac
     const cam = this.gfx.camera
     this.sound.update(
@@ -934,12 +1291,16 @@ class App {
         rotorLoad: ac.rotor.thrust / (ac.mass * 9.81),
         tas: ac.tas,
         rolling: ac.onGround ? ac.wheelRolling : 0,
-        prerot: this.ctl.prerotator && ac.engineOn,
+        // (sin prerrotador, el C.6: la tecla solo llama al personal de tierra)
+        prerot: this.ctl.prerotator && ac.engineOn && !ac.af.ropeStart,
         lowRotor: this.state === 'flying' && !ac.onGround && ac.rotor.rpm < 260 * ac.rpmWarnScale,
         teeterHit: ac.rotor.teeterHit,
         cockpit: this.rig.mode === 'cockpit' && !this.menuOpen,
         distance: cam.position.distanceTo(ac.pos),
         engineOn: ac.engineOn,
+        // tirones y cortes de un motor que falla (sim/powerplant.ts)
+        misfire: ac.pp.rough,
+        firing: ac.pp.power,
         voice: {
           cylinders: ac.af.engine.cylinders,
           gear: ac.af.engine.gear,
@@ -960,6 +1321,9 @@ class App {
     this.menuOpen = true
     $('menu').classList.remove('hidden')
     this.sound.suspend()
+    // tras un accidente, el menú enseña ya el aparato entero en la salida (lo que haría «Volar»):
+    // así lo que se elija en él se ve detrás, como antes de salir
+    if (this.state === 'crashed' && this.world) this.newDeparture()
     this.refreshMenu()
   }
 
@@ -968,13 +1332,31 @@ class App {
     $('menu').classList.add('hidden')
     this.sound.start()
     this.last = performance.now()
+    this.departed = true
+  }
+
+  /** Se ha jugado desde la última salida (el botón del menú dice «Continuar» en vez de «Volar»). */
+  private departed = false
+
+  /** Salida nueva con lo elegido en el menú: aparato, pasajero, sitio, modo de salida y escenario. */
+  private newDeparture(): void {
+    const s = this.settings
+    this.loadAircraft()
+    this.lastStart = s.start
+    this.lastPassenger = s.passenger
+    // (huso horario del sitio)
+    this.applySettings(false)
+    this.spawn()
   }
 
   private setupMenu(): void {
     const s = this.settings
     applyI18n()
     // salida desde el mapa del mundo o desde un lugar emblemático (src/menu/locationSelect.ts)
-    buildLocationSelect($('location') as HTMLSelectElement, s, () => refreshMenuUi())
+    buildLocationSelect($('location') as HTMLSelectElement, s, () => {
+      refreshMenuUi()
+      this.schedulePreview()
+    })
     const acSel = $('aircraft') as HTMLSelectElement
     for (const a of AIRCRAFT) {
       const o = document.createElement('option')
@@ -985,7 +1367,7 @@ class App {
     acSel.addEventListener('change', () => {
       s.aircraft = acSel.value
       $('aircraftNote').textContent = aircraftNote(aircraftById(s.aircraft))
-      this.previewAircraft()
+      this.previewMenu()
     })
 
     const bindRange = (id: keyof Settings, out: string, fmt: (v: number) => string) => {
@@ -1004,15 +1386,23 @@ class App {
     bindRange('turbulence', 'turbOut', (v) => `${Math.round(v * 100)} %`)
     bindRange('exposure', 'expOut', (v) => v.toFixed(1))
     bindRange('volume', 'volOut', (v) => `${Math.round(v * 100)} %`)
+    // (el escenario y el modo de salida se ven ya detrás del menú)
     for (const r of document.querySelectorAll<HTMLInputElement>('input[name=scenery]'))
-      r.addEventListener('change', () => (s.scenery = r.value as any))
+      r.addEventListener('change', () => {
+        s.scenery = r.value as any
+        this.schedulePreview()
+      })
     for (const r of document.querySelectorAll<HTMLInputElement>('input[name=start]'))
-      r.addEventListener('change', () => (s.start = r.value as any))
+      r.addEventListener('change', () => {
+        s.start = r.value as any
+        this.schedulePreview()
+      })
     const bindVal = (id: keyof Settings, num = false) => {
       const el = $(id) as HTMLInputElement | HTMLSelectElement
       el.addEventListener('change', () => {
         ;(s as any)[id] = num ? Number(el.value) : el.value
         if (id === 'quality' || id === 'clouds') this.applySettings(false)
+        if (id === 'imagery' || id === 'elevation' || id === 'googleKey') this.schedulePreview()
       })
     }
     bindVal('googleKey')
@@ -1028,6 +1418,7 @@ class App {
         s.locationId = 'custom'
         s.mapLocationId = 'custom'
         this.showLocationNote()
+        this.schedulePreview()
       })
     }
     $('btn-worldmap').addEventListener('click', () => this.openWorldMap())
@@ -1047,14 +1438,26 @@ class App {
       el.addEventListener('change', () => {
         ;(s as any)[id] = el.checked
         if (id === 'mouseStick') this.input.mouseStick = el.checked
+        // (edificios, árboles y Catastro: el escenario se rehace detrás del menú)
+        if (id === 'buildings' || id === 'trees' || id === 'catastro') this.schedulePreview()
       })
     }
     bindCheck('passenger')
-    $('passenger').addEventListener('change', () => this.previewAircraft())
+    $('passenger').addEventListener('change', () => this.previewMenu())
+    bindCheck('floats')
+    $('floats').addEventListener('change', () => this.previewMenu())
+    // combustible al salir y fallos de motor (src/menu/fuelMenu.ts): los fallos cambian ya en vuelo
+    setupFuelMenu(s, () => {
+      if (this.state !== 'loading') applyPowerplantSettings(this.ac, s, false)
+    })
     bindCheck('buildings')
     bindCheck('trees')
     bindCheck('traffic')
+    bindCheck('airTraffic')
+    bindVal('airTrafficDensity')
     bindCheck('power')
+    bindCheck('terrainWind')
+    $('terrainWind').addEventListener('change', () => this.applySettings(false))
     bindCheck('catastro')
     setupCatastroMenu()
     bindCheck('assist')
@@ -1070,7 +1473,10 @@ class App {
     // sin foco tras el clic: si no, Espacio (frenos) volvería a pulsar el botón
     $('btn-lights').addEventListener('mousedown', (e) => e.preventDefault())
     $('btn-lights').addEventListener('click', () => this.toggleLights())
+    $('btn-hud').addEventListener('mousedown', (e) => e.preventDefault())
+    $('btn-hud').addEventListener('click', () => this.input.trigger('hud'))
     this.spray.button.addEventListener('click', () => this.input.trigger('spray'))
+    this.gearBtn.button.addEventListener('click', () => this.input.trigger('gear'))
     $('crash-retry').addEventListener('click', () => {
       this.spawn()
       this.closeMenu()
@@ -1097,6 +1503,34 @@ class App {
       location: () => this.currentLocation(),
       canFly: () => this.menuOpen && !this.worldMap.isOpen && $('help').classList.contains('hidden'),
       fly: () => this.fly(),
+    })
+    // temperatura, QNH y tiempo real (src/menu/weatherMenu.ts)
+    setupWeatherMenu({
+      settings: s,
+      location: () => this.currentLocation(),
+      simElevation: (loc) => {
+        const w = this.world
+        const here = this.location
+        if (!w || !here || this.state === 'loading' || loc.lat !== here.lat || loc.lon !== here.lon) return null
+        return w.mode === 'google' ? this.groundEllipsoid - here.geoid : this.groundEllipsoid
+      },
+      changed: () => this.applySettings(false),
+      applied: () => {
+        this.refreshMenu()
+        this.applySettings(false)
+        saveSettings(s)
+      },
+      refresh: () => refreshMenuUi(),
+    })
+    // visibilidad, precipitación y punto de rocío (src/menu/skyMenu.ts)
+    setupSkyMenu({
+      settings: s,
+      changed: () => {
+        this.applySettings(false)
+        this.refreshMenu()
+      },
+      weather: () => this.wx.state,
+      groundTempC: () => this.air.groundTempC(),
     })
     this.refreshMenu()
     // ejes del joystick en vivo
@@ -1148,6 +1582,7 @@ class App {
     this.applySettings(false) // huso horario del nuevo sitio
     saveSettings(s)
     if (fly) this.fly()
+    else this.previewMenu()
   }
 
   private refreshMenu(): void {
@@ -1163,6 +1598,8 @@ class App {
     set('buildings', s.buildings)
     set('trees', s.trees)
     set('traffic', s.traffic)
+    set('airTraffic', s.airTraffic)
+    set('airTrafficDensity', s.airTrafficDensity)
     set('power', s.power)
     set('catastro', s.catastro)
     syncCurrentDeparture($('location') as HTMLSelectElement, s)
@@ -1175,11 +1612,15 @@ class App {
     set('windFrom', s.windFrom)
     set('windSpeed', s.windSpeed)
     set('turbulence', s.turbulence)
+    set('terrainWind', s.terrainWind)
     set('clouds', s.clouds)
+    syncAirControls(s)
+    syncSkyControls(s)
     set('quality', s.quality)
     set('exposure', s.exposure)
     set('volume', s.volume)
     set('passenger', s.passenger)
+    set('floats', s.floats)
     set('aircraft', aircraftById(s.aircraft).id)
     $('aircraftNote').textContent = aircraftNote(aircraftById(s.aircraft))
     this.showLocationNote()
@@ -1212,48 +1653,81 @@ class App {
         : `GPU: ${gpuName}`
     }
     gi.classList.toggle('warn', this.gfx.gpuIntegrated)
-    $('flyLabel').textContent = t(this.state === 'flying' && this.world ? 'menu.continue' : 'menu.fly')
+    this.updateFlyLabel()
     refreshMenuUi()
   }
 
   /**
-   * Menú → Aparato: el aparato y el pasajero elegidos se ven ya en la escena. Hace antes lo mismo
-   * que haría «Volar»: en el aire cambia la geometría de vuelo y el peso sin más y, parado en la
-   * salida, lo vuelve a colocar (las ruedas no apoyan en el mismo sitio). Si se ha rodado o la
-   * salida es otra, espera a «Volar» para no perder la posición (el pasajero se ve igualmente).
+   * Menú: lo elegido se ve ya detrás (aparato, pasajero, flotadores, salida, modo de salida y
+   * escenario). Hace lo mismo que haría «Volar»: en el aire, otro aparato o el pasajero se cambian
+   * sin más; si no, se vuelve a salir con lo elegido (en el suelo las ruedas no apoyan en el mismo
+   * sitio). En una sala, otra salida movería a todos: esa espera a «Volar» (el pasajero se ve igual).
    */
-  private previewAircraft(): void {
+  private previewMenu(): void {
+    clearTimeout(this.previewTimer)
     const s = this.settings
     this.view.setPassenger(s.passenger)
-    if (!this.world || this.state === 'crashed' || !this.location) return
+    if (!this.world || !this.location) return
+    // (Google sin clave: lo avisa «Volar»)
+    if (s.scenery === 'google' && !s.googleKey) return
+    if (this.state === 'crashed' || this.departureChanged()) {
+      if (this.mp.inRoom && this.state !== 'crashed') return
+      this.newDeparture()
+    } else {
+      this.loadAircraft()
+      const airframe = airframeById(s.aircraft, s.floats)
+      const airframeChanged = airframe !== this.ac.af
+      const passengerChanged = s.passenger !== this.lastPassenger
+      if (!airframeChanged && !passengerChanged) return
+      if (this.airborne()) {
+        if (airframeChanged) {
+          this.ac.setAirframe(airframe)
+          applyPowerplantSettings(this.ac, s, true)
+        }
+        if (passengerChanged) this.ac.setLoad(s.passenger)
+        this.lastPassenger = s.passenger
+      } else this.newDeparture()
+    }
+    this.updateFlyLabel()
+  }
+
+  private previewTimer = 0
+
+  /** Lo mismo, un momento después: al pasar sitios con las flechas no se carga cada uno. */
+  private schedulePreview(): void {
+    clearTimeout(this.previewTimer)
+    this.previewTimer = window.setTimeout(() => this.menuOpen && this.previewMenu(), 400)
+  }
+
+  /** La salida elegida no es la del aparato: otro sitio, otro modo de salida u otro escenario. */
+  private departureChanged(): boolean {
     const loc = this.currentLocation()
-    const sameSpot =
-      this.worldKeyFor(loc) === this.worldKey &&
-      loc.id === this.location.id &&
-      loc.lat === this.location.lat &&
-      loc.lon === this.location.lon &&
-      loc.heading === this.location.heading &&
-      this.lastStart === s.start
-    if (!sameSpot) return
-    const airframe = airframeById(s.aircraft)
-    const inFlight = this.state === 'flying' && !this.ac.onGround
-    const parked =
-      this.state === 'loading' ||
-      (this.ac.onGround && this.ac.vel.length() < 0.5 && Math.hypot(this.ac.pos.x - this.spawnXZ.x, this.ac.pos.z - this.spawnXZ.z) < 40)
-    if (!inFlight && !parked) return
-    this.loadAircraft()
-    const airframeChanged = airframe !== this.ac.af
-    const passengerChanged = s.passenger !== this.lastPassenger
-    if (!airframeChanged && !passengerChanged) return
-    if (inFlight) {
-      if (airframeChanged) this.ac.setAirframe(airframe)
-      if (passengerChanged) this.ac.setLoad(s.passenger)
-    } else this.spawn()
-    this.lastPassenger = s.passenger
+    const here = this.location
+    return (
+      !this.world ||
+      !here ||
+      this.worldKeyFor(loc) !== this.worldKey ||
+      loc.id !== here.id ||
+      loc.lat !== here.lat ||
+      loc.lon !== here.lon ||
+      loc.heading !== here.heading ||
+      this.lastStart !== this.settings.start
+    )
+  }
+
+  /** En vuelo (ni en tierra ni a flote): ahí otro aparato se cambia sin volver a salir. */
+  private airborne(): boolean {
+    return this.state === 'flying' && !this.ac.onGround && !this.ac.onWater
+  }
+
+  /** «Continuar» con un vuelo en marcha; «Volar» si se va a salir (también tras elegir otra salida). */
+  private updateFlyLabel(): void {
+    $('flyLabel').textContent = t(this.departed && this.state !== 'crashed' && this.world ? 'menu.continue' : 'menu.fly')
   }
 
   /** Botón Volar: re-aparece si cambió el escenario/lugar; si no, continúa. */
   private fly(): void {
+    clearTimeout(this.previewTimer)
     const s = this.settings
     if (s.scenery === 'google' && !s.googleKey) {
       alert(t('alert.googleKey'))
@@ -1263,30 +1737,34 @@ class App {
     this.loadAircraft()
     // Cada aparato tiene su geometría de vuelo. En el aire se cambia sin más; en
     // el suelo hay que recolocarlo (las ruedas no apoyan en el mismo sitio).
-    const airframe = airframeById(s.aircraft)
+    const airframe = airframeById(s.aircraft, s.floats)
     const airframeChanged = airframe !== this.ac.af
-    const swapInFlight = airframeChanged && this.state === 'flying' && !this.ac.onGround
-    if (swapInFlight) this.ac.setAirframe(airframe)
-    const loc = this.currentLocation()
-    const key = this.worldKeyFor(loc)
+    const swapInFlight = airframeChanged && this.airborne()
+    if (swapInFlight) {
+      this.ac.setAirframe(airframe)
+      applyPowerplantSettings(this.ac, s, true)
+    }
     const needSpawn =
-      !this.world ||
+      this.departureChanged() ||
       (airframeChanged && !swapInFlight) ||
-      key !== this.worldKey ||
-      loc.id !== this.location?.id ||
-      (loc.id === 'custom' && (loc.lat !== this.location.lat || loc.lon !== this.location.lon || loc.heading !== this.location.heading)) ||
-      this.lastStart !== s.start ||
       this.lastPassenger !== s.passenger ||
       this.state === 'crashed'
     this.lastStart = s.start
     this.lastPassenger = s.passenger
     this.applySettings(false)
     if (needSpawn) this.spawn()
+    else {
+      // otro combustible con el aparato parado en la salida: se llena (o vacía) el depósito
+      const parked = this.ac.onGround && this.ac.vel.length() < 0.5
+      applyPowerplantSettings(this.ac, s, parked && this.lastFuelPct !== s.fuelPct)
+      if (parked) this.lastFuelPct = s.fuelPct
+    }
     this.closeMenu()
     this.rig.setMode(this.rig.mode, this.ac, this.ground.valid ? this.ground.heightAt(this.ac.pos.x, this.ac.pos.z, this.wv2) : 0)
   }
   private lastStart = ''
   private lastPassenger = false
+  private lastFuelPct = 100
 
   /** Multijugador (invitado): el anfitrión fija lugar, hora, viento y nubes de la sala. */
   private applyRoomConditions(c: RoomConditions): void {
@@ -1302,6 +1780,17 @@ class App {
     s.windFrom = c.windFrom
     s.windSpeed = c.windSpeed
     s.turbulence = c.turbulence
+    // (anfitriones de versiones anteriores no lo mandan: viento uniforme, como el suyo)
+    s.terrainWind = c.terrainWind ?? false
+    // aire del día (anfitriones de versiones anteriores no lo mandan: atmósfera estándar)
+    s.isa = c.isa ?? true
+    s.oatC = c.oatC ?? 15
+    s.qnh = c.qnh ?? 1013.25
+    s.dewPointC = c.dewPointC ?? s.oatC - 10
+    s.visibility = c.visibility ?? 30000
+    s.precip = c.precip ?? 0
+    s.weatherCode = c.weatherCode ?? -1
+    s.windGustKt = c.windGustKt ?? 0
     if (['clear', 'fair', 'scattered', 'overcast'].includes(c.clouds)) s.clouds = c.clouds as Settings['clouds']
     this.applySettings(false)
     this.refreshMenu()
@@ -1317,6 +1806,9 @@ class App {
   private applySettings(initial: boolean): void {
     const s = this.settings
     this.wind.settings = { fromDeg: s.windFrom, speed: s.windSpeed * KT, turbulence: s.turbulence }
+    this.windField.setConditions({ enabled: s.terrainWind, fromDeg: s.windFrom, speed: s.windSpeed * KT, clouds: s.clouds, dayOfYear: s.dayOfYear })
+    if (!s.terrainWind) this.wind.local = null
+    this.air.set(s)
     // el mismo viento riza el agua
     this.gfx.water.setWind(s.windFrom, s.windSpeed * KT)
     this.gfx.renderer.toneMappingExposure = s.exposure
@@ -1328,6 +1820,8 @@ class App {
     const ms = Date.UTC(2026, 0, 1) + (s.dayOfYear - 1) * 86400e3 + (s.hour - tz) * 3600e3
     this.simDate = new Date(ms)
     this.gfx.setDate(this.simDate)
+    // bruma, niebla y precipitación del día (y la base de las nubes que sale del punto de rocío)
+    this.wx.apply(s, loc.lat, loc.lon, this.simDate, this.air)
     if (initial) {
       this.lastStart = s.start
       this.lastPassenger = s.passenger
@@ -1336,7 +1830,7 @@ class App {
     } else {
       this.gfx.setQuality(this.quality, this.world?.realGeometry ?? false)
       this.world?.applyQuality(this.quality)
-      if (this.state === 'flying') this.gfx.setClouds(s.clouds, this.groundEllipsoid, this.quality)
+      if (this.state === 'flying') this.gfx.setClouds(s.clouds, this.groundEllipsoid, this.quality, this.wx.cloudBaseAgl)
     }
     void LIGHT_LAYER
   }

@@ -32,6 +32,27 @@ export interface WindSettings {
 }
 
 /**
+ * Viento del sitio ya calculado para el punto donde está el aparato (relieve, obstáculos, térmicas,
+ * perfil del día: src/sim/wind y src/world/WindField.ts): el medio y la turbulencia que le toca.
+ */
+export interface LocalAir {
+  /** viento medio (m/s) en el marco del mundo, con su componente vertical */
+  mean: Vector3
+  /** desviación típica de la racha horizontal y vertical (m/s) */
+  sigH: number
+  sigW: number
+  /** escalas de longitud de la turbulencia (m) */
+  lenH: number
+  lenW: number
+  /** parte lenta de la racha horizontal (remolinos convectivos grandes): desviación (m/s) y escala (m) */
+  sigSlow: number
+  lenSlow: number
+}
+
+/** valor del deslizador de turbulencia que deja la del modelo del terreno tal cual (×1) */
+export const TURBULENCE_UNIT = 0.25
+
+/**
  * Viento en el marco local del mundo (X este, Y arriba, Z sur) con gradiente
  * cerca del suelo y turbulencia tipo Dryden simplificada.
  */
@@ -40,11 +61,31 @@ export class WindModel {
   private tx = new Markov()
   private ty = new Markov()
   private tz = new Markov()
+  private sx = new Markov()
+  private sz = new Markov()
   readonly gust = new Vector3()
+  /**
+   * Viento del terreno en el punto del aparato; null (pruebas sin escenario, opción apagada) = el
+   * modelo de siempre: viento uniforme con perfil logarítmico.
+   */
+  local: LocalAir | null = null
 
   /** Calcula el viento (m/s) a la altura sobre el suelo `agl`, con velocidad propia `tas`. */
   sample(dt: number, agl: number, tas: number, out: Vector3): Vector3 {
     const { fromDeg, speed, turbulence } = this.settings
+    const loc = this.local
+    if (loc) {
+      // el deslizador del menú multiplica la turbulencia que sale del sitio (25 % = tal cual)
+      const k = turbulence / TURBULENCE_UNIT
+      const v = Math.max(tas, 5)
+      const tauH = loc.lenH / v
+      this.gust.set(this.tx.step(dt, tauH, loc.sigH * k), this.ty.step(dt, loc.lenW / v, loc.sigW * k), this.tz.step(dt, tauH, loc.sigH * k))
+      // cambios lentos del viento de las tardes con térmicas
+      const tauS = loc.lenSlow / v
+      this.gust.x += this.sx.step(dt, tauS, loc.sigSlow * k)
+      this.gust.z += this.sz.step(dt, tauS, loc.sigSlow * k)
+      return out.copy(loc.mean).add(this.gust)
+    }
     const z0 = 0.05
     const h = Math.max(agl, 0.5)
     const grad = Math.min(1.35, Math.log(h / z0) / Math.log(10 / z0))

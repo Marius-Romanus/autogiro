@@ -41,6 +41,7 @@ import {
 import { keepAlpha, LIGHT_LAYER } from '../render/Graphics.ts'
 import type { Chunk } from '../sim/wreck/Wreck.ts'
 import { rockGeometry, shardGeometry, ShapeSet, twigGeometry } from './debrisShapes.ts'
+import { hideWhenEmpty } from '../render/emptyDraws.ts'
 
 const _v = new Vector3()
 const _v2 = new Vector3()
@@ -90,14 +91,15 @@ class Billboards {
     g.setAttribute('iSizeRot', new InstancedBufferAttribute(this.sr, 2))
     g.instanceCount = 0
     this.geo = g
-    this.mesh = new Mesh(g, material)
+    // (sin partículas no se dibuja: render/emptyDraws.ts)
+    this.mesh = hideWhenEmpty(new Mesh(g, material))
     this.mesh.frustumCulled = false
     this.mesh.renderOrder = 4
   }
 
   /** Añade una segunda pasada con otro material sobre la misma geometría. */
   withSecondPass(material: Material): Mesh {
-    this.mesh2 = new Mesh(this.geo, material)
+    this.mesh2 = hideWhenEmpty(new Mesh(this.geo, material))
     this.mesh2.frustumCulled = false
     this.mesh2.renderOrder = 5
     return this.mesh2

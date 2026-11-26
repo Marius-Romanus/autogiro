@@ -47,6 +47,11 @@ export interface WingSpec {
   aileronFrom: number
   /** franjas por semiala (4) */
   strips?: number
+  /**
+   * Distancia al eje (m) hasta la que no hay superficie (0 si falta): el «ala» del Cierva C.6 son dos alerones
+   * enteros en las puntas de unos largueros. La superficie, la cuerda y las franjas van de `root` a la punta.
+   */
+  root?: number
   /** fracción del flujo inducido del rotor que llega al ala (y a la cola) mientras la estela pasa por encima */
   rotorWash?: number
 }
@@ -269,12 +274,14 @@ export class Compound {
     if (w) {
       const n = w.strips ?? 4
       const half = w.span / 2
-      const cRoot = (2 * w.area) / (w.span * (1 + w.taper))
+      // (sin `root`, las mismas cuentas de siempre)
+      const r0 = w.root ?? 0
+      const cRoot = r0 > 0 ? w.area / ((half - r0) * (1 + w.taper)) : (2 * w.area) / (w.span * (1 + w.taper))
       for (let i = 0; i < n; i++) {
-        const y0 = (i / n) * half
-        const y1 = ((i + 1) / n) * half
-        const c0 = cRoot * (1 - (1 - w.taper) * (y0 / half))
-        const c1 = cRoot * (1 - (1 - w.taper) * (y1 / half))
+        const y0 = r0 + (i / n) * (half - r0)
+        const y1 = r0 + ((i + 1) / n) * (half - r0)
+        const c0 = cRoot * (1 - (1 - w.taper) * ((y0 - r0) / (half - r0)))
+        const c1 = cRoot * (1 - (1 - w.taper) * ((y1 - r0) / (half - r0)))
         const area = ((c0 + c1) / 2) * (y1 - y0)
         // centroide de la franja trapezoidal
         const yc = y0 + ((y1 - y0) * (c0 + 2 * c1)) / (3 * (c0 + c1))
@@ -283,7 +290,7 @@ export class Compound {
         this.stripChord.push((c0 + c1) / 2)
         this.stripAil.push(yc / half >= w.aileronFrom)
       }
-      this.ar = (w.span * w.span) / w.area
+      this.ar = ((w.span - 2 * r0) * (w.span - 2 * r0)) / w.area
       this.wingSlope = w.liftSlope ?? (2 * Math.PI * this.ar) / (2 + Math.sqrt(this.ar * this.ar + 4))
       this.kInd = 1 / (Math.PI * this.ar * w.oswald)
     }
@@ -357,7 +364,12 @@ export class Compound {
    */
   update(dt: number, ac: Autogyro, ctl: Controls, pitchCmd: number): void {
     const af = this.af
-    if (af.elevator !== undefined) this.elevatorDeg = -af.elevator * pitchCmd
+    // (con `elevatorAft`, la palanca atrás sube más de lo que baja: la subida extra entra poco a poco hacia
+    // el tope, ∝ palanca², para no cambiar la sensibilidad cerca del centro)
+    if (af.elevator !== undefined) {
+      const extra = pitchCmd > 0 && af.elevatorAft !== undefined ? (af.elevatorAft - af.elevator) * pitchCmd * pitchCmd : 0
+      this.elevatorDeg = -(af.elevator * pitchCmd + extra)
+    }
     const sr = af.slowedRotor
     if (!sr) {
       this.tailIncidence = this.elevatorDeg * DEG
@@ -496,7 +508,7 @@ export class Compound {
     let Qe: number
     if (ac.engineOn) {
       const th = eng.idle + (1 - eng.idle) * thr
-      Qe = th * Math.max(0, Tmax) - (1 - th) * Tfric
+      Qe = th * Math.max(0, Tmax) * ac.pp.power - (1 - th) * Tfric
       if (rpm < eng.starterRpm) Qe += 0.25 * eng.torquePeak * (1 - rpm / eng.starterRpm)
     } else Qe = -1.8 * Tfric - 0.05 * eng.torquePeak
     // el prerrotador (correa, 90 %) toma del cigüeñal la potencia que da al rotor

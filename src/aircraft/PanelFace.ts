@@ -53,6 +53,11 @@ export interface PanelState {
   engineOn: boolean
   lightsOn: boolean
   rotorBrake: boolean
+  /** combustible utilizable (0..1; falta: lleno) y aviso de reserva (sim/powerplant.ts) */
+  fuel?: number
+  fuelLow?: boolean
+  /** radio de voz: 1 recibiendo, 2 transmitiendo (anunciador RX/TX de la pantalla COM) */
+  radio?: number
 }
 
 /** Acciones del simulador que se pueden disparar pulsando el panel. */
@@ -200,7 +205,8 @@ export class PanelFace {
       // horario visto por el piloto (que mira en −N)
       this.key.node.quaternion.setFromAxisAngle(this.N, -this.key.ang)
     }
-    const key = `${s.engineOn}|${s.lightsOn}|${s.rotorBrake}`
+    // (el combustible, por escalones de los pilotos: repintar la cara entera cuesta)
+    const key = `${s.engineOn}|${s.lightsOn}|${s.rotorBrake}|${fuelStep(s)}|${s.radio ?? 0}`
     if (key !== this.drawnKey) {
       this.drawnKey = key
       this.paint()
@@ -389,11 +395,13 @@ export class PanelFace {
   }
 
   private fuel(c: CanvasRenderingContext2D, e: CanvasRenderingContext2D, it: PanelItem): void {
+    // pilotos del nivel: se encienden según lo que queda; RES, con la reserva
+    const f = this.state.fuel ?? 1
     const marks: [string, string, boolean][] = [
-      ['>75', 'g', true],
-      ['>50', 'g', true],
-      ['>25', 'g', true],
-      ['RES', 'r', false],
+      ['>75', 'g', f > 0.75],
+      ['>50', 'g', f > 0.5],
+      ['>25', 'g', f > 0.25],
+      ['RES', 'r', this.state.fuelLow === true],
     ]
     marks.forEach(([txt, col, on], i) => {
       const v = it.v + 0.0165 - i * 0.011
@@ -470,24 +478,68 @@ export class PanelFace {
     e.fillRect(x, y, w, h)
     const green = '#8dffa8'
     const on = this.state.engineOn
-    const lines: [string, number, number][] =
+    // texto completo y, si no cabe a buen tamaño, el compacto
+    const lines: [string, string, number, number][] =
       it.type === 'com'
         ? [
-            ['COM  122.505', 0.36, 0.34],
-            ['SB  123.500', 0.72, 0.24],
+            ['COM  122.505', 'COM 122.505', 0.36, 0.34],
+            ['SB  123.500', 'SB 123.500', 0.72, 0.24],
           ]
         : [
-            ['XPDR  7000', 0.4, 0.34],
-            ['ALT', 0.74, 0.24],
+            ['XPDR  7000', 'XPDR 7000', 0.4, 0.34],
+            ['ALT', 'ALT', 0.74, 0.24],
           ]
     if (!on) return
+    // Ancho útil: los dos mandos del marco (blender/panel.py: radio 6,2 mm, a 9 mm de cada extremo
+    // y 0,18·h por debajo del centro) tapan los extremos de la mitad de abajo; la línea de arriba
+    // tiene casi todo el ancho. En los paneles estrechos (ELA 07, Scorpion: 58 mm) el texto a su
+    // tamaño pasaba de la pantalla: se encoge lo justo para caber.
+    const availTop = w - 2 * 0.0025 * s
+    const availLow = Math.max(w * 0.4, w - 2 * 0.0165 * s)
+    let avail = availTop
+    const MONO = '"DejaVu Sans Mono", Consolas, monospace'
+    /** pone la fuente para que `full` (o `compact`) quepa en `avail`: texto y tamaño (px) */
+    const fit = (ctx: CanvasRenderingContext2D, full: string, compact: string, px: number, weight: number): [string, number] => {
+      ctx.font = `${weight} ${px}px ${MONO}`
+      let txt = full
+      let m = ctx.measureText(txt).width
+      if (m > avail && compact !== full) {
+        const mc = ctx.measureText(compact).width
+        // (el compacto si el completo tendría que encogerse mucho)
+        if (avail / m < 0.8) {
+          txt = compact
+          m = mc
+        }
+      }
+      if (m > avail) {
+        px = Math.max(4, Math.floor((px * avail) / m))
+        ctx.font = `${weight} ${px}px ${MONO}`
+      }
+      return [txt, px]
+    }
+    // radio de voz (multijugador): en la línea de reserva, TX en negativo al transmitir y RX al recibir
+    const radio = it.type === 'com' ? (this.state.radio ?? 0) : 0
+    if (radio) lines.pop()
     for (const ctx of [c, e]) {
       ctx.fillStyle = green
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
-      for (const [txt, fy, fs] of lines) {
-        ctx.font = `600 ${Math.round(h * fs)}px "DejaVu Sans Mono", Consolas, monospace`
+      for (const [full, compact, fy, fs] of lines) {
+        avail = fy < 0.5 ? availTop : availLow
+        const [txt] = fit(ctx, full, compact, Math.round(h * fs), 600)
         ctx.fillText(txt, x + w / 2, y + h * fy)
+      }
+      if (radio) {
+        const label = radio === 2 ? 'TX' : 'RX'
+        avail = availLow
+        const [, fs] = fit(ctx, label, label, Math.round(h * 0.26), 700)
+        const bw = Math.min(fs * 1.9, avail)
+        const cy = y + h * 0.72
+        if (radio === 2) {
+          ctx.fillRect(x + w / 2 - bw / 2, cy - fs * 0.62, bw, fs * 1.24)
+          ctx.fillStyle = '#0a0f0b'
+        }
+        ctx.fillText(label, x + w / 2, cy + fs * 0.04)
       }
     }
   }
@@ -545,6 +597,12 @@ export class PanelFace {
     this.emTex.dispose()
     this.mat.dispose()
   }
+}
+
+/** Escalón de los pilotos del combustible (0-3) y la reserva: solo se repinta al cambiar. */
+function fuelStep(s: PanelState): string {
+  const f = s.fuel ?? 1
+  return `${f > 0.75 ? 3 : f > 0.5 ? 2 : f > 0.25 ? 1 : 0}${s.fuelLow ? 'R' : ''}`
 }
 
 function roundRect(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {

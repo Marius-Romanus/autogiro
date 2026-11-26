@@ -393,6 +393,7 @@ export class SunShadows {
       this.forceAll = true
     }
     this.markCasters(scene)
+    this.markLights(scene)
     this.updateRadii(agl)
 
     const prevTarget = renderer.getRenderTarget()
@@ -400,6 +401,9 @@ export class SunShadows {
     const prevAutoShadow = renderer.shadowMap.autoUpdate
     const prevAutoClear = renderer.autoClear
     const prevMatrixAuto = scene.matrixWorldAutoUpdate
+    const prevSort = renderer.sortObjects
+    // solo se escribe profundidad: el orden de dibujo da igual
+    renderer.sortObjects = false
     renderer.shadowMap.autoUpdate = false
     renderer.autoClear = false
     scene.overrideMaterial = this.depthMaterial
@@ -422,6 +426,7 @@ export class SunShadows {
       t.scissorTest = false
       scene.overrideMaterial = prevOverride
       scene.matrixWorldAutoUpdate = prevMatrixAuto
+      renderer.sortObjects = prevSort
       renderer.shadowMap.autoUpdate = prevAutoShadow
       renderer.autoClear = prevAutoClear
       renderer.setRenderTarget(prevTarget)
@@ -461,6 +466,22 @@ export class SunShadows {
     for (const child of scene.children) {
       if (child.userData.worldShadowCaster) child.traverse((o) => o.layers.enable(WORLD_SHADOW_LAYER))
     }
+  }
+
+  /**
+   * Las luces de la escena, también a la vista de las cámaras de las cascadas. No alumbran nada
+   * ahí (se dibuja solo profundidad), pero three.js lleva la cuenta de las luces de la escena en
+   * cada dibujo: si las cascadas no ven ninguna, la cuenta cambia dos veces por fotograma (0 en
+   * las cascadas, las de verdad en la escena) y cada material iluminado —unos setenta entre el
+   * aparato, edificios, árboles y tráfico— vuelve a calcular de cero qué programa le toca en cada
+   * fotograma (≈1 ms de CPU, visto con la telemetría). Con las luces en la capa, la cuenta no cambia.
+   */
+  private markLights(scene: Scene): void {
+    // (las luces casi nunca cambian: el foco de aterrizaje, al cargar otro aparato)
+    if (!this.forceAll && this.frame % 30 !== 0) return
+    scene.traverse((o) => {
+      if ((o as { isLight?: boolean }).isLight) o.layers.enable(WORLD_SHADOW_LAYER)
+    })
   }
 
   /** Radios por escalones de √2 (cambiarlos de continuo haría titilar los bordes). */
@@ -613,10 +634,18 @@ export class ShadowMaskPass extends Pass {
 }
 
 /**
- * Sonda de la luz del sol en un punto (el aparato): un píxel con las mismas cuentas que los
- * materiales (sombra de edificios y árboles, espesor de las nubes) y lectura asíncrona, sin
- * parar la GPU. x: sol directo que llega (0–1), y: difusa de las nubes (fracción del sol sobre
- * un plano horizontal).
+ * Sonda de la luz del sol en un punto (el aparato): las mismas cuentas que los materiales (sombra
+ * de edificios y árboles, espesor de las nubes) hechas en la GPU, y leídas sin pararla.
+ * x: sol directo que llega (0–1), y: difusa de las nubes (fracción del sol sobre un plano
+ * horizontal); los dos con 8 bits, como el píxel que se leía antes.
+ *
+ * La lectura es por consultas de oclusión, una por bit: dieciséis cuadrados de un píxel que se
+ * descartan o no según el bit que les toca del valor, y la consulta dice si llegó a pintarse
+ * algo. Sus resultados llegan uno o dos fotogramas después y preguntar por ellos no espera a
+ * nada. Leer el píxel (readPixels, también «asíncrono» con búfer y fenceSync) sí espera: recoger
+ * el dato es una ida y vuelta al proceso de la GPU, que antes despacha todo lo que tenga en cola,
+ * y el hilo principal se quedaba parado varios milisegundos cinco veces por segundo
+ * (`getBufferSubData`, 4 % del tiempo en el perfil de CPU).
  */
 export class SunProbe {
   readonly value = new Vector2(1, 0)
@@ -624,46 +653,82 @@ export class SunProbe {
   readonly position = new Vector3()
   private readonly target = new WebGLRenderTarget(1, 1, { depthBuffer: false })
   private readonly scene = new Scene()
-  private readonly pixel = new Uint8Array(4)
-  private busy = false
   private timer = 0
+  private gl: WebGL2RenderingContext | null = null
+  /** una consulta por bit: 0–7 el sol directo, 8–15 la difusa de las nubes */
+  private queries: WebGLQuery[] = []
+  /** hay una medida esperando sus resultados */
+  private pending = false
 
   constructor() {
-    const material = new ShaderMaterial({
-      uniforms: { probePos: new Uniform(this.position), ...wsUniforms, ...csUniforms },
-      vertexShader: /* glsl */ `void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }`,
-      fragmentShader: /* glsl */ `
-        uniform vec3 probePos;
-        ${WS_GLSL}
-        ${CS_GLSL}
-        void main() {
-          gl_FragColor = vec4(clamp(wsSun2(probePos, vec3(0.0), 0.0), 0.0, 1.0), 0.0, 1.0);
-        }`,
-      depthTest: false,
-      depthWrite: false,
-    })
-    const quad = new Mesh(new PlaneGeometry(2, 2), material)
-    quad.frustumCulled = false
-    this.scene.add(quad)
+    const geometry = new PlaneGeometry(2, 2)
+    for (let bit = 0; bit < 16; bit++) {
+      // (mismo programa para los dieciséis: solo cambia el uniforme)
+      const material = new ShaderMaterial({
+        uniforms: { probePos: new Uniform(this.position), probeBit: new Uniform(bit), ...wsUniforms, ...csUniforms },
+        vertexShader: /* glsl */ `void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+        fragmentShader: /* glsl */ `
+          uniform vec3 probePos;
+          uniform int probeBit;
+          ${WS_GLSL}
+          ${CS_GLSL}
+          void main() {
+            vec2 v = clamp(wsSun2(probePos, vec3(0.0), 0.0), 0.0, 1.0);
+            // el byte que guardaría un búfer de 8 bits por canal, y de él el bit de esta consulta
+            int q = int(floor((probeBit < 8 ? v.x : v.y) * 255.0 + 0.5));
+            int b = probeBit < 8 ? probeBit : probeBit - 8;
+            if (((q >> b) & 1) == 0) discard;
+            gl_FragColor = vec4(1.0);
+          }`,
+        depthTest: false,
+        depthWrite: false,
+      })
+      const quad = new Mesh(geometry, material)
+      quad.frustumCulled = false
+      quad.renderOrder = bit
+      quad.onBeforeRender = () => this.gl!.beginQuery(this.gl!.ANY_SAMPLES_PASSED, this.queries[bit])
+      quad.onAfterRender = () => this.gl!.endQuery(this.gl!.ANY_SAMPLES_PASSED)
+      this.scene.add(quad)
+    }
+  }
+
+  /** Recoge la medida pendiente si sus resultados ya han llegado (no espera a la GPU). */
+  poll(): void {
+    const gl = this.gl
+    if (!this.pending || !gl || gl.isContextLost()) return
+    const last = this.queries[15]
+    if (!gl.isQuery(last)) {
+      // contexto restaurado: las consultas de antes ya no existen
+      this.queries = []
+      this.pending = false
+      return
+    }
+    // (acaban en orden: si está la última, están todas)
+    if (!gl.getQueryParameter(last, gl.QUERY_RESULT_AVAILABLE)) return
+    let x = 0
+    let y = 0
+    for (let b = 0; b < 8; b++) {
+      if (gl.getQueryParameter(this.queries[b], gl.QUERY_RESULT)) x |= 1 << b
+      if (gl.getQueryParameter(this.queries[b + 8], gl.QUERY_RESULT)) y |= 1 << b
+    }
+    this.pending = false
+    this.value.set(x / 255, y / 255)
   }
 
   /** Mide cada 0,2 s con la cámara principal (sus matrices eligen las cascadas). */
   update(dt: number, renderer: WebGLRenderer, camera: Camera): void {
     this.timer -= dt
-    if (this.busy || this.timer > 0) return
+    if (this.pending || this.timer > 0) return
     this.timer = 0.2
+    const gl = renderer.getContext() as WebGL2RenderingContext
+    if (gl.isContextLost()) return
+    this.gl = gl
+    if (this.queries.length === 0) for (let i = 0; i < 16; i++) this.queries.push(gl.createQuery()!)
     const prev = renderer.getRenderTarget()
     renderer.setRenderTarget(this.target)
     renderer.render(this.scene, camera)
     renderer.setRenderTarget(prev)
-    this.busy = true
-    renderer
-      .readRenderTargetPixelsAsync(this.target, 0, 0, 1, 1, this.pixel)
-      .then(() => this.value.set(this.pixel[0] / 255, this.pixel[1] / 255))
-      .catch(() => {})
-      .finally(() => {
-        this.busy = false
-      })
+    this.pending = true
   }
 }
 

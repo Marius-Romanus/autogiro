@@ -18,6 +18,7 @@
       <div id="brand">AUTOGIRO</div>
       <div id="status"></div>
       <button id="btn-guide" type="button" aria-pressed="true" title="Guía de pilotaje (J)" data-i18n-attr="title:guide.title"><span data-i18n="guide.label">Guía</span><kbd>J</kbd></button>
+      <button id="btn-hud" class="on" type="button" aria-pressed="true" title="Relojes en pantalla (I): en cabina y en las vistas exteriores se recuerdan por separado" data-i18n-attr="title:hudBtn.title"><span data-i18n="hudBtn.label">Relojes</span><kbd>I</kbd></button>
       <button id="btn-lights" type="button" aria-pressed="false" title="Luces exteriores (L)" data-i18n-attr="title:lights.title"><span class="lamp" aria-hidden="true"></span><span data-i18n="lights.label">Luces</span><kbd>L</kbd></button>
     </div>
     <div id="attribution"></div>
@@ -42,18 +43,22 @@
         <div><kbd>B</kbd></div><div>Freno de rotor</div>
         <div><kbd>Espacio</kbd> · <kbd>O</kbd></div><div>Frenos de ruedas · freno de parking</div>
         <div><kbd>M</kbd></div><div>Motor encendido / apagado</div>
+        <div><kbd>F2</kbd></div><div>Simulacro de fallo de motor: el instructor quita gas (otra vez <kbd>F2</kbd>, motor y al aire); con fallos reales en el menú, un fallo</div>
         <div><kbd>L</kbd></div><div>Luces exteriores (navegación, destellos y aterrizaje)</div>
         <div><kbd>U</kbd></div><div>Fumigación (Gyro Tractor): abrir o cerrar el paso de las barras</div>
+        <div><kbd>Y</kbd></div><div>Tren: el anfibio (con flotadores anfibios) se sube para el agua; el retráctil (Sigilo) se sube en vuelo para ir más rápido</div>
         <div><kbd>Tab</kbd></div><div>Etiquetas y flechas de los demás pilotos (multijugador)</div>
+        <div><kbd>º</kbd> (mantener)</div><div>Hablar por la radio de voz (multijugador, con la radio activada; la tecla a la izquierda del 1)</div>
         <div><kbd>C</kbd> · <kbd>V</kbd></div><div>Cambiar cámara · mirar atrás</div>
         <div>Ratón (arrastrar) · rueda</div><div>Mirar alrededor · zoom</div>
         <div><kbd>K</kbd> · botón central</div><div>Ratón como palanca · en ese modo, rueda = zoom / gas</div>
         <div><kbd>J</kbd></div><div>Guía de pilotaje lateral (despegue, vuelo y aterrizaje)</div>
-        <div><kbd>I</kbd> · <kbd>H</kbd></div><div>Ocultar instrumentos · esta ayuda</div>
+        <div><kbd>I</kbd> · <kbd>H</kbd></div><div>Mostrar u ocultar los relojes en pantalla (en cabina y fuera, por separado) · esta ayuda</div>
         <div><kbd>F3</kbd></div><div>Telemetría de rendimiento (FPS, CPU, GPU, memoria)</div>
+        <div><kbd>F4</kbd></div><div>Repetición del vuelo: <kbd>Espacio</kbd> pausa, <kbd>←</kbd><kbd>→</kbd> saltar, <kbd>J</kbd> cámara lenta, <kbd>C</kbd> cámara; traza en GPX y KML</div>
         <div><kbd>Retroceso</kbd> · <kbd>Esc</kbd></div><div>Reiniciar · menú</div>
       </div>
-      <p class="muted" data-i18n="help.pad">Mando tipo Xbox: stick izquierdo = palanca, stick derecho = pedales, gatillos = gas, A = prerrotador, B = frenos, LB/RB = compensador, Y = fumigación. Joystick: ejes configurables en el menú.</p>
+      <p class="muted" data-i18n="help.pad">Mando tipo Xbox: stick izquierdo = palanca, stick derecho = pedales, gatillos = gas, A = prerrotador, B = frenos, LB/RB = compensador, Y = fumigación, X = radio (mantener). Joystick: ejes y botón de radio configurables en el menú.</p>
     </div>
 
     <div id="loading" class="hidden">
@@ -114,7 +119,8 @@
           <button type="button" data-tab="salida"><span class="m-n">2</span><span data-i18n="menu.tabDeparture">Salida</span></button>
           <button type="button" data-tab="meteo"><span class="m-n">3</span><span data-i18n="menu.tabWeather">Hora y meteo</span></button>
           <button type="button" data-tab="escenario"><span class="m-n">4</span><span data-i18n="menu.tabScenery">Escenario</span></button>
-          <button type="button" data-tab="multi"><span class="m-n">5</span><span data-i18n="menu.tabMulti">Multijugador</span></button>
+          <button type="button" data-tab="escuela"><span class="m-n">5</span><span data-i18n="menu.tabSchool">Escuela</span></button>
+          <button type="button" data-tab="multi"><span class="m-n">6</span><span data-i18n="menu.tabMulti">Multijugador</span></button>
         </nav>
 
         <div class="m-screen-title">
@@ -148,6 +154,11 @@
             <label class="m-row">
               <span><b data-i18n="menu.passengerT">Con pasajero</b><small id="passengerNote"></small></span>
               <span class="m-sw"><input id="passenger" type="checkbox" /><i></i></span>
+            </label>
+            <!-- solo en los aparatos que han volado con flotadores (src/sim/floatKit.ts); el Wilford los lleva de serie -->
+            <label class="m-row" id="floatsRow" hidden>
+              <span><b data-i18n="menu.floatsT">Con flotadores</b><small id="floatsNote"></small></span>
+              <span class="m-sw"><input id="floats" type="checkbox" /><i></i></span>
             </label>
           </section>
 
@@ -207,13 +218,23 @@
           <!-- 3 · hora y meteo -->
           <section class="m-pane" data-pane="meteo">
             <div class="pane-head"><span class="m-kicker" data-i18n="menu.step3">Paso 3 de 4</span><h2 data-i18n="menu.tabWeather">Hora y meteo</h2></div>
+            <!-- tiempo real de Open-Meteo en la salida (src/menu/weatherMenu.ts, openMeteo.ts) -->
+            <div class="wx-real">
+              <button id="btn-realwx" type="button" class="m-mapbtn wx-btn">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="3.2" /><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1" /><path d="M9.5 20.5h9a3.5 3.5 0 0 0 0-7 5 5 0 0 0-9.4 1.3A2.9 2.9 0 0 0 9.5 20.5z" /></svg>
+                <span data-i18n="wx.real">Tiempo real</span>
+                <small data-i18n="wx.realSub">El de ahora mismo en la salida: viento, nubes, temperatura, presión, hora y fecha</small>
+              </button>
+              <p class="m-hint wx-credit"><span data-i18n="wx.credit">Datos meteorológicos de</span> <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (<a href="https://creativecommons.org/licenses/by/4.0/deed.es" target="_blank" rel="noopener">CC BY 4.0</a>)</p>
+              <p id="wxStatus" class="m-note wx-status" role="status" aria-live="polite"></p>
+            </div>
             <div class="sun-box">
               <svg id="sunArc" class="sun-arc" viewBox="0 0 300 128" aria-hidden="true"></svg>
               <div class="sun-read"><b id="hourBig"></b><span id="dayBig"></span></div>
             </div>
             <div class="m-field">
               <label for="hour"><span data-i18n="menu.hour">Hora</span> <output id="hourOut"></output></label>
-              <input id="hour" type="range" min="5" max="21.5" step="0.25" />
+              <input id="hour" type="range" min="0" max="23.75" step="0.25" />
             </div>
             <div class="m-field">
               <label for="dayOfYear"><span data-i18n="menu.date">Fecha</span> <output id="dayOut"></output></label>
@@ -231,7 +252,7 @@
                 </div>
                 <div class="m-field">
                   <label for="windSpeed"><span data-i18n="menu.windSpeed">Intensidad</span> <output id="windSpeedOut"></output></label>
-                  <input id="windSpeed" type="range" min="0" max="25" step="1" />
+                  <input id="windSpeed" type="range" min="0" max="40" step="1" />
                 </div>
                 <div class="m-field">
                   <label for="turbulence"><span data-i18n="menu.turbulence">Turbulencia</span> <output id="turbOut"></output></label>
@@ -239,6 +260,11 @@
                 </div>
               </div>
             </div>
+            <!-- viento del terreno: relieve, obstáculos, térmicas y perfil del día (src/sim/wind) -->
+            <label class="m-row m-compact wind-terrain">
+              <span><b data-i18n="menu.terrainWindT">Viento del relieve y térmicas</b><small data-i18n="menu.terrainWindD">Ascendencias de ladera, sotavento, abrigo de hangares y árboles, térmicas según el sol y el suelo, y cizalladura según la hora. La turbulencia sale del sitio: al 25 % queda tal cual</small></span>
+              <span class="m-sw"><input id="terrainWind" type="checkbox" /><i></i></span>
+            </label>
             <div class="m-field">
               <span class="m-label" data-i18n="menu.sky">Cielo</span>
               <select id="clouds" class="m-src" aria-hidden="true" tabindex="-1">
@@ -253,6 +279,25 @@
                 <button type="button" data-value="scattered"><svg viewBox="0 0 40 28" aria-hidden="true"><path d="M5 21h12a4 4 0 0 0 0-8 5.6 5.6 0 0 0-10.7 1.3A3.4 3.4 0 0 0 5 21z" /><path d="M20 15h13a4.3 4.3 0 0 0 0-8.6 6 6 0 0 0-11.5 1.4A3.6 3.6 0 0 0 20 15z" /></svg><span data-i18n="menu.clouds.scattered">Nubes dispersas</span></button>
                 <button type="button" data-value="overcast"><svg viewBox="0 0 40 28" aria-hidden="true"><path d="M4 12h32M2 18h36M5 24h30" /></svg><span data-i18n="menu.clouds.overcast">Cubierto</span></button>
               </div>
+            </div>
+            <!-- aire del día: atmósfera estándar o temperatura y QNH (src/sim/airMass.ts) -->
+            <div class="air-box">
+              <span class="m-label" data-i18n="wx.air">Temperatura y presión</span>
+              <label class="m-row m-compact">
+                <span><b data-i18n="wx.isa">Atmósfera estándar (ISA)</b><small id="isaNote"></small></span>
+                <span class="m-sw"><input id="isaAir" type="checkbox" /><i></i></span>
+              </label>
+              <div id="airFields" class="m-two">
+                <div class="m-field">
+                  <label for="oatC"><span data-i18n="wx.oat">Temperatura en el suelo</span> <output id="oatOut"></output></label>
+                  <input id="oatC" type="range" min="-30" max="50" step="1" />
+                </div>
+                <div class="m-field">
+                  <label for="qnh"><span>QNH</span> <output id="qnhOut"></output></label>
+                  <input id="qnh" type="range" min="950" max="1050" step="1" />
+                </div>
+              </div>
+              <p id="airNote" class="m-note air-note"></p>
             </div>
           </section>
 
@@ -306,6 +351,18 @@
                 <span class="m-sw"><input id="traffic" type="checkbox" /><i></i></span>
               </label>
               <label class="m-row">
+                <span><b data-i18n="menu.airTrafficT">Tráfico aéreo</b><small data-i18n="menu.airTrafficD">Otros autogiros en los aeródromos: ruedan, despegan, hacen circuitos y avisan por radio. De día y con buen tiempo; no en las salas ni en la escuela</small></span>
+                <span class="m-sw"><input id="airTraffic" type="checkbox" /><i></i></span>
+              </label>
+              <div class="m-field">
+                <label for="airTrafficDensity" data-i18n="menu.airTrafficDensityT">Cuánto tráfico aéreo</label>
+                <select id="airTrafficDensity">
+                  <option value="low" data-i18n="menu.airTraffic.low">Poco</option>
+                  <option value="normal" data-i18n="menu.airTraffic.normal">Normal</option>
+                  <option value="high" data-i18n="menu.airTraffic.high">Mucho</option>
+                </select>
+              </div>
+              <label class="m-row">
                 <span><b data-i18n="menu.powerT">Tendidos eléctricos</b><small data-i18n="menu.powerD">Torres y cables de alta, media y baja tensión de OpenStreetMap; se choca con ellos</small></span>
                 <span class="m-sw"><input id="power" type="checkbox" /><i></i></span>
               </label>
@@ -338,7 +395,15 @@
             </div>
           </section>
 
-          <!-- 5 · multijugador: la sección la pone src/net/Multiplayer.ts en #mp-slot -->
+          <!-- 5 · escuela: ejercicios con nota y progreso; la pinta src/school/schoolMenu.ts en #school-slot -->
+          <section class="m-pane" data-pane="escuela">
+            <div class="pane-head"><span class="m-kicker" data-i18n="school.kicker">Como en el curso</span><h2 data-i18n="school.title">Escuela de vuelo</h2></div>
+            <!-- fallos de motor del vuelo libre (src/menu/fuelMenu.ts): los ejercicios ponen los suyos -->
+            <div id="failBox" class="fail-box"></div>
+            <div id="school-slot"></div>
+          </section>
+
+          <!-- 6 · multijugador: la sección la pone src/net/Multiplayer.ts en #mp-slot -->
           <section class="m-pane" data-pane="multi">
             <div class="pane-head"><span class="m-kicker" data-i18n="menu.optional">Opcional</span><h2 data-i18n="menu.flyFriends">Vuela con amigos</h2></div>
             <div id="mp-slot"></div>

@@ -42,6 +42,15 @@ function avgSin(prev: number, cur: number): number {
 /** Retraso de la cámara de persecución por la velocidad del aparato (s): la deja algo atrás al ir rápido. */
 const CHASE_LAG = 1 / 8
 
+/** Estado guardado de la cámara (CameraRig.saveState). */
+export interface CameraRigState {
+  mode: CamMode
+  n: number[]
+  v: Vector3[]
+  chaseReset: boolean
+  lookBack: boolean
+}
+
 export class CameraRig {
   mode: CamMode = 'chase'
   private yawOff = 0
@@ -200,6 +209,32 @@ export class CameraRig {
       cam.updateProjectionMatrix()
     }
     view.setCockpitView(this.mode === 'cockpit')
+  }
+
+  /** Espectador en tierra (modo «Desde tierra»): la repetición lo pone donde mejor se ve (src/replay). */
+  setTower(p: Vector3): void {
+    this.towerPos.copy(p)
+  }
+
+  /** Copia del estado de la cámara (la repetición la guarda al entrar y la devuelve al salir). */
+  saveState(): CameraRigState {
+    return {
+      mode: this.mode,
+      n: [this.yawOff, this.pitchOff, this.dist, this.orbitYaw, this.orbitPitch, this.orbitDist, this.chaseYaw, this.headG, this.fov, this.timeScale],
+      v: [this.towerPos.clone(), this.chaseOff.clone(), this.chaseVel.clone()],
+      chaseReset: this.chaseReset,
+      lookBack: this.lookBack,
+    }
+  }
+
+  restoreState(s: CameraRigState): void {
+    this.mode = s.mode
+    ;[this.yawOff, this.pitchOff, this.dist, this.orbitYaw, this.orbitPitch, this.orbitDist, this.chaseYaw, this.headG, this.fov, this.timeScale] = s.n
+    this.towerPos.copy(s.v[0])
+    this.chaseOff.copy(s.v[1])
+    this.chaseVel.copy(s.v[2])
+    this.chaseReset = s.chaseReset
+    this.lookBack = s.lookBack
   }
 
   /** Aplica la transformación de re-centrado a los estados internos. */

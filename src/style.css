@@ -282,6 +282,22 @@ button.big {
   color: var(--muted);
 }
 
+/* emergencia de motor (fallo real en rojo; simulacro y reserva en ámbar) */
+#tips[data-phase='emergency'] {
+  border-left-color: #ff5a3c;
+}
+#tips[data-phase='emergency'] .guide-em {
+  color: #ff7a5c;
+}
+#tips[data-em='drill'],
+#tips[data-em='fuel'] {
+  border-left-color: #ffb23a;
+}
+#tips[data-em='drill'] .guide-em,
+#tips[data-em='fuel'] .guide-em {
+  color: #ffb23a;
+}
+
 /* mandos (tecla H) */
 #help {
   position: fixed;
@@ -724,11 +740,12 @@ details a {
   overflow-wrap: anywhere;
 }
 
-/* botones de la barra superior: guía (J) y luces exteriores (L) */
+/* botones de la barra superior: guía (J), relojes en pantalla (I) y luces exteriores (L) */
 #btn-guide {
   margin-left: auto;
 }
 #btn-guide,
+#btn-hud,
 #btn-lights {
   pointer-events: auto;
   display: inline-flex;
@@ -748,11 +765,13 @@ details a {
   transition: background 0.2s, border-color 0.2s, color 0.2s;
 }
 #btn-guide:hover,
+#btn-hud:hover,
 #btn-lights:hover {
   background: rgba(8, 10, 12, 0.82);
   color: #fff;
 }
 #btn-guide kbd,
+#btn-hud kbd,
 #btn-lights kbd {
   font-size: 12px;
   opacity: 0.7;
@@ -765,6 +784,7 @@ details a {
   transition: background 0.2s, box-shadow 0.2s;
 }
 #btn-guide.on,
+#btn-hud.on,
 #btn-lights.on {
   border-bottom-color: var(--accent);
   color: #fff;

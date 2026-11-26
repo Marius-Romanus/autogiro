@@ -32,7 +32,11 @@ export abstract class TileLayer<T extends LayerTile> {
   protected disposed = false
   protected maxConcurrent = 2
   private loading = 0
-  /** fallos seguidos de cada tesela (se reintenta 3 veces, cada 10 s) */
+  /**
+   * fallos seguidos de cada tesela: se reintenta mientras siga haciendo falta, cada vez más
+   * espaciado (8, 16, 32 s… hasta 1 min). Un corte de red de unos minutos no deja una zona sin
+   * edificios para el resto del vuelo.
+   */
   private readonly failCount = new Map<string, number>()
   private timer = 0
   private readonly label: string
@@ -44,6 +48,9 @@ export abstract class TileLayer<T extends LayerTile> {
     this.group.name = label
     // edificios y árboles proyectan sombra del sol (render/SunShadows.ts)
     this.group.userData.worldShadowCaster = true
+    // todo lo que cuelga de `group` se ilumina con luces reales (alfa 0): fuera del pase de
+    // normales (Graphics.ts). Lo que sea albedo sobre el terreno va en otro grupo (calcas de los puentes).
+    this.group.userData.litOnly = true
   }
 
   /** Crea la tesela (sin cargar nada). */
@@ -90,7 +97,7 @@ export abstract class TileLayer<T extends LayerTile> {
       if (t.dist > r * 1.35 + 0.5) {
         this.removeTile(key)
         this.failCount.delete(key)
-      } else if (t.state === 'failed' && now - (t.failedAt ?? 0) > 10000 && (this.failCount.get(key) ?? 0) <= 3) {
+      } else if (t.state === 'failed' && now - (t.failedAt ?? 0) > Math.min(60000, 8000 * 2 ** ((this.failCount.get(key) ?? 1) - 1))) {
         // un corte de red al pedirla: fuera, y la próxima revisión la vuelve a cargar
         this.removeTile(key)
       } else if (t.state === 'ready' || t.state === 'empty') this.failCount.delete(key)
@@ -137,16 +144,69 @@ export abstract class TileLayer<T extends LayerTile> {
     this.loadTile(t)
       .catch((e) => {
         if (t.abort.signal.aborted) return
-        console.warn(`${this.label}: error en la tesela`, t.key, e)
+        const fails = (this.failCount.get(t.key) ?? 0) + 1
+        if (fails === 1) console.warn(`${this.label}: error en la tesela`, t.key, e)
         t.state = 'failed'
         t.failedAt = performance.now()
-        this.failCount.set(t.key, (this.failCount.get(t.key) ?? 0) + 1)
+        this.failCount.set(t.key, fails)
       })
       .finally(() => this.loading--)
   }
 }
 
-/** Cede el hilo principal si el trozo de trabajo actual ya pasa de `ms` (para no dar tirones). */
+/**
+ * Reparto del trabajo de fondo (generar edificios, árboles, puentes, tendidos) entre fotogramas.
+ *
+ * Cada generador trabaja en tramos de unos 5 ms y cede el hilo (Slicer), pero cada uno por su
+ * cuenta: con dos o tres teselas en marcha se encadenaban varios tramos entre dos fotogramas y
+ * uno de cada siete se alargaba la mitad o más (perfil de CPU volando sobre Madrid). Aquí
+ * comparten un presupuesto por fotograma: el que lo agota espera al siguiente, y sigue después
+ * de que el fotograma se haya entregado. Lo fija World.update al empezar cada fotograma.
+ */
+export const backgroundWork = {
+  /** ms de trabajo de fondo que caben en este fotograma */
+  budgetMs: Infinity,
+  /** los gastados ya */
+  used: 0,
+  /** fotogramas contados (0 = no hay bucle de dibujo: las herramientas de Node) */
+  frames: 0,
+  lastFrame: 0,
+  waiters: [] as Array<() => void>,
+  /** Principio de un fotograma, con lo que se le deja al trabajo de fondo. */
+  beginFrame(budgetMs: number): void {
+    this.budgetMs = budgetMs
+    this.used = 0
+    this.frames++
+    this.lastFrame = performance.now()
+    // (los que esperan siguen en una tarea aparte: después de que este fotograma se entregue)
+    if (this.waiters.length) setTimeout(resumeWaiters, 0)
+  },
+}
+
+function resumeWaiters(): void {
+  const list = backgroundWork.waiters
+  backgroundWork.waiters = []
+  for (const go of list) go()
+}
+
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false
+    const go = (): void => {
+      if (done) return
+      done = true
+      resolve()
+    }
+    backgroundWork.waiters.push(go)
+    // (si dejan de llegar fotogramas —pestaña oculta—, que no se quede parado)
+    setTimeout(go, 150)
+  })
+}
+
+/**
+ * Cede el hilo principal si el trozo de trabajo actual ya pasa de `ms` o si entre todos han
+ * agotado el presupuesto del fotograma (backgroundWork), para no dar tirones.
+ */
 export class Slicer {
   private t = performance.now()
   private readonly ms: number
@@ -154,8 +214,17 @@ export class Slicer {
     this.ms = ms
   }
   async yield(signal: AbortSignal): Promise<boolean> {
-    if (performance.now() - this.t < this.ms) return !signal.aborted
-    await new Promise((r) => setTimeout(r, 0))
+    const now = performance.now()
+    const spent = now - this.t
+    const bw = backgroundWork
+    // (sin fotogramas recientes no hay a quién molestar: solo cuenta el tramo propio)
+    const framed = bw.frames > 0 && now - bw.lastFrame < 150
+    if (spent < this.ms && (!framed || bw.used + spent < bw.budgetMs)) return !signal.aborted
+    if (framed) {
+      bw.used += spent
+      if (bw.used >= bw.budgetMs) await nextFrame()
+      else await new Promise((r) => setTimeout(r, 0))
+    } else await new Promise((r) => setTimeout(r, 0))
     this.t = performance.now()
     return !signal.aborted
   }

@@ -1,0 +1,206 @@
+/* Radio de voz, estilo «Pista»: bloque del menú multijugador, filas de Ajustes, caja COM en vuelo
+   e iconos de «hablando» en la lista de pilotos y en las etiquetas. */
+
+/* --- menú › multijugador --- */
+#menu .rd-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#menu .rd-menu .m-row {
+  border-bottom: 1px solid var(--m-faint);
+}
+#menu .rd-menu kbd,
+#menu .rd-status kbd {
+  font: 700 15px/1 var(--m-cond);
+  padding: 1px 6px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+#menu .rd-dev {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+#menu .rd-dev label {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--m-muted);
+}
+#menu .rd-dev select {
+  min-width: 0;
+}
+#menu .rd-status {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--m-muted);
+}
+#menu .rd-status:empty {
+  display: none;
+}
+#menu .rd-status.bad {
+  color: #ffb23a;
+}
+
+/* --- ajustes › joystick: botón de radio --- */
+#menu .rd-pad {
+  cursor: default;
+}
+#menu .rd-pad-btns {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+#menu .rd-pad button {
+  height: 34px;
+  padding: 0 14px;
+  background: rgba(255, 255, 255, 0.12);
+  font: 700 15px/1 var(--m-cond);
+  text-transform: uppercase;
+}
+#menu .rd-pad button:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+#menu .rd-pad.rd-live b {
+  color: var(--m-sign);
+}
+
+/* --- caja COM en vuelo (encima del panel de instrumentos) --- */
+.rd-com {
+  position: fixed;
+  left: 50%;
+  bottom: 210px;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 8px;
+  background: rgba(8, 10, 12, 0.72);
+  border-left: 3px solid var(--accent);
+  font: 600 15px/1.25 var(--font-cond);
+  color: #fff;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.rd-com.hidden,
+.rd-com .hidden {
+  display: none;
+}
+.rd-com-k {
+  font: 700 12px/1 var(--font-cond);
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.6);
+}
+/* TX: como el anunciador de la radio del panel, amarillo señal sobre negro */
+.rd-com-tx {
+  padding: 1px 7px;
+  font: 700 16px/1.2 var(--font-cond);
+  letter-spacing: 0.1em;
+  background: var(--accent);
+  color: var(--ink);
+}
+.rd-com.tx {
+  border-left-color: var(--accent);
+}
+.rd-meter {
+  position: relative;
+  width: 64px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.16);
+}
+.rd-meter i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  background: var(--accent);
+  transition: width 60ms linear;
+}
+.rd-com-rx {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rd-com-rx b {
+  font: 700 16px/1.2 var(--font-cond);
+}
+.rd-com-rx small {
+  font: 600 12px/1 var(--font-cond);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #ffb23a;
+}
+.rd-com .rd-sep {
+  color: rgba(255, 255, 255, 0.5);
+}
+.rd-com.weak {
+  animation: rd-crackle 0.42s steps(2) infinite;
+}
+@keyframes rd-crackle {
+  50% {
+    opacity: 0.72;
+  }
+}
+
+/* --- icono de ondas: lista de pilotos y etiquetas --- */
+.rd-wave {
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: var(--accent);
+}
+.rd-wave svg {
+  width: 100%;
+  height: 100%;
+}
+.rd-com .rd-wave,
+.rd-talking .rd-wave,
+.mp-tag.rd-talking .rd-wave {
+  animation: rd-pulse 0.8s ease-in-out infinite;
+}
+@keyframes rd-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+/* radio encendida pero sin hablar: icono apagado */
+.rd-wave.rd-idle {
+  color: rgba(255, 255, 255, 0.4);
+  animation: none;
+}
+/* en las etiquetas, un cuadrito a la izquierda (no cambia su tamaño ni su colocación) */
+.mp-tag .rd-wave,
+.mp-edge-label .rd-wave {
+  display: none;
+  position: absolute;
+  left: -22px;
+  top: 50%;
+  width: 20px;
+  height: 20px;
+  margin-top: -10px;
+  padding: 2px;
+  box-sizing: border-box;
+  background: rgba(8, 10, 12, 0.72);
+}
+.mp-tag.rd-talking .rd-wave,
+.mp-edge.rd-talking .mp-edge-label .rd-wave {
+  display: block;
+}
+.mp-tag.rd-talking,
+.mp-edge.rd-talking .mp-edge-label {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.mp-tag.rd-weak .rd-wave,
+.mp-edge.rd-weak .rd-wave {
+  color: #ffb23a;
+}
+.mp-hud li.rd-talking b {
+  text-shadow: 0 0 6px rgba(246, 196, 0, 0.55);
+}

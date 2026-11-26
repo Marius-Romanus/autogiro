@@ -27,6 +27,26 @@ export const MIN_CLEAR = 2
  * (12 m) un tablero incrustado normal ya ha caído casi todo; un talud, no.
  */
 const SIDES = [8, 12, 24, 36]
+/**
+ * Tableros incrustados altos (20 m o más sobre el terreno de los lados, como el puente de Cádiz
+ * sobre la bahía): el MDT los une al agua con triángulos largos que pasan de los 36 m de SIDES, y
+ * el rebaje dejaba a los lados paredes de terreno de 10–25 m. Ahí se sigue mirando más lejos.
+ */
+const TALL = 20
+const WIDE = [50, 70, 95, 125]
+/** pendiente máxima de la rasante (m/m) más allá del último tramo con el tablero en el MDT */
+const MAX_GRADE: Record<string, number> = { road: 0.06, rail: 0.035, path: 0.08 }
+/** cola (m) sin tablero en el MDT a partir de la que se aplica esa pendiente */
+const LONG_TAIL = 150
+/** largo máximo (m) de la rampa del MDT que se rebaja más allá de un tramo incrustado */
+const RAMP_MAX = 60
+/**
+ * Acuerdos verticales: la rasante se promedia en ±VCURVE m a lo largo del eje (menos cerca de los
+ * extremos, que no se mueven). Un cambio de pendiente pasa a repartirse en una curva de 2·VCURVE m
+ * en vez de en un quiebro, como en una carretera de verdad; con el quiebro los coches cabeceaban
+ * de golpe y los semirremolques se doblaban sobre la cresta.
+ */
+const VCURVE = 30
 /** el rebaje se funde con el terreno en los últimos metros de su ancho */
 const CARVE_BLEND = 6
 /** relleno de los accesos: talud del terraplén (m en horizontal por m de altura) */
@@ -335,19 +355,24 @@ export class ChainBuilder {
     }
     // alturas del terreno a lo largo del puente (a trozos, para no pedir todo el rectángulo)
     const side = this.opts.carve ? SIDES[SIDES.length - 1] + 30 : 14
-    for (let i = 0; i < n; i += 20) {
-      const j = Math.min(n - 1, i + 20)
-      const padLat = side / mLat
-      const padLon = side / mLon
-      pending.push(
-        this.heights.ensure(
-          Math.min(c.lat[i], c.lat[j]) - padLat,
-          Math.min(c.lon[i], c.lon[j]) - padLon,
-          Math.max(c.lat[i], c.lat[j]) + padLat,
-          Math.max(c.lon[i], c.lon[j]) + padLon,
-        ),
-      )
+    const ensureAlong = (pad: number): Array<Promise<void>> => {
+      const jobs: Array<Promise<void>> = []
+      for (let i = 0; i < n; i += 20) {
+        const j = Math.min(n - 1, i + 20)
+        const padLat = pad / mLat
+        const padLon = pad / mLon
+        jobs.push(
+          this.heights.ensure(
+            Math.min(c.lat[i], c.lat[j]) - padLat,
+            Math.min(c.lon[i], c.lon[j]) - padLon,
+            Math.max(c.lat[i], c.lat[j]) + padLat,
+            Math.max(c.lon[i], c.lon[j]) + padLon,
+          ),
+        )
+      }
+      return jobs
     }
+    pending.push(...ensureAlong(side))
     await Promise.all(pending)
 
     // terreno bajo el eje (lo que falte, del vecino)
@@ -406,8 +431,23 @@ export class ChainBuilder {
       c.dTerm[i] = dMin
     }
 
-    // tableros incrustados en el terreno: rebajarlo (y contar con el terreno ya rebajado)
-    if (this.opts.carve) this.detectCarve(c)
+    // tableros incrustados en el terreno: rebajarlo (y contar con el terreno ya rebajado). Si el
+    // terreno bajo el eje queda 20 m o más por encima del de los lados (un tablero alto metido en
+    // el MDT), el rebaje mira más lejos (WIDE): pedir antes ese terreno, solo para esos puentes
+    if (this.opts.carve) {
+      let tall = false
+      for (let i = 0; i < n && !tall; i += 3) {
+        for (const off of [-(c.hw[i] + SIDES[SIDES.length - 1]), c.hw[i] + SIDES[SIDES.length - 1]]) {
+          const [la, lo] = offsetGeo(c, i, off)
+          const h = this.heights.sample(la, lo)
+          if (h !== null && g[i] - h >= TALL) tall = true
+        }
+      }
+      if (tall) await Promise.all(ensureAlong(WIDE[WIDE.length - 1] + 40))
+      this.detectCarve(c)
+    }
+    // acuerdos verticales en los cambios de pendiente (antes de mirar el terreno: si asoma, se sube)
+    smoothDeck(c, VCURVE)
 
     // el tablero nunca por debajo del terreno: donde este asoma, se sube suavemente
     {
@@ -770,10 +810,27 @@ export class ChainBuilder {
     // Donde el MDT trae el tablero, su altura es la de verdad (es LiDAR de la calzada): la rasante
     // deducida de los estribos se corrige para pasar por esos puntos, interpolando entre ellos y
     // volviendo a cero en los extremos de la cadena (donde manda el terreno del estribo o el cruce).
+    // Solo valen las estaciones cuya altura sigue a la de sus vecinas marcadas (a dos estaciones,
+    // por cada lado que lo esté) como lo haría una calzada: 12 % de pendiente y 1,5 m de ruido. En
+    // los bordes de cada tramo incrustado el MDT baja en rampa hasta el agua o el suelo (de 14 a
+    // 37 m en 12 m en Cádiz) y anclar la rasante ahí la hacía caer en cada hueco entre tramos y
+    // subir de golpe en el siguiente.
+    const trusted = new Uint8Array(n)
+    for (let i = 0; i < n; i++) {
+      if (flag[i] !== 1) continue
+      let seen = 0
+      let ok = true
+      for (const j of [i - 2, i + 2]) {
+        if (j < 0 || j >= n || !flag[j]) continue
+        seen++
+        if (Math.abs(top[i] - top[j]) > 0.12 * Math.abs(c.s[i] - c.s[j]) + 1.5) ok = false
+      }
+      if (seen > 0 && ok) trusted[i] = 1
+    }
     {
       const anchors: Array<[number, number]> = [[0, 0]]
       for (let i = 0; i < n; i++) {
-        if (flag[i] !== 1) continue
+        if (!trusted[i]) continue
         // (cerca de un extremo, lo que quepa con un 8 % de rampa)
         const room = 0.08 * Math.min(c.s[i], c.len - c.s[i])
         anchors.push([c.s[i], Math.min(room, Math.max(-room, top[i] + 0.3 - c.deck[i]))])
@@ -787,15 +844,120 @@ export class ChainBuilder {
         const [s1, v1] = anchors[k + 1]
         up[i] = s1 > s0 ? v0 + (v1 - v0) * Math.min(1, Math.max(0, (c.s[i] - s0) / (s1 - s0))) : v1
       }
-      // (suavizado: el MDT tiene su ruido)
+      // (suavizado: el MDT tiene su ruido). Se suaviza la rasante ya corregida, no solo la
+      // corrección: la deducida de los estribos puede traer un quiebro (en Cádiz, donde el terminal
+      // de la otra orilla deja de pesar a 1500 m y manda el terreno, que allí es el tablero
+      // incrustado) y sumarle una corrección suavizada lo dejaba entero, como un pico de 5 m sobre
+      // el LiDAR junto al pilono del muelle. Ventana simétrica, más corta en los extremos: allí la
+      // altura es la del estribo o la del cruce y no se mueve.
+      const raw = Float32Array.from(c.deck, (v, i) => v + up[i])
       for (let i = 0; i < n; i++) {
+        const k = Math.min(3, i, n - 1 - i)
         let sum = 0
-        let cnt = 0
-        for (let j = Math.max(0, i - 3); j <= Math.min(n - 1, i + 3); j++) {
-          sum += up[j]
-          cnt++
+        for (let j = i - k; j <= i + k; j++) sum += raw[j]
+        c.deck[i] = sum / (2 * k + 1)
+      }
+    }
+    // Más allá del primer y del último punto con el tablero en el MDT, si queda mucho puente (el de
+    // Cádiz tiene 1,5 km de viaducto sobre la Cabezuela que el MDT no trae), la rasante no puede
+    // caer más deprisa que la pendiente máxima de su clase (5 % en el de Cádiz): la deducida de los
+    // estribos bajaba 50 m en 100 m tras el pilono. Solo sube, y cerca de los extremos lo que quepa
+    // con un 8 % de rampa, como los anclajes.
+    {
+      const grade = MAX_GRADE[c.parts[0].piece.kind] ?? 0.06
+      let first = -1
+      let last = -1
+      for (let i = 0; i < n; i++) {
+        if (!trusted[i]) continue
+        if (first < 0) first = i
+        last = i
+      }
+      // La cola va en recta del último ancla al extremo (la deducida de los estribos más la
+      // corrección repartida a lo largo de 1,6 km hacía una curva que dependía de por dónde pasaba
+      // cada calzada: en Cádiz las dos de la autovía acababan con 2,8 m de diferencia, solapadas), y
+      // si esa recta cae más que la pendiente máxima, con la pendiente máxima.
+      const tail = (a: number, dir: 1 | -1): void => {
+        const h = c.deck[a]
+        const e = dir > 0 ? n - 1 : 0
+        const span = Math.abs(c.s[e] - c.s[a])
+        const he = c.deck[e]
+        for (let i = a + dir; i >= 0 && i < n; i += dir) {
+          const d = Math.abs(c.s[i] - c.s[a])
+          const line = h + ((he - h) * d) / span
+          const want = Math.max(line, h - grade * d)
+          const room = 0.08 * Math.min(c.s[i], c.len - c.s[i])
+          if (want > c.deck[i]) c.deck[i] = Math.max(c.deck[i], Math.min(want, line + room))
         }
-        c.deck[i] += sum / cnt
+      }
+      if (first >= 0 && c.s[first] > LONG_TAIL) tail(first, -1)
+      if (last >= 0 && c.len - c.s[last] > LONG_TAIL) tail(last, 1)
+    }
+    // Donde acaba un tramo incrustado pero el puente sigue en el aire, el MDT baja en rampa del
+    // tablero al agua o al suelo a lo largo del eje (en Cádiz, de 69 a 5 m en 30 m junto al pilono
+    // del muelle de la Cabezuela): esa rampa se rebaja también, mientras siga bajando, la calzada
+    // quede al menos 3 m por encima y no se llegue al estribo (allí la subida es el terraplén).
+    {
+      const ends: Array<[number, 1 | -1]> = []
+      for (let i = 0; i < n; i++) {
+        if (!w[i]) continue
+        if (i + 1 < n && !w[i + 1]) ends.push([i, 1])
+        if (i > 0 && !w[i - 1]) ends.push([i, -1])
+      }
+      for (const [i, dir] of ends) {
+        let prev = top[i]
+        for (let j = i + dir; j >= 0 && j < n && Math.abs(c.s[j] - c.s[i]) <= RAMP_MAX; j += dir) {
+          if (w[j] || c.dTerm[j] < 4) break
+          const bottom = Math.min(floor[0][j], floor[1][j])
+          if (top[j] > prev + 0.5 || top[j] <= bottom + 1 || c.deck[j] - top[j] < 3) break
+          w[j] = 1
+          stations++
+          prev = top[j]
+        }
+      }
+    }
+    // Tableros altos (TALL): el rebaje baja hasta el suelo natural de al lado, no hasta el primer
+    // punto a menos de un 20 % de la caída (en Cádiz eso dejaba mesetas de 10–15 m junto al
+    // tablero). Suelo natural: yendo hacia fuera, el primer punto ya en lo bajo de la caída (su
+    // 15 % inferior) a partir del cual el terreno deja de caer en picado (menos de un 10 %): el agua
+    // de la bahía, el muelle de la Cabezuela. Más allá de SIDES si hace falta (WIDE): las muestras
+    // cercanas pueden caer aún en la rampa del MDT o en el tablero incrustado de otra calzada que se
+    // separa, como junto al pilono del muelle. Si no aparece (una ladera que sigue bajando), como antes.
+    for (let i = 0; i < n; i++) {
+      if (!w[i] && !(i > 0 && w[i - 1]) && !(i < n - 1 && w[i + 1])) continue
+      const t = top[i]
+      for (let q = 0; q < 2; q++) {
+        let low = Infinity
+        for (const arr of side[q]) low = Math.min(low, arr[i])
+        if (!(t - low >= TALL)) continue
+        const dists = [...SIDES]
+        const vals = side[q].map((arr) => arr[i])
+        const sgn = q ? 1 : -1
+        const far = WIDE.map((d) => sample(i, sgn * (ext[q][i] + d)))
+        if (!far.some((v) => Number.isNaN(v))) {
+          dists.push(...WIDE)
+          vals.push(...far)
+        }
+        const fLow = Math.min(...vals)
+        if (!Number.isFinite(fLow)) continue
+        const cap = fLow + 1 + 0.15 * (t - fLow)
+        let k = -1
+        for (let j = 0; j < vals.length; j++) {
+          if (vals[j] > cap) continue
+          const next = j + 1 < vals.length ? vals[j + 1] : vals[j]
+          const dd = j + 1 < vals.length ? dists[j + 1] - dists[j] : 1
+          if (vals[j] - next <= 1 + 0.1 * dd) {
+            k = j
+            break
+          }
+        }
+        if (k < 0) continue
+        // y al menos tan ancho como alto es el tablero sobre ese suelo: los niveles gruesos del MDT
+        // (las teselas que se ven a unos cientos de metros, que solo se corrigen vértice a vértice)
+        // reparten la cresta del tablero mucho más a los lados (en Cádiz, 20 m de terreno a 55 m
+        // del eje en el nivel 13) y dejaban paredes a lo largo del puente. Más allá de la caída
+        // real el terreno ya está en el suelo y no cambia (el rebaje solo baja).
+        reach[q][i] = ext[q][i] + Math.max(dists[k], Math.min(WIDE[WIDE.length - 1], t - vals[k]))
+        floor[q][i] = vals[k]
       }
     }
     // terreno ya rebajado bajo el eje
@@ -950,6 +1112,39 @@ export function stationAt(c: Chain, s: number): number {
     else hi = mid
   }
   return s - c.s[lo] <= c.s[hi] - s ? lo : hi
+}
+
+/**
+ * Media móvil de la rasante en ±h m a lo largo del eje (del perfil lineal entre estaciones), con
+ * h = min(half, distancia al extremo más cercano): los extremos no se mueven, una recta se queda
+ * como está y un quiebro pasa a ser una curva de 2h m (un acuerdo vertical).
+ */
+function smoothDeck(c: Chain, half: number): void {
+  const { n, s } = c
+  if (n < 3) return
+  const d = Float64Array.from(c.deck)
+  // integral de la rasante desde el principio hasta cada estación (trapecios)
+  const acc = new Float64Array(n)
+  for (let i = 1; i < n; i++) acc[i] = acc[i - 1] + ((d[i] + d[i - 1]) / 2) * (s[i] - s[i - 1])
+  const integral = (x: number): number => {
+    if (x <= s[0]) return 0
+    if (x >= s[n - 1]) return acc[n - 1]
+    let lo = 0
+    let hi = n - 1
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1
+      if (s[mid] <= x) lo = mid
+      else hi = mid
+    }
+    const ds = s[hi] - s[lo]
+    const v = ds > 0 ? d[lo] + ((d[hi] - d[lo]) * (x - s[lo])) / ds : d[lo]
+    return acc[lo] + ((d[lo] + v) / 2) * (x - s[lo])
+  }
+  for (let i = 1; i < n - 1; i++) {
+    const h = Math.min(half, s[i] - s[0], s[n - 1] - s[i])
+    if (h < 0.5) continue
+    c.deck[i] = (integral(s[i] + h) - integral(s[i] - h)) / (2 * h)
+  }
 }
 
 /** Valor interpolado de un perfil en la posición s. */

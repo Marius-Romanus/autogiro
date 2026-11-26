@@ -38,6 +38,7 @@ import {
   type Object3D,
 } from 'three'
 import { OVERLAY_LAYER } from '../render/Graphics.ts'
+import { hideWhenEmpty } from '../render/emptyDraws.ts'
 import type { Autogyro } from '../sim/autogyro.ts'
 import type { WetPoint } from '../sim/hydro.ts'
 import { BILLBOARD_FS, BILLBOARD_VS } from './CrashFx.ts'
@@ -237,7 +238,8 @@ export class WaterFx {
       m.blendEquationAlpha = AddEquation
       m.blendSrcAlpha = ZeroFactor
       m.blendDstAlpha = OneFactor
-      const mesh = new Mesh(pg, m)
+      // (sin gotas no se dibuja: render/emptyDraws.ts)
+      const mesh = hideWhenEmpty(new Mesh(pg, m))
       mesh.frustumCulled = false
       mesh.renderOrder = 6 + i
       mesh.layers.set(OVERLAY_LAYER)
@@ -266,7 +268,7 @@ export class WaterFx {
     fm.blendEquationAlpha = AddEquation
     fm.blendSrcAlpha = ZeroFactor
     fm.blendDstAlpha = OneFactor
-    const foam = new Mesh(fg, fm)
+    const foam = hideWhenEmpty(new Mesh(fg, fm))
     foam.frustumCulled = false
     foam.renderOrder = 2
     foam.layers.set(OVERLAY_LAYER)

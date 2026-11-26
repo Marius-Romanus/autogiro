@@ -15,6 +15,12 @@ export interface SoundState {
   distance: number // cámara-aparato (m)
   engineOn: boolean
   /**
+   * Motor que falla (sim/powerplant.ts): cuánto tironea (0..1) y lo que está quemando ahora (0..1;
+   * 0 = un corte). Faltan con el motor sano.
+   */
+  misfire?: number
+  firing?: number
+  /**
    * Voz del aparato (si falta, la del Rotax de cuatro cilindros con reductora 2,43, hélice
    * tripala y rotor bipala de ~350 rpm): cilindros, reductora, palas de hélice y de rotor,
    * régimen máximo del motor y vueltas de rotor de crucero.
@@ -35,6 +41,7 @@ export class Sound {
   private warn!: { osc: OscillatorNode; gain: GainNode }
   private hitGain!: GainNode
   private t = 0
+  private lastFiring = 1
   volume = 0.8
 
   start(): void {
@@ -215,10 +222,22 @@ export class Sound {
     set(this.eng.prop.frequency, Math.max(2, propF))
     set(this.eng.lp.frequency, 280 + rpmEq * 0.32 + s.power * 900)
     const on = s.engineOn && rpmEq > 300 ? 1 : 0
-    set(this.eng.gain.gain, on * (0.05 + 0.13 * s.power + 0.05 * (rpmEq / 5500)) * (s.cockpit ? 1.1 : 0.9) * distAtt)
+    // motor que falla: en cada corte se apaga el ruido de las explosiones de golpe (queda la hélice
+    // y el aire) y al volver a encender petardea
+    const rough = s.misfire ?? 0
+    const firing = s.firing ?? 1
+    const cut = rough > 0 ? 0.2 + 0.8 * Math.min(1, firing) : 1
+    const engGain = on * (0.05 + 0.13 * s.power + 0.05 * (rpmEq / 5500)) * (s.cockpit ? 1.1 : 0.9) * distAtt * cut
+    if (rough > 0) this.eng.gain.gain.setTargetAtTime(engGain, now, 0.012)
+    else set(this.eng.gain.gain, engGain)
     set(this.eng.propGain.gain, on * (0.05 + 0.12 * s.power) * distAtt * (s.cockpit ? 0.7 : 1.2))
     set(this.eng.noiseBp.frequency, 500 + rpmEq * 0.25)
-    set(this.eng.noiseGain.gain, on * (0.02 + 0.08 * s.power) * distAtt)
+    const noise = on * (0.02 + 0.08 * s.power) * distAtt
+    if (rough > 0 && on && this.lastFiring < 0.5 && firing >= 0.5) {
+      this.eng.noiseGain.gain.setValueAtTime(0.3 * distAtt, now)
+      this.eng.noiseGain.gain.setTargetAtTime(noise, now + 0.03, 0.04)
+    } else set(this.eng.noiseGain.gain, noise)
+    this.lastFiring = firing
 
     // rotor
     const bladePass = (vc.rotorBlades * s.rotorRpm) / 60

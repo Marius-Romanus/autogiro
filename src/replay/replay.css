@@ -1,0 +1,291 @@
+/* Repetición del vuelo (src/replay/ReplayUi.ts), estilo «Pista»: paneles oscuros y rectos, letra
+   condensada y el amarillo de cartel (--accent) para lo activo. La barra va encima del panel de
+   instrumentos (--rp-bottom lo pone ReplayUi según el tamaño de los relojes). */
+
+#replay {
+  --rp-bottom: 190px;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--rp-bottom);
+  display: flex;
+  justify-content: center;
+  padding: 0 16px;
+  pointer-events: none;
+  z-index: 35;
+  font-family: var(--font-cond);
+}
+
+#replay .rp-panel {
+  pointer-events: auto;
+  width: min(1120px, 100%);
+  background: var(--panel);
+  border-top: 2px solid var(--accent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 8px 10px 9px;
+  color: #fff;
+  user-select: none;
+}
+
+#replay .rp-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* rótulo = cartel de posición (amarillo sobre negro) */
+#replay .rp-tag,
+#replay-hold .rp-tag {
+  flex: none;
+  padding: 0 7px;
+  background: var(--ink);
+  border: 1.5px solid var(--accent);
+  color: var(--accent);
+  font: 700 13px/1.45 var(--font-cond);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+#replay .rp-time {
+  flex: none;
+  min-width: 92px;
+  font: 600 15px/1 var(--font-cond);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+#replay .rp-time b {
+  color: #fff;
+  font-weight: 700;
+}
+#replay .rp-sep {
+  margin: 0 4px;
+  opacity: 0.6;
+}
+
+/* línea de tiempo */
+#replay .rp-track {
+  position: relative;
+  flex: 1;
+  height: 24px;
+  cursor: pointer;
+  touch-action: none;
+}
+#replay .rp-rail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 9px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.16);
+  transition: top 0.12s, height 0.12s;
+}
+#replay .rp-track:hover .rp-rail,
+#replay .rp-track.drag .rp-rail {
+  top: 7px;
+  height: 10px;
+}
+#replay .rp-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  background: var(--accent);
+}
+#replay .rp-thumb {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 20px;
+  margin: -10px 0 0 -5px;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--ink);
+}
+
+/* sucesos: despegue (amarillo), toma (blanco), accidente (rojo) */
+#replay .rp-marks {
+  position: absolute;
+  inset: 0;
+}
+#replay .rp-mark {
+  position: absolute;
+  top: -6px;
+  bottom: -6px;
+  width: 3px;
+  margin-left: -1.5px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+}
+#replay .rp-mark.takeoff {
+  background: var(--accent);
+}
+#replay .rp-mark.crash {
+  background: var(--danger);
+  width: 5px;
+  margin-left: -2.5px;
+}
+
+#replay .rp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 7px;
+  flex-wrap: wrap;
+}
+
+#replay .rp-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+#replay button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 34px;
+  height: 30px;
+  padding: 0 9px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.88);
+  font: 700 15px/1 var(--font-cond);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+#replay button:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+#replay button.on {
+  background: var(--accent);
+  color: var(--ink);
+}
+#replay button svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+#replay button kbd {
+  font-size: 11px;
+  opacity: 0.65;
+  border-color: currentColor;
+}
+#replay button.on kbd {
+  opacity: 0.8;
+}
+
+#replay .rp-play {
+  min-width: 44px;
+}
+
+#replay .rp-cam .rp-cam-k,
+#replay .rp-export-k {
+  color: var(--muted);
+  font: 600 13px/1 var(--font-cond);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+#replay .rp-export-k {
+  margin-right: 6px;
+}
+#replay .rp-cam-name {
+  min-width: 7.5em;
+  text-align: left;
+}
+
+#replay .rp-spacer {
+  flex: 1;
+}
+
+/* salir = cartel de dirección (negro sobre amarillo) */
+#replay .rp-exit {
+  background: var(--accent);
+  color: var(--ink);
+}
+#replay .rp-exit:hover {
+  background: #ffd21f;
+  color: var(--ink);
+}
+
+/* barra oculta: queda una pestaña para volver a sacarla */
+#replay .rp-tab {
+  pointer-events: auto;
+  margin-right: auto;
+  background: var(--panel);
+  border-top: 2px solid var(--accent);
+  color: #fff;
+}
+
+/* tras salir de la repetición en vuelo: en pausa hasta que se pulsa Espacio */
+#replay-hold {
+  position: fixed;
+  left: 50%;
+  top: 56px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px 8px 10px;
+  background: var(--panel);
+  border-left: 3px solid var(--accent);
+  color: #fff;
+  font: 600 16px/1.2 var(--font-cond);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  z-index: 36;
+}
+
+/* botón de la barra superior (como el de las luces) */
+#btn-replay {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(8, 10, 12, 0.62);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: rgba(255, 255, 255, 0.82);
+  font: 600 15px/1.1 var(--font-cond);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+#btn-replay:hover {
+  background: rgba(8, 10, 12, 0.82);
+  color: #fff;
+}
+#btn-replay.on {
+  border-bottom-color: var(--accent);
+  color: #fff;
+}
+#btn-replay kbd {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* durante la repetición no se ven el resumen del accidente, su aviso de cámara lenta ni la nota de
+   la toma (vuelven al salir) */
+body.replaying #crash,
+body.replaying .crash-hint,
+body.replaying #school-card {
+  display: none !important;
+}
+
+/* pantallas estrechas: sin los rótulos de cámara y exportar */
+@media (max-width: 900px) {
+  #replay .rp-cam .rp-cam-k,
+  #replay .rp-export-k,
+  #replay .rp-cam kbd,
+  #replay .rp-exit kbd {
+    display: none;
+  }
+  #replay .rp-cam-name {
+    min-width: 0;
+  }
+}

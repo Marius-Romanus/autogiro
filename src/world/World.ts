@@ -37,13 +37,16 @@ import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-
 import { GeoFrame } from './GeoFrame.ts'
 import { Buildings } from './Buildings.ts'
 import { Trees } from './Trees.ts'
-import { Landmarks } from './Landmarks.ts'
+import { LANDMARK_PATCHES, Landmarks } from './Landmarks.ts'
+import { Windsocks } from './Windsocks.ts'
 import { Bridges } from './Bridges.ts'
 import { PowerLines } from './PowerLines.ts'
 import { Traffic } from '../traffic/Traffic.ts'
 import { Runways } from './Runways.ts'
 import { GridRunways } from './gridRunways.ts'
 import { TerrainNormals } from './terrainNormals.ts'
+import { installFastClipper } from './fastClip.ts'
+import { backgroundWork } from './TileLayer.ts'
 import { WaterMask, type WaterSample } from './WaterMask.ts'
 import { flattenSea } from './seaLevel.ts'
 import { skipEsriPlaceholders } from './esriImagery.ts'
@@ -135,6 +138,8 @@ export class World {
   trees: Trees | null = null
   /** monumentos modelados aparte (torre Eiffel), con los edificios */
   landmarks: Landmarks | null = null
+  /** mangas de viento de los aeródromos (modo sin clave; main.ts las anima con el viento) */
+  windsocks: Windsocks | null = null
   /** pistas de OpenStreetMap alisadas sobre el MDT del IGN (dibujo y física) */
   runways: Runways | null = null
   /** las mismas pistas alisadas en la rejilla del relieve global (Terrarium) */
@@ -189,7 +194,7 @@ export class World {
   /** Antes (true) y después (false) del pase de normales (Graphics.normalPassHook). */
   normalPass(on: boolean): void {
     if (!this.terrainNormals) return
-    if (on) this.terrainNormals.begin(this.meshes)
+    if (on) this.terrainNormals.begin(this.meshes, this.tiles.group)
     else this.terrainNormals.end()
   }
 
@@ -232,7 +237,10 @@ export class World {
         tiles.registerPlugin(new IgnAvailabilityPlugin())
         tiles.registerPlugin(new QuantizedMeshPlugin({ useRecommendedSettings: true }))
         tiles.registerPlugin(new UnlitTerrainPlugin())
-        tiles.registerPlugin(new ImageOverlayPlugin({ overlays: [guardRegionCounts(makeOverlay())], renderer: this.renderer, resolution: 256 } as any))
+        const overlayPlugin = new ImageOverlayPlugin({ overlays: [guardRegionCounts(makeOverlay())], renderer: this.renderer, resolution: 256 } as any)
+        // el recorte de mallas con que la librería parte las teselas, sin el tirón (fastClip.ts)
+        installFastClipper(overlayPlugin)
+        tiles.registerPlugin(overlayPlugin)
         tiles.registerPlugin(new TilesFadePlugin({ fadeDuration: 300 }))
         // la malla más fina (nivel 16, ≈ 230 × 300 m por tesela) para el suelo del aparato
         const qm = new QMHeightSource(IGN_QM, 16)
@@ -271,6 +279,13 @@ export class World {
         this.landmarks = new Landmarks(this.frame, this.buildingHeights)
         this.scene.add(this.landmarks.group)
         this.landmarks.syncFrame()
+        // puentes modelados aparte (Tower Bridge): a la altura de la calzada que dibuja Bridges.ts
+        this.landmarks.deckProbe = (lat, lon) => {
+          if (!this.bridges) return null
+          const p = this.frame.geoToWorld(lat, lon, 0, new Vector3())
+          if (!this.bridges.deckBelow(p.x, p.z, p.y + 1e4, _deck)) return null
+          return this.frame.worldToGeo(p.set(p.x, _deck.y, p.z)).h
+        }
       }
       if (this.buildingHeights && this.settings.trees) {
         this.trees = new Trees(this.frame, this.buildingHeights, imageryUrl)
@@ -283,9 +298,17 @@ export class World {
         // de alturas es de ~7 m por texel y el relleno lleva margen para que alguno caiga dentro
         this.bridges = new Bridges(this.frame, this.bridgeHeights, { imageryUrl, carve: ign, fill: true, fillPad: ign ? 0 : 4 })
         // los parches los aplica el mecanismo de las pistas: mallas del IGN o rejilla del relieve mundial
-        this.bridges.onCarve = (patches) => (this.runways ?? this.gridRunways?.runways)?.setExtra(patches)
+        // (más las de los monumentos: el río bajo el Tower Bridge, Landmarks.ts)
+        this.bridges.onCarve = (patches) => (this.runways ?? this.gridRunways?.runways)?.setExtra([...patches, ...LANDMARK_PATCHES])
+        ;(this.runways ?? this.gridRunways?.runways)?.setExtra(LANDMARK_PATCHES)
         this.scene.add(this.bridges.group, this.bridges.decals)
         this.bridges.syncFrame()
+      }
+      if (this.buildingHeights) {
+        // mangas de viento junto a las pistas (siempre: son información aeronáutica, no decorado)
+        this.windsocks = new Windsocks(this.frame, this.buildingHeights, () => this.runways ?? this.gridRunways?.runways ?? null)
+        this.scene.add(this.windsocks.group)
+        this.windsocks.syncFrame()
       }
       if (this.buildingHeights) {
         // tendidos: el pie de los apoyos con el relieve de los edificios; el gálibo de los vanos, con uno grueso.
@@ -304,6 +327,7 @@ export class World {
     // (con los tiles de Google no está probado: su malla ya trae el agua con relieve y brillos)
     if (this.mode === 'terrain') this.water = new WaterMask(this.frame)
     this.tiles = tiles
+    lazyTileChildren(tiles)
     this.applyQuality(this.settings.quality === 'auto' ? 'medium' : this.settings.quality)
     tiles.setCamera(this.camera)
     tiles.setResolutionFromRenderer(this.camera, this.renderer)
@@ -344,19 +368,26 @@ export class World {
     })
   }
 
+  /**
+   * Error admitido en las teselas del terreno respecto al de la calidad elegida (1 = el suyo). La
+   * realidad virtual lo sube (src/vr): dibuja el terreno dos veces y el visor tiene menos píxeles
+   * por grado que la pantalla.
+   */
+  detailScale = 1
+
   applyQuality(q: Quality): void {
     const t = this.tiles
     if (this.mode === 'google') {
-      t.errorTarget = { low: 24, medium: 14, high: 8, ultra: 4 }[q]
+      t.errorTarget = { low: 24, medium: 14, high: 8, ultra: 4 }[q] * this.detailScale
       t.lruCache.maxBytesSize = { low: 0.4, medium: 0.7, high: 1.1, ultra: 1.6 }[q] * 1024 ** 3
       t.lruCache.minBytesSize = t.lruCache.maxBytesSize * 0.6
     } else {
       if (this.terrainKind === 'ign') {
         // error en píxeles de la malla y de la textura compuesta de cada tesela
-        t.errorTarget = { low: 3, medium: 2, high: 1.4, ultra: 1 }[q]
+        t.errorTarget = { low: 3, medium: 2, high: 1.4, ultra: 1 }[q] * this.detailScale
       } else {
         // 1 = un texel de ortofoto por píxel de pantalla
-        t.errorTarget = { low: 2.2, medium: 1.5, high: 1.0, ultra: 0.75 }[q]
+        t.errorTarget = { low: 2.2, medium: 1.5, high: 1.0, ultra: 0.75 }[q] * this.detailScale
       }
       // Caché de teselas (casi todo, la foto de cada una). Con los 0,4 GB de la librería se llenaba
       // en Alta: sobre París, 409/410 MB con 129 teselas esperando, porque con la caché llena el
@@ -383,7 +414,7 @@ export class World {
   get loadProgress(): number {
     const p = (this.tiles as any).loadProgress ?? 1
     // sin el perfil de las pistas cercanas el aparato se posaría en el MDT sin alisar
-    if (this.runways?.pending || this.gridRunways?.pending) return Math.min(p, 0.95)
+    if (this.runways?.pending || this.runways?.reapplying || this.gridRunways?.pending) return Math.min(p, 0.95)
     // edificios del Catastro de alrededor del punto de salida (espera como mucho 25 s)
     if (this.buildings?.catastroBusy) return Math.min(p, 0.97)
     // puentes de alrededor del punto de salida (por si se sale de uno; espera como mucho 12 s)
@@ -394,6 +425,9 @@ export class World {
     const now = performance.now()
     const dt = Math.min(0.5, (now - this.lastUpdate) / 1000)
     this.lastUpdate = now
+    // trabajo de fondo de las capas en este fotograma: un 30 % de lo que dura uno, 4 ms como poco
+    // (así en un equipo lento no se retrasa más de la cuenta); cargando la salida, sin límite
+    backgroundWork.beginFrame(this.settling ? Infinity : Math.max(4, Math.min(15, dt * 300)))
     this.tiles.setResolutionFromRenderer(this.camera, this.renderer)
     this.tiles.update()
     this.buildings?.update(dt, this.camera.position)
@@ -419,10 +453,17 @@ export class World {
       this.gridRunways?.update(g.lat, g.lon)
     }
     // pistas nuevas (o que se van): volver a alisar las teselas ya cargadas
-    if (this.runways?.consumeChanged()) this.runways.reapply(this.meshes)
+    // (repartido: unos milisegundos por fotograma)
+    this.runways?.pump(this.meshes, this.settling ? 14 : 3)
     this.gridRunways?.sync(this.meshes)
   }
   private prefetchTimer = 0
+  /**
+   * La pantalla de carga está puesta (lo dice main.ts): no hay fotograma que cuidar, y el terreno
+   * y las capas se ponen al día cuanto antes. En vuelo ese trabajo va repartido para que no se
+   * note (Runways.pump, backgroundWork).
+   */
+  settling = true
 
   updateAttribution(): void {
     let text = ''
@@ -454,12 +495,18 @@ export class World {
       this.buildings?.syncFrame()
       this.trees?.syncFrame()
       this.landmarks?.syncFrame()
+      this.windsocks?.syncFrame()
       this.bridges?.syncFrame()
       this.power?.syncFrame()
     } catch (e) {
       console.error('Error recolocando el escenario al re-centrar el origen:', e)
     }
     return out
+  }
+
+  /** Pide el relieve fino de un rectángulo (grados): lejos de la cámara no se carga solo (tráfico aéreo). */
+  ensureHeights(south: number, west: number, north: number, east: number): Promise<void> {
+    return this.heights?.ensure(south, west, north, east) ?? Promise.resolve()
   }
 
   /** Altura del MDT (m) en un punto; null si aún no hay datos. */
@@ -483,6 +530,13 @@ export class World {
   sampleGround(x: number, z: number, yHint: number, out: GroundSample, deckMaxY?: number, deckDirX = 0, deckDirZ = 0): boolean {
     const ok = this.sampleTerrain(x, z, yHint, out)
     if (deckMaxY !== undefined && this.bridges?.deckBelow(x, z, deckMaxY, _deck, deckDirX, deckDirZ) && (!ok || _deck.y > out.y)) {
+      out.y = _deck.y
+      out.normal.copy(_deck.normal)
+      return true
+    }
+    // calzada de un monumento (el paso de la carretera bajo las torres del Tower Bridge, que OSM
+    // no tiene como puente)
+    if (deckMaxY !== undefined && this.landmarks?.deckBelow(x, z, deckMaxY, _deck) && (!ok || _deck.y > out.y)) {
       out.y = _deck.y
       out.normal.copy(_deck.normal)
       return true
@@ -530,17 +584,23 @@ export class World {
     return this.water.sample(g.lat, g.lon, withDepth)
   }
 
+  /** Cuánta agua hay en (lat°, lon°), 0..1 (0,5 = la orilla); null si aún no se sabe o no hay máscara. */
+  waterAtGeo(lat: number, lon: number): number | null {
+    return this.water?.sample(lat, lon, false)?.water ?? null
+  }
+
   /** ¿El punto (mundo) está dentro de un edificio de OpenStreetMap? */
   hitsBuilding(p: Vector3): boolean {
     return (this.buildings?.collides(p) ?? false) || (this.landmarks?.collides(p) ?? false)
   }
 
   /** ¿Choca el punto (mundo) con un edificio, un puente o la copa de un árbol? */
-  hitsObstacle(p: Vector3): 'building' | 'bridge' | 'pylon' | 'tree' | 'vehicle' | null {
+  hitsObstacle(p: Vector3): 'building' | 'bridge' | 'pylon' | 'tree' | 'vehicle' | 'windsock' | null {
     if (this.traffic?.enabled && this.traffic.collides(p)) return 'vehicle'
     if (this.buildings?.collides(p) || this.landmarks?.collides(p)) return 'building'
     if (this.bridges?.collides(p)) return 'bridge'
     if (this.power?.collides(p)) return 'pylon'
+    if (this.windsocks?.collides(p)) return 'windsock'
     if (this.trees?.collides(p)) return 'tree'
     return null
   }
@@ -555,6 +615,7 @@ export class World {
     this.buildings?.setEnvMap(tex)
     this.trees?.setEnvMap(tex)
     this.landmarks?.setEnvMap(tex)
+    this.windsocks?.setEnvMap(tex)
     this.bridges?.setEnvMap(tex)
     this.power?.setEnvMap(tex)
     this.traffic?.setEnvMap(tex)
@@ -610,6 +671,10 @@ export class World {
     if (this.landmarks) {
       this.scene.remove(this.landmarks.group)
       this.landmarks.dispose()
+    }
+    if (this.windsocks) {
+      this.scene.remove(this.windsocks.group)
+      this.windsocks.dispose()
     }
     if (this.bridges) {
       this.scene.remove(this.bridges.group, this.bridges.decals)
@@ -686,6 +751,36 @@ function guardTilesGroup(group: Object3D): void {
     activeTiles.forEach((tile: any) => {
       if (!visibleTiles.has(tile)) tile.engineData?.scene?.updateMatrixWorld(true)
     })
+  }
+}
+
+/**
+ * 3d-tiles-renderer 0.5.4: en cada actualización, al visitar una tesela prepara ya a sus hijas
+ * (`ensureChildrenArePreprocessed`), le hagan falta o no. Desde entonces el recorrido las visita
+ * en todos los fotogramas, solo para volver a dejarlas en «sin usar»: con ~500 teselas a la vista
+ * eran más de 5000 visitas por fotograma, la mitad de ellas a hijas de teselas que no se van a
+ * refinar (la telemetría daba 5 ms de CPU en «Mundo» solo de esto).
+ *
+ * Aquí las hijas se preparan cuando la tesela las va a necesitar: está a la vista y su error
+ * pasa del objetivo (con los datos de su última visita, es decir, un fotograma después de lo
+ * que haría la librería), o no tiene contenido propio y hay que bajar siempre. Lo que se dibuja
+ * es lo mismo: una tesela sin hijas preparadas cuenta para la librería como «hijas aún no
+ * listas» y se queda ella en pantalla, que es lo que ya pasaba mientras se descargaban.
+ * Las llamadas con el segundo argumento (`traverse`) siguen yendo a la original.
+ */
+function lazyTileChildren(tiles: TilesRenderer): void {
+  const t = tiles as any
+  const base = t.ensureChildrenArePreprocessed
+  if (typeof base !== 'function' || base.length !== 1) return
+  t.ensureChildrenArePreprocessed = function (this: any, tile: any, immediate?: boolean): void {
+    if (immediate === undefined) {
+      const tr = tile.traversal
+      const needed =
+        tile.internal.hasUnrenderableContent || tr.unconditionallyRefine === true || (tr.inFrustum && tr.error > this.errorTarget)
+      if (!needed) return
+      return base.call(this, tile)
+    }
+    return base.call(this, tile, immediate)
   }
 }
 

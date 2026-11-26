@@ -25,6 +25,8 @@ export interface TelemetryInfo {
   clock: string
   /** otros pilotos en la sala; -1 = sin sala */
   peers: number
+  /** viento del terreno en el aparato, ya en texto (vacío = apagado) */
+  wind?: string
   /** teselas del terreno (3d-tiles-renderer) */
   tiles: { stats?: Record<string, number>; lruCache?: { cachedBytes?: number; maxBytesSize?: number } } | null
   /** capas por teselas z14 (edificios, árboles, puentes…) */
@@ -329,6 +331,7 @@ export class Telemetry {
         info.peers >= 0 ? ` · ${t('tel.room', { n: info.peers + 1 })}` : ''
       }</div>`,
     )
+    if (info.wind) h.push(`<div class="tl-row tl-ctx">${esc(info.wind)}</div>`)
     this.body.innerHTML = h.join('')
   }
 

@@ -120,3 +120,25 @@ fn log(msg: &str) {
     use std::io::Write;
     let _ = writeln!(io::stderr(), "[servidor] {msg}");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// El servidor de la app sin abrir ninguna ventana, para pasarle la batería de Node:
+    ///     cargo test -- --ignored --nocapture salas_para_mp_test      (en src-tauri; ~2 min)
+    ///     MP_URL=ws://127.0.0.1:47899/mp npm run mp-test              (en otra terminal)
+    /// Solo en 127.0.0.1 (no pide paso al cortafuegos). Puerto y duración: MP_TEST_PORT, MP_TEST_SECS.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn salas_para_mp_test() {
+        let port: u16 = std::env::var("MP_TEST_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(47899);
+        let secs: u64 = std::env::var("MP_TEST_SECS").ok().and_then(|p| p.parse().ok()).unwrap_or(120);
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).expect("puerto ocupado");
+        listener.set_nonblocking(true).expect("no bloqueante");
+        let task = tokio::spawn(serve(listener, std::env::temp_dir(), Rooms::default()));
+        log(&format!("salas en ws://127.0.0.1:{port}/mp durante {secs} s"));
+        tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+        task.abort();
+    }
+}

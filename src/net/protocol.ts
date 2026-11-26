@@ -41,6 +41,35 @@ export function cleanText(raw: unknown, max = CHAT_MAX): string {
     .slice(0, max)
 }
 
+// ---------------------------------------------------------------------------
+// Radio de voz (src/net/radio/). El audio va en mensajes BINARIOS del mismo WebSocket:
+//   cliente → relé:  [BIN_VOICE][cuerpo]
+//   relé → cliente:  [BIN_VOICE][id del emisor, u32 big-endian][cuerpo]
+// El relé no mira el cuerpo (lo define el cliente: códec, marcas de inicio/fin, número de
+// paquete y muestras); solo comprueba su tamaño, el ritmo del emisor y lo reparte a los de
+// su sala que tienen la radio encendida. Igual en server/rooms.ts y src-tauri/src/rooms.rs.
+// ---------------------------------------------------------------------------
+
+/** bits del campo `radio` del perfil: escucha la radio (solo a esos se les reenvía audio) */
+export const RADIO_ON = 1
+/** …y sabe descodificar Opus (WebCodecs); si alguien de la sala no, se emite en μ-law */
+export const RADIO_OPUS = 2
+/** primer byte de un mensaje binario de voz */
+export const BIN_VOICE = 1
+/** cuerpo de un paquete de voz: mínimo (cabecera del cliente) y máximo en bytes */
+export const VOICE_MIN = 4
+export const VOICE_MAX = 1024
+/** límite por cliente: paquetes/s sostenidos y ráfaga; bytes/s sostenidos y ráfaga (μ-law: 25 paquetes y ~8,1 kB/s) */
+export const VOICE_RATE = 30
+export const VOICE_BURST = 60
+export const VOICE_BYTES = 12000
+export const VOICE_BYTES_BURST = 24000
+
+/** Campo `radio` del perfil: un entero 0…3 (lo demás, radio apagada). */
+export function radioFlags(raw: unknown): number {
+  return typeof raw === 'number' && Number.isInteger(raw) && raw >= 0 && raw <= 3 ? raw : 0
+}
+
 /** Lo que ven los demás de un piloto. */
 export interface PeerInfo {
   id: number
@@ -48,6 +77,10 @@ export interface PeerInfo {
   /** id del modelo 3D (src/aircraft/catalog.ts) */
   aircraft: string
   passenger: boolean
+  /** con flotadores (otro modelo del mismo aparato; no llega de versiones anteriores) */
+  floats?: boolean
+  /** radio de voz: bits RADIO_ON / RADIO_OPUS (no llega de versiones anteriores: apagada) */
+  radio?: number
   /** puesto en la sala (0 = anfitrión original): separa los puntos de salida */
   slot: number
 }
@@ -65,7 +98,22 @@ export interface RoomConditions {
   windFrom: number
   windSpeed: number
   turbulence: number
+  /** viento del terreno y térmicas (no llega de versiones anteriores: viento uniforme) */
+  terrainWind?: boolean
   clouds: string
+  /**
+   * Aire del día (no llegan de versiones anteriores: atmósfera estándar): ISA o temperatura en el
+   * suelo (°C) y QNH (hPa); y lo que trae el tiempo real: punto de rocío (°C), visibilidad (m),
+   * precipitación (mm/h), código de tiempo WMO (−1 sin datos) y rachas (nudos).
+   */
+  isa?: boolean
+  oatC?: number
+  qnh?: number
+  dewPointC?: number
+  visibility?: number
+  precip?: number
+  weatherCode?: number
+  windGustKt?: number
   /** fecha simulada del anfitrión (ms UTC) en el momento de enviarla */
   simTime: number
   /** choques entre aparatos */
@@ -116,10 +164,10 @@ export interface StateMsg {
 }
 
 export type ClientMsg =
-  | { t: 'create'; name: string; aircraft: string; passenger: boolean }
-  | { t: 'join'; code: string; name: string; aircraft: string; passenger: boolean }
+  | { t: 'create'; name: string; aircraft: string; passenger: boolean; floats?: boolean; radio?: number }
+  | { t: 'join'; code: string; name: string; aircraft: string; passenger: boolean; floats?: boolean; radio?: number }
   | { t: 'leave' }
-  | { t: 'profile'; name: string; aircraft: string; passenger: boolean }
+  | { t: 'profile'; name: string; aircraft: string; passenger: boolean; floats?: boolean; radio?: number }
   | { t: 'cond'; c: RoomConditions }
   | { t: 'chat'; text: string }
   | { t: 'ev'; k: 'crash'; text: string }
@@ -142,7 +190,7 @@ export type ServerMsg =
   | { t: 'join'; peer: PeerInfo }
   | { t: 'leave'; id: number }
   | { t: 'host'; id: number }
-  | { t: 'profile'; id: number; name: string; aircraft: string; passenger: boolean }
+  | { t: 'profile'; id: number; name: string; aircraft: string; passenger: boolean; floats?: boolean; radio?: number }
   | { t: 'cond'; c: RoomConditions }
   | { t: 'chat'; id: number; text: string }
   | { t: 'ev'; id: number; k: 'crash'; text: string }

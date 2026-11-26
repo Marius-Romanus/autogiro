@@ -12,7 +12,7 @@
 // pendiente es continua entre texeles, sin facetas). `allowOverride = false` hace que el pase
 // lo respete en lugar de su material único.
 
-import { MeshNormalMaterial, type Material, type Mesh, type Texture } from 'three'
+import { MeshNormalMaterial, type Material, type Mesh, type Object3D, type Texture } from 'three'
 
 // (el mismo cálculo que TerrainLambertMaterial de 3d-tiles-renderer)
 const BUMP_PARS = /* glsl */ `
@@ -66,11 +66,19 @@ type TerrainMaterial = Material & { displacementMap?: Texture | null; displaceme
 
 export class TerrainNormals {
   private readonly mats = new WeakMap<Mesh, TerrainNormalMaterial>()
-  private readonly swapped: Array<[Mesh, Material | Material[]]> = []
+  private readonly swapped: Mesh[] = []
+  private readonly originals: Array<Material | Material[]> = []
 
-  /** Antes del pase de normales: las teselas del relieve pasan a su material de normales. */
-  begin(meshes: Iterable<Mesh>): void {
+  /**
+   * Antes del pase de normales: las teselas del relieve pasan a su material de normales.
+   * `root`: el grupo de las teselas; las cargadas que no cuelgan de él (en caché, sin dibujar:
+   * suelen ser el doble de las que se ven) se saltan.
+   */
+  begin(meshes: Iterable<Mesh>, root: Object3D): void {
     for (const m of meshes) {
+      let p: Object3D | null = m.parent
+      while (p && p !== root) p = p.parent
+      if (!p) continue
       const mat = m.material as TerrainMaterial | TerrainMaterial[]
       if (Array.isArray(mat) || !mat.displacementMap) continue
       let n = this.mats.get(m)
@@ -83,15 +91,17 @@ export class TerrainNormals {
       n.displacementScale = scale
       n.bumpScale = scale
       n.side = mat.side
-      this.swapped.push([m, m.material])
+      this.swapped.push(m)
+      this.originals.push(m.material)
       m.material = n
     }
   }
 
   /** Después del pase: cada tesela recupera su material. */
   end(): void {
-    for (const [m, mat] of this.swapped) m.material = mat
+    for (let i = 0; i < this.swapped.length; i++) this.swapped[i].material = this.originals[i]
     this.swapped.length = 0
+    this.originals.length = 0
   }
 
   /** Una tesela que se descarga. */

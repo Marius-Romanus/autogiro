@@ -30,6 +30,7 @@ import {
 import { LIGHT_LAYER } from '../render/Graphics.ts'
 import { t } from '../i18n.ts'
 import { PanelFace, type PanelAction } from './PanelFace.ts'
+import { VintagePanel } from './VintagePanel.ts'
 import { CG } from '../sim/autogyro.ts'
 import type { Hud, HudData } from '../hud/Hud.ts'
 
@@ -63,11 +64,12 @@ const YAW_ROD: Record<string, { x: number; top: number }> = {
 }
 
 /**
- * Aparatos sin hilo de guiñada: el C.30A de 1934 no lo llevaba, el Carter PAV es más avión que
+ * Aparatos sin hilo de guiñada: el C.30A de 1934 y el Wilford XOZ-1 de 1936 no lo llevaban, el Carter PAV es más avión que
  * autogiro (cabina de avión, con su bola en el panel) y el Vencejo X1 inventado lleva la bola en la
  * pantalla (y su cúpula de una pieza, casi invisible, dejaba el hilo flotando en el aire).
  */
-const NO_YAW_STRING = new Set(['cierva_c30a', 'carterpav', 'vencejo'])
+// (ni el Cierva C.6 de 1925 ni el C.19 de 1932)
+const NO_YAW_STRING = new Set(['cierva_c30a', 'carterpav', 'vencejo', 'sigilo', 'wilford', 'cierva_c6', 'cierva_c19'])
 
 /** Lo que el hilo necesita del aparato. */
 export interface CockpitAircraft {
@@ -93,9 +95,13 @@ export class Cockpit {
   private yaw: YawString | null = null
   private panel: LivePanel | null = null
   private face: PanelFace | null = null
+  /** tablero de época (C.30A, Wilford): relojes vivos de los años 30 */
+  private vintage: VintagePanel | null = null
   /** luces exteriores encendidas (lo pone AircraftView): interruptores LUCES/ESTROBO */
   lightsOn = false
-  private panelState = { engineOn: true, lightsOn: false, rotorBrake: false }
+  /** radio de voz (lo pone src/net/radio/Radio.ts): 0 nada, 1 recibiendo (RX), 2 transmitiendo (TX) */
+  radio = 0
+  private panelState: { engineOn: boolean; lightsOn: boolean; rotorBrake: boolean; fuel?: number; fuelLow?: boolean; radio?: number } = { engineOn: true, lightsOn: false, rotorBrake: false }
 
   constructor() {
     this.root.name = 'cockpit_extras'
@@ -111,6 +117,9 @@ export class Cockpit {
     if (this.face) {
       this.panel = new LivePanel(this.face.zoneSpec())
       this.root.add(this.panel.group)
+    } else {
+      this.vintage = VintagePanel.create(model)
+      if (this.vintage) this.root.add(this.vintage.group)
     }
     if (NO_YAW_STRING.has(key)) return
     const rod = YAW_ROD[key] ? buildRod(model, glass, eye, YAW_ROD[key]) : null
@@ -126,6 +135,8 @@ export class Cockpit {
     this.root.removeFromParent()
     this.panel?.dispose()
     this.face?.dispose()
+    this.vintage?.dispose()
+    this.vintage = null
     this.yaw?.dispose()
     this.panel = null
     this.face = null
@@ -143,13 +154,18 @@ export class Cockpit {
     this.model.updateWorldMatrix(true, false)
     this.yaw?.update(dt, ac, wind, this.model.worldToLocal(_cam.copy(camera)))
     if (this.panel && hud && near) this.panel.update(dt, ac, hudPainter, hud)
+    if (this.vintage && hud && near) this.vintage.update(dt, hud)
     if (this.face) {
       const st = this.panelState
       if (hud) {
         st.engineOn = hud.engineOn
         st.rotorBrake = hud.rotorBrake
+        // pilotos del combustible del panel (sim/powerplant.ts)
+        st.fuel = hud.fuel
+        st.fuelLow = hud.fuelLow
       }
       st.lightsOn = this.lightsOn
+      st.radio = this.radio
       this.face.update(dt, st)
     }
   }
@@ -514,13 +530,13 @@ class LivePanel {
       this.efis = { x: 0, y: 0, w: 0, h: 0 }
       this.ann = { x: 0, y: 0, w: 0, h: 0 }
     }
-    const regions: [number, GaugeKind[]][] = this.compact
+    const regions: [number, GaugeKind[], boolean][] = this.compact
       ? []
       : [
-          [m, ['asi', 'alt', 'vsi']],
-          [w - m - rw, ['rotor', 'engine', 'hdg']],
+          [m, ['asi', 'alt', 'vsi'], true],
+          [w - m - rw, ['rotor', 'engine', 'hdg'], false],
         ]
-    for (const [rx, kinds] of regions) {
+    for (const [rx, kinds, left] of regions) {
       const d1 = Math.min((rw - m * 0.6) / 2, (h - 2 * m) * 0.56)
       const d2 = Math.min(h - 2 * m - d1 - m * 0.4, d1)
       const cx = rx + rw / 2
@@ -528,9 +544,31 @@ class LivePanel {
         this.gauges.push({ kind: kinds[0], x: cx - d1 / 2 - m * 0.3, y: m + d1 / 2, d: d1 })
         this.gauges.push({ kind: kinds[1], x: cx + d1 / 2 + m * 0.3, y: m + d1 / 2, d: d1 })
         this.gauges.push({ kind: kinds[2], x: cx, y: m + d1 + m * 0.4 + d2 / 2, d: d2 })
+        continue
+      }
+      // Panel estrecho (BellComm C-44: 30 × 13 cm con la pantalla en medio): en fila salían de 2 cm.
+      // Va la colocación que los deja más grandes: en fila, o dos en columna pegados a la pantalla y
+      // el tercero por fuera, a media altura, encajado entre los dos (triángulo tumbado).
+      const hh = h - 2 * m
+      const gap = m * 0.6
+      const dRow = Math.min(rw / 3 - m * 0.4, hh)
+      let dTri = 0
+      for (let dd = Math.min(rw, (hh - gap) / 2); dd > 0; dd -= 0.0002) {
+        const dx = rw - dd
+        const dy = (hh - dd) / 2
+        if (dx * dx + dy * dy >= (dd + gap) ** 2) {
+          dTri = dd
+          break
+        }
+      }
+      if (dTri > dRow) {
+        const inner = left ? rx + rw - dTri / 2 : rx + dTri / 2
+        const outer = left ? rx + dTri / 2 : rx + rw - dTri / 2
+        this.gauges.push({ kind: kinds[0], x: inner, y: m + dTri / 2, d: dTri })
+        this.gauges.push({ kind: kinds[1], x: inner, y: h - m - dTri / 2, d: dTri })
+        this.gauges.push({ kind: kinds[2], x: outer, y: h / 2, d: dTri })
       } else {
-        const d = Math.min(rw / 3 - m * 0.4, h - 2 * m)
-        kinds.forEach((k, i) => this.gauges.push({ kind: k, x: rx + (rw / 3) * (i + 0.5), y: h / 2, d }))
+        kinds.forEach((k, i) => this.gauges.push({ kind: k, x: rx + (rw / 3) * (i + 0.5), y: h / 2, d: dRow }))
       }
     }
 
@@ -660,9 +698,19 @@ class LivePanel {
     screw(c.width - e, e, sr)
     screw(e, c.height - e, sr)
     screw(c.width - e, c.height - e, sr)
+    const placed: [number, number][] = []
     for (const gs of this.gauges) {
       const r = (gs.d / 2) * s * 1.18
-      for (const a of [-0.78, 0.78, Math.PI - 0.78, Math.PI + 0.78]) screw(gs.x * s + Math.cos(a) * r, gs.y * s + Math.sin(a) * r, sr * 0.75)
+      for (const a of [-0.78, 0.78, Math.PI - 0.78, Math.PI + 0.78]) {
+        const x = gs.x * s + Math.cos(a) * r
+        const y = gs.y * s + Math.sin(a) * r
+        // con los relojes muy juntos (triángulo tumbado) un tornillo caería sobre el bisel del vecino
+        // o encima de otro tornillo: ese no se pone
+        if (this.gauges.some((o) => o !== gs && Math.hypot(x - o.x * s, y - o.y * s) < (o.d / 2) * s * 1.1 + sr * 0.75)) continue
+        if (placed.some(([px, py]) => Math.hypot(x - px, y - py) < sr * 2)) continue
+        placed.push([x, y])
+        screw(x, y, sr * 0.75)
+      }
     }
     // rótulos
     g.fillStyle = 'rgba(235,235,235,0.55)'
@@ -851,6 +899,9 @@ class LivePanel {
       [t('ck.brake'), d.parkBrake ? '#ffb23a' : null],
       [t('ck.rotor'), lowRotor && on ? '#ff3b30' : null],
       [t('ck.engine'), !d.engineOn ? '#ff3b30' : null],
+      // presión de aceite y reserva de combustible (sim/powerplant.ts)
+      [t('ck.oil'), d.oilLow && on ? '#ff3b30' : null],
+      [t('ck.fuelLow'), d.fuelLow ? '#ffb23a' : null],
     ]
     const gap = w * 0.02
     const bw = (w - gap * (items.length - 1)) / items.length

@@ -4,10 +4,11 @@
 import { Matrix4, Quaternion, Vector3, type Camera, type Object3D, type PerspectiveCamera, type Texture } from 'three'
 import { Ellipsoid } from '@takram/three-geospatial'
 import { AircraftView, type AircraftPose } from '../aircraft/AircraftView.ts'
-import { aircraftById } from '../aircraft/catalog.ts'
+import { aircraftById, aircraftUrl } from '../aircraft/catalog.ts'
 import { airframeById } from '../sim/airframes.ts'
 import { t } from '../i18n.ts'
 import type { PeerInfo, StateMsg } from './protocol.ts'
+import { waveIcon } from './radio/radioUi.ts'
 
 /** retardo de interpolación (ms): ~1,5 envíos a 15 Hz */
 const INTERP_DELAY = 110
@@ -146,7 +147,8 @@ export class RemoteAircraft {
     this.tagName = document.createElement('b')
     this.tagName.style.color = this.color
     this.tagInfo = document.createElement('span')
-    this.tag.append(this.tagName, this.tagInfo)
+    // (ondas de radio a la izquierda mientras se le oye: src/net/radio/)
+    this.tag.append(waveIcon(), this.tagName, this.tagInfo)
     this.edge = document.createElement('div')
     this.edge.className = 'mp-edge'
     this.edge.style.display = 'none'
@@ -159,7 +161,7 @@ export class RemoteAircraft {
     this.edgeName = document.createElement('b')
     this.edgeName.style.color = this.color
     this.edgeInfo = document.createElement('span')
-    this.edgeLabel.append(this.edgeName, this.edgeInfo)
+    this.edgeLabel.append(waveIcon(), this.edgeName, this.edgeInfo)
     this.edge.append(this.edgeArrow, this.edgeLabel)
     tagLayer.append(this.tag, this.edge)
     this.setInfo(info)
@@ -171,9 +173,11 @@ export class RemoteAircraft {
     this.edgeName.textContent = info.name
     this.edgeW = 0 // volver a medir
     const m = aircraftById(info.aircraft)
-    if (m.id !== this.model) {
-      this.model = m.id
-      void this.view.load(`${import.meta.env.BASE_URL}${m.url}`, airframeById(m.id)).then(() => {
+    // (con flotadores, el modelo del juego de flotadores)
+    const url = aircraftUrl(m, info.floats === true)
+    if (url !== this.model) {
+      this.model = url
+      void this.view.load(`${import.meta.env.BASE_URL}${url}`, airframeById(m.id, info.floats === true)).then(() => {
         this.view.setPassenger(this.info.passenger)
         if (this.envMap) this.view.setEnvMap(this.envMap)
       })
@@ -184,6 +188,17 @@ export class RemoteAircraft {
   setEnvMap(tex: Texture | null): void {
     this.envMap = tex
     if (this.view.loaded) this.view.setEnvMap(tex)
+  }
+
+  /** radio de voz: 0 callado, 1 se le oye, 2 se le oye con señal débil */
+  talking = 0
+  setTalking(level: number): void {
+    if (level === this.talking) return
+    this.talking = level
+    for (const e of [this.tag, this.edge]) {
+      e.classList.toggle('rd-talking', level > 0)
+      e.classList.toggle('rd-weak', level === 2)
+    }
   }
 
   /** Nueva instantánea de la red. `shiftIn`: metros a sumar sobre la normal (datum propio). */

@@ -13,7 +13,7 @@
 // Atributos de los cables (por vértice: st con t de 0 a 1 en SEGMENTS tramos); por vano: wa, wb
 // (enganches), wp (flecha, radio, gris lineal, opacidad).
 
-import { Box3, BufferAttribute, Color, InstancedBufferAttribute as InstancedAttr, InstancedBufferGeometry, MeshBasicMaterial, MeshStandardMaterial, Sphere, Vector3, type Material } from 'three'
+import { Box3, BufferAttribute, BufferGeometry, Color, InstancedBufferAttribute as InstancedAttr, InstancedBufferGeometry, MeshBasicMaterial, MeshStandardMaterial, Sphere, Vector3, type Material } from 'three'
 import { overlayAlbedoPass, overlayLightPass } from '../render/Graphics.ts'
 import { PALETTE, type Template } from './powerDesigns.ts'
 
@@ -208,6 +208,27 @@ export function templateArrays(t: Template, simple: boolean): TemplateArrays {
   return a
 }
 
+const reachCache = new WeakMap<TemplateArrays, { r: number; y0: number; y1: number }>()
+
+/** Alcance de una plantilla a escala 1: radio horizontal alrededor de su eje y alturas mínima y máxima. */
+function templateReach(a: TemplateArrays): { r: number; y0: number; y1: number } {
+  let reach = reachCache.get(a)
+  if (reach) return reach
+  let r = 0
+  let y0 = Infinity
+  let y1 = -Infinity
+  let rad = 0
+  for (let k = 0; k < a.pa.length; k += 3) {
+    r = Math.max(r, Math.hypot(a.pa[k], a.pa[k + 2]), Math.hypot(a.pb[k], a.pb[k + 2]))
+    y0 = Math.min(y0, a.pa[k + 1], a.pb[k + 1])
+    y1 = Math.max(y1, a.pa[k + 1], a.pb[k + 1])
+    rad = Math.max(rad, a.pr[k], a.pr[k + 1])
+  }
+  reach = a.pa.length ? { r: r + rad, y0: y0 - rad, y1: y1 + rad } : { r: 0, y0: 0, y1: 0 }
+  reachCache.set(a, reach)
+  return reach
+}
+
 /** Geometría instanciada de una plantilla con los apoyos dados (ip: x, y, z, escala; iu: eje). */
 export function towerGeometry(arrays: TemplateArrays, ip: Float32Array, iu: Float32Array, radius: number): InstancedBufferGeometry {
   const g = new InstancedBufferGeometry()
@@ -220,7 +241,81 @@ export function towerGeometry(arrays: TemplateArrays, ip: Float32Array, iu: Floa
   g.setAttribute('ip', new InstancedAttr(ip, 4))
   g.setAttribute('iu', new InstancedAttr(iu, 2))
   g.instanceCount = ip.length / 4
-  setBounds(g, radius)
+  setBounds(g, radius, towerBox(arrays, ip, new Box3()))
+  return g
+}
+
+/** Amplía `box` con cada apoyo: el alcance de la plantilla a su escala (gire como gire sobre su eje). */
+function towerBox(arrays: TemplateArrays, ip: Float32Array, box: Box3): Box3 {
+  const reach = templateReach(arrays)
+  for (let k = 0; k < ip.length; k += 4) {
+    const s = ip[k + 3]
+    const r = reach.r * s
+    box.expandByPoint(_b.set(ip[k] - r, ip[k + 1] + reach.y0 * s, ip[k + 2] - r))
+    box.expandByPoint(_b.set(ip[k] + r, ip[k + 1] + reach.y1 * s, ip[k + 2] + r))
+  }
+  return box
+}
+
+/**
+ * Los apoyos de varias plantillas en una sola geometría, sin instancias: los datos de cada apoyo
+ * (ip, iu) van repetidos en sus vértices, y el sombreador es el mismo. Es para la silueta de
+ * lejos, que son pocas barras: una tesela lleva de una a ocho plantillas distintas y cada una
+ * eran tres dibujos por fotograma (albedo, luz y profundidad) para un puñado de triángulos; así
+ * son tres por tesela. Los triángulos van en el mismo orden en que se dibujaban (plantilla a
+ * plantilla, apoyo a apoyo), que con mezcla importa.
+ */
+export function mergedTowerGeometry(parts: ReadonlyArray<{ arrays: TemplateArrays; ip: Float32Array; iu: Float32Array }>, radius: number): BufferGeometry {
+  let nv = 0
+  let ni = 0
+  for (const p of parts) {
+    const n = p.ip.length / 4
+    nv += (p.arrays.st.length / 2) * n
+    ni += p.arrays.index.length * n
+  }
+  const pa = new Float32Array(nv * 3)
+  const pb = new Float32Array(nv * 3)
+  const pr = new Float32Array(nv * 3)
+  const pc = new Float32Array(nv * 3)
+  const st = new Float32Array(nv * 2)
+  const ip = new Float32Array(nv * 4)
+  const iu = new Float32Array(nv * 2)
+  const index = new Uint32Array(ni)
+  const box = new Box3()
+  let v = 0
+  let k = 0
+  for (const p of parts) {
+    const a = p.arrays
+    const verts = a.st.length / 2
+    for (let i = 0, n = p.ip.length / 4; i < n; i++) {
+      pa.set(a.pa, v * 3)
+      pb.set(a.pb, v * 3)
+      pr.set(a.pr, v * 3)
+      pc.set(a.pc, v * 3)
+      st.set(a.st, v * 2)
+      for (let j = 0; j < verts; j++) {
+        ip[(v + j) * 4] = p.ip[i * 4]
+        ip[(v + j) * 4 + 1] = p.ip[i * 4 + 1]
+        ip[(v + j) * 4 + 2] = p.ip[i * 4 + 2]
+        ip[(v + j) * 4 + 3] = p.ip[i * 4 + 3]
+        iu[(v + j) * 2] = p.iu[i * 2]
+        iu[(v + j) * 2 + 1] = p.iu[i * 2 + 1]
+      }
+      for (let j = 0; j < a.index.length; j++) index[k++] = a.index[j] + v
+      v += verts
+    }
+    towerBox(a, p.ip, box)
+  }
+  const g = new BufferGeometry()
+  g.setIndex(new BufferAttribute(index, 1))
+  g.setAttribute('pa', new BufferAttribute(pa, 3))
+  g.setAttribute('pb', new BufferAttribute(pb, 3))
+  g.setAttribute('pr', new BufferAttribute(pr, 3))
+  g.setAttribute('pc', new BufferAttribute(pc, 3))
+  g.setAttribute('st', new BufferAttribute(st, 2))
+  g.setAttribute('ip', new BufferAttribute(ip, 4))
+  g.setAttribute('iu', new BufferAttribute(iu, 2))
+  setBounds(g, radius, box)
   return g
 }
 
@@ -247,12 +342,40 @@ export function wireGeometry(wa: Float32Array, wb: Float32Array, wp: Float32Arra
   g.setAttribute('wb', new InstancedAttr(wb, 3))
   g.setAttribute('wp', new InstancedAttr(wp, 4))
   g.instanceCount = wa.length / 3
-  setBounds(g, radius)
+  // envolvente: los enganches de cada cable y su punto más bajo (la flecha, wp.x, cuelga de la cuerda)
+  const box = new Box3()
+  for (let i = 0, n = wa.length / 3; i < n; i++) {
+    const k = i * 3
+    const r = wp[i * 4 + 1]
+    box.expandByPoint(_b.set(Math.min(wa[k], wb[k]) - r, Math.min(wa[k + 1], wb[k + 1]) - Math.max(wp[i * 4], 0) - r, Math.min(wa[k + 2], wb[k + 2]) - r))
+    box.expandByPoint(_b.set(Math.max(wa[k], wb[k]) + r, Math.max(wa[k + 1], wb[k + 1]) + r, Math.max(wa[k + 2], wb[k + 2]) + r))
+  }
+  setBounds(g, radius, box)
   return g
 }
 
+/**
+ * Lo que una barra engorda en pantalla más allá de su grosor real: como mucho un píxel (ver GEOM),
+ * que a 13 km con el campo de visión más abierto y la menor resolución son estos metros.
+ */
+const BOUNDS_MARGIN = 25
+const _b = new Vector3()
 
-function setBounds(g: InstancedBufferGeometry, radius: number): void {
+/**
+ * Dos envolventes:
+ *  - la de la geometría, una esfera de radio `radius` centrada en la tesela e igual para todas sus
+ *    mallas. three.js ordena las mallas transparentes por la distancia al centro de esta esfera:
+ *    con el mismo centro, las de una tesela se dibujan siempre en el orden en que se crearon, y
+ *    con mezcla ese orden decide el último bit de algunos píxeles. No se toca.
+ *  - `userData.tight`, ajustada a lo que la malla contiene (`box`), con la que PowerLines la
+ *    oculta cuando queda fuera del encuadre. Con la primera casi nunca quedaba fuera, y cada malla
+ *    son tres dibujos (albedo, luz y profundidad): en Casarrubios, 153 dibujos de tendidos por
+ *    fotograma de los que 60 no caían en pantalla.
+ */
+function setBounds(g: BufferGeometry, radius: number, box: Box3): void {
   g.boundingSphere = new Sphere(new Vector3(), radius)
   g.boundingBox = new Box3(new Vector3(-radius, -radius, -radius), new Vector3(radius, radius, radius))
+  if (box.isEmpty()) box.set(new Vector3(), new Vector3())
+  box.expandByScalar(BOUNDS_MARGIN)
+  g.userData.tight = box.getBoundingSphere(new Sphere())
 }

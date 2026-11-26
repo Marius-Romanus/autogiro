@@ -1,0 +1,108 @@
+/* Realidad virtual (src/vr): botón de la barra superior, caja de Ajustes y aviso en pantalla.
+   Estilo «Pista», como el resto (tokens en src/style.css). */
+
+#btn-vr {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(8, 10, 12, 0.62);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: rgba(255, 255, 255, 0.82);
+  font: 600 15px/1.1 var(--font-cond);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+#btn-vr[hidden] {
+  display: none;
+}
+#btn-vr:hover {
+  background: rgba(8, 10, 12, 0.82);
+  color: #fff;
+}
+#btn-vr.on {
+  border-bottom-color: var(--accent);
+  color: #fff;
+}
+
+#menu #vr-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: -2px 0 6px;
+  padding: 0 0 2px 14px;
+  border-left: 2px solid rgba(255, 255, 255, 0.14);
+}
+#menu #vr-box[hidden] {
+  display: none;
+}
+#menu #vr-status:empty {
+  display: none;
+}
+#menu #vr-status[data-state='yes'] {
+  color: var(--m-sign, #f6c400);
+}
+#menu .vr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+#menu .vr-actions button {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.88);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+#menu .vr-actions button:hover {
+  color: #fff;
+}
+#menu .vr-actions button[hidden] {
+  display: none;
+}
+
+/* mientras se vuela con el visor, la pantalla solo lo dice (la imagen va al visor) */
+#vr-note {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 10px 16px;
+  background: rgba(8, 10, 12, 0.78);
+  border-left: 3px solid var(--accent);
+  color: rgba(255, 255, 255, 0.86);
+  font: 500 15px/1.3 var(--font);
+  pointer-events: none;
+}
+#vr-note.hidden {
+  display: none;
+}
+#vr-note b {
+  font: 700 16px/1 var(--font-cond);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #fff;
+}
+#vr-note b:empty {
+  display: none;
+}
+#vr-note kbd {
+  font-size: 12px;
+}
+/* relojes, guía y ficha de la escuela van en la cabina y en la tablilla de avisos */
+body.vr-active #hud,
+body.vr-active #tips,
+body.vr-active #atc-log,
+body.vr-active #school-card {
+  visibility: hidden;
+}

@@ -7,12 +7,14 @@
 //!     MP_URL=ws://127.0.0.1:47800/mp npm run mp-test
 //!
 //! No simula nada: cada cliente es dueño de su autogiro y el servidor solo reparte los
-//! mensajes dentro de la sala (estado, chat, condiciones del anfitrión).
+//! mensajes dentro de la sala (estado, chat, condiciones del anfitrión y la voz de la radio,
+//! en mensajes binarios: ver `src/net/protocol.ts`).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use axum::body::Bytes;
 use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
 use serde_json::{json, Map, Value};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -31,13 +33,56 @@ pub const MAX_PAYLOAD: usize = 4096;
 /// conexiones muertas (portátil suspendido, red caída…)
 const HEARTBEAT: Duration = Duration::from_secs(15);
 
+// Radio de voz (igual que en protocol.ts): bits del campo `radio`, primer byte de los mensajes
+// binarios, tamaño del cuerpo y límite de ritmo por cliente (paquetes y bytes por segundo).
+const RADIO_ON: u8 = 1;
+const BIN_VOICE: u8 = 1;
+const VOICE_MIN: usize = 4;
+const VOICE_MAX: usize = 1024;
+const VOICE_RATE: f64 = 30.0;
+const VOICE_BURST: f64 = 60.0;
+const VOICE_BYTES: f64 = 12000.0;
+const VOICE_BYTES_BURST: f64 = 24000.0;
+
 struct Client {
     tx: UnboundedSender<Message>,
     name: String,
     aircraft: String,
     passenger: bool,
+    /// con flotadores (otro modelo 3D del mismo aparato)
+    floats: bool,
+    /// radio de voz: bits RADIO_ON / RADIO_OPUS del perfil
+    radio: u8,
     slot: u32,
     room: Option<String>,
+}
+
+/// Cubos de fichas de la voz de un cliente: paquetes y bytes.
+struct VoiceBucket {
+    tokens: f64,
+    bytes: f64,
+    last: Instant,
+}
+
+impl VoiceBucket {
+    fn new() -> Self {
+        VoiceBucket { tokens: VOICE_BURST, bytes: VOICE_BYTES_BURST, last: Instant::now() }
+    }
+
+    /// ¿Cabe un paquete de `len` bytes? (y lo descuenta)
+    fn take(&mut self, len: usize) -> bool {
+        let now = Instant::now();
+        let dt = now.duration_since(self.last).as_secs_f64();
+        self.last = now;
+        self.tokens = (self.tokens + dt * VOICE_RATE).min(VOICE_BURST);
+        self.bytes = (self.bytes + dt * VOICE_BYTES).min(VOICE_BYTES_BURST);
+        if self.tokens < 1.0 || self.bytes < len as f64 {
+            return false;
+        }
+        self.tokens -= 1.0;
+        self.bytes -= len as f64;
+        true
+    }
 }
 
 struct Room {
@@ -74,15 +119,16 @@ pub async fn handle_socket(rooms: Rooms, mut socket: WebSocket) {
         let id = s.next_id;
         s.clients.insert(
             id,
-            Client { tx, name: "Piloto".into(), aircraft: "generic".into(), passenger: false, slot: 0, room: None },
+            Client { tx, name: "Piloto".into(), aircraft: "generic".into(), passenger: false, floats: false, radio: 0, slot: 0, room: None },
         );
         id
     };
 
     let mut alive = true;
-    // límite de ritmo: cubo de fichas
+    // límite de ritmo: cubo de fichas (y otros para la voz)
     let mut tokens = BURST;
     let mut last_refill = Instant::now();
+    let mut voice = VoiceBucket::new();
     let mut beat = tokio::time::interval_at(tokio::time::Instant::now() + HEARTBEAT, HEARTBEAT);
 
     loop {
@@ -98,9 +144,16 @@ pub async fn handle_socket(rooms: Rooms, mut socket: WebSocket) {
                     tokens -= 1.0;
                     rooms.lock().handle(id, text.as_str());
                 }
+                // voz de la radio: el cubo se gasta solo con paquetes que se reenviarían
+                Some(Ok(Message::Binary(data))) => {
+                    let s = rooms.lock();
+                    if s.voice_ok(id, &data) && voice.take(data.len()) {
+                        s.voice(id, &data);
+                    }
+                }
                 Some(Ok(Message::Pong(_))) => alive = true,
                 Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
-                Some(Ok(_)) => {} // binario o ping (el pong lo contesta la librería)
+                Some(Ok(_)) => {} // ping (el pong lo contesta la librería)
             },
             Some(out) = rx.recv() => {
                 if socket.send(out).await.is_err() {
@@ -151,8 +204,40 @@ impl State {
 
     fn info(&self, id: u64) -> Value {
         match self.clients.get(&id) {
-            Some(c) => json!({ "id": id, "name": c.name, "aircraft": c.aircraft, "passenger": c.passenger, "slot": c.slot }),
+            Some(c) => json!({ "id": id, "name": c.name, "aircraft": c.aircraft, "passenger": c.passenger, "floats": c.floats, "radio": c.radio, "slot": c.slot }),
             None => Value::Null,
+        }
+    }
+
+    /// ¿Se reenviaría este mensaje binario? Voz de alguien con la radio encendida, dentro de una
+    /// sala y de tamaño válido (el cuerpo no se mira).
+    fn voice_ok(&self, id: u64, data: &[u8]) -> bool {
+        let Some(c) = self.clients.get(&id) else { return false };
+        c.room.is_some()
+            && c.radio & RADIO_ON != 0
+            && data.len() >= 1 + VOICE_MIN
+            && data.len() <= 1 + VOICE_MAX
+            && data[0] == BIN_VOICE
+    }
+
+    /// Voz: a los demás de la sala con la radio encendida, con el id del emisor delante.
+    fn voice(&self, id: u64, data: &[u8]) {
+        let Some(code) = self.clients.get(&id).and_then(|c| c.room.as_deref()) else { return };
+        let Some(room) = self.rooms.get(code) else { return };
+        let mut out = Vec::with_capacity(data.len() + 4);
+        out.push(BIN_VOICE);
+        out.extend_from_slice(&(id as u32).to_be_bytes());
+        out.extend_from_slice(&data[1..]);
+        let out = Bytes::from(out);
+        for &m in &room.members {
+            if m == id {
+                continue;
+            }
+            if let Some(c) = self.clients.get(&m) {
+                if c.radio & RADIO_ON != 0 {
+                    let _ = c.tx.send(Message::Binary(out.clone()));
+                }
+            }
         }
     }
 
@@ -225,6 +310,8 @@ impl State {
             let aircraft = clean_text(m.get("aircraft"), 32);
             c.aircraft = if aircraft.is_empty() { "generic".into() } else { aircraft };
             c.passenger = truthy(m.get("passenger"));
+            c.floats = truthy(m.get("floats"));
+            c.radio = radio_flags(m.get("radio"));
         }
     }
 
@@ -282,7 +369,7 @@ impl State {
                 self.profile(id, &m);
                 if let Some(code) = room {
                     let c = &self.clients[&id];
-                    let msg = json!({ "t": "profile", "id": id, "name": c.name, "aircraft": c.aircraft, "passenger": c.passenger });
+                    let msg = json!({ "t": "profile", "id": id, "name": c.name, "aircraft": c.aircraft, "passenger": c.passenger, "floats": c.floats, "radio": c.radio });
                     self.broadcast(&code, &msg, Some(id));
                 }
             }
@@ -352,6 +439,14 @@ fn truthy(v: Option<&Value>) -> bool {
         Some(Value::Number(n)) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
         Some(Value::String(s)) => !s.is_empty(),
         Some(_) => true,
+    }
+}
+
+/// Campo `radio` del perfil (`radioFlags` de protocol.ts): un entero 0…3; lo demás, 0.
+fn radio_flags(v: Option<&Value>) -> u8 {
+    match v.and_then(Value::as_f64) {
+        Some(f) if f.fract() == 0.0 && (0.0..=3.0).contains(&f) => f as u8,
+        _ => 0,
     }
 }
 
@@ -463,7 +558,18 @@ fn sanitize_conditions(c: &Map<String, Value>) -> Option<Value> {
         "windFrom": json_num(num(c.get("windFrom"), 0.0, 360.0, 0.0)),
         "windSpeed": json_num(num(c.get("windSpeed"), 0.0, 60.0, 0.0)),
         "turbulence": json_num(num(c.get("turbulence"), 0.0, 1.0, 0.0)),
+        // viento del terreno y térmicas (anfitriones anteriores no lo mandan: viento uniforme); igual en server/rooms.ts
+        "terrainWind": c.get("terrainWind") == Some(&Value::Bool(true)),
         "clouds": if clouds.is_empty() { "clear".to_string() } else { clouds },
+        // aire del día (anfitriones anteriores no lo mandan: atmósfera estándar); igual en server/rooms.ts
+        "isa": c.get("isa") != Some(&Value::Bool(false)),
+        "oatC": json_num(num(c.get("oatC"), -60.0, 60.0, 15.0)),
+        "qnh": json_num(num(c.get("qnh"), 850.0, 1100.0, 1013.25)),
+        "dewPointC": json_num(num(c.get("dewPointC"), -80.0, 40.0, 5.0)),
+        "visibility": json_num(num(c.get("visibility"), 0.0, 100000.0, 30000.0)),
+        "precip": json_num(num(c.get("precip"), 0.0, 500.0, 0.0)),
+        "weatherCode": json_num(num(c.get("weatherCode"), -1.0, 99.0, -1.0)),
+        "windGustKt": json_num(num(c.get("windGustKt"), 0.0, 150.0, 0.0)),
         "simTime": json_num(num(c.get("simTime"), 0.0, 4e12, now_ms())),
         "collisions": c.get("collisions") != Some(&Value::Bool(false)),
     }))
@@ -490,5 +596,117 @@ mod tests {
         assert_eq!(json_num(1.7e12).to_string(), "1700000000000");
         assert!(truthy(Some(&json!("x"))) && !truthy(Some(&json!(0))));
         assert_eq!(slice_utf16("😀😀", 3), "😀");
+    }
+
+    /// Cliente de prueba sin red: su id y lo que le llega.
+    fn bot(s: &mut State) -> (u64, tokio::sync::mpsc::UnboundedReceiver<Message>) {
+        let (tx, rx) = unbounded_channel();
+        s.next_id += 1;
+        let id = s.next_id;
+        s.clients.insert(
+            id,
+            Client { tx, name: "Piloto".into(), aircraft: "generic".into(), passenger: false, floats: false, radio: 0, slot: 0, room: None },
+        );
+        (id, rx)
+    }
+
+    fn binaries(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Message>) -> Vec<Bytes> {
+        let mut out = Vec::new();
+        while let Ok(m) = rx.try_recv() {
+            if let Message::Binary(b) = m {
+                out.push(b);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn radio_como_en_js() {
+        assert_eq!(radio_flags(Some(&json!(3))), 3);
+        assert_eq!(radio_flags(Some(&json!(1.0))), 1);
+        assert_eq!(radio_flags(Some(&json!(7))), 0);
+        assert_eq!(radio_flags(Some(&json!(-1))), 0);
+        assert_eq!(radio_flags(Some(&json!(1.5))), 0);
+        assert_eq!(radio_flags(Some(&json!("1"))), 0);
+        assert_eq!(radio_flags(Some(&json!(true))), 0);
+        assert_eq!(radio_flags(None), 0);
+    }
+
+    #[test]
+    fn voz_solo_a_la_sala_con_radio() {
+        let mut s = State::default();
+        let (a, mut ra) = bot(&mut s);
+        s.handle(a, r#"{"t":"create","name":"Ana","radio":3}"#);
+        let code = s.clients[&a].room.clone().expect("sala");
+        let (b, mut rb) = bot(&mut s);
+        s.handle(b, &format!(r#"{{"t":"join","code":"{code}","name":"Bea","radio":1}}"#));
+        let (c, mut rc) = bot(&mut s);
+        s.handle(c, &format!(r#"{{"t":"join","code":"{code}","name":"Cris"}}"#));
+        let (d, mut rd) = bot(&mut s);
+        s.handle(d, r#"{"t":"create","name":"Dani","radio":1}"#);
+        assert_eq!(s.info(a)["radio"], json!(3));
+        assert_eq!(s.info(c)["radio"], json!(0));
+        for rx in [&mut ra, &mut rb, &mut rc, &mut rd] {
+            while rx.try_recv().is_ok() {}
+        }
+
+        let pkt = [BIN_VOICE, 0, 1, 0, 7, 0xAA, 0xBB];
+        assert!(s.voice_ok(a, &pkt));
+        s.voice(a, &pkt);
+        let got = binaries(&mut rb);
+        assert_eq!(got.len(), 1);
+        let id = (a as u32).to_be_bytes();
+        assert_eq!(&got[0][..], &[BIN_VOICE, id[0], id[1], id[2], id[3], 0, 1, 0, 7, 0xAA, 0xBB]);
+        // ni al emisor, ni a quien no tiene la radio, ni a otra sala
+        assert!(binaries(&mut ra).is_empty());
+        assert!(binaries(&mut rc).is_empty());
+        assert!(binaries(&mut rd).is_empty());
+        // sin radio no se emite; tamaños y tipo fuera de lo válido
+        assert!(!s.voice_ok(c, &pkt));
+        assert!(!s.voice_ok(a, &[BIN_VOICE, 0, 1, 0]));
+        assert!(s.voice_ok(a, &vec![BIN_VOICE; 1 + VOICE_MAX]));
+        assert!(!s.voice_ok(a, &vec![BIN_VOICE; 2 + VOICE_MAX]));
+        assert!(!s.voice_ok(a, &[2, 0, 1, 0, 7]));
+        // fuera de sala tampoco
+        s.handle(a, r#"{"t":"leave"}"#);
+        assert!(!s.voice_ok(a, &pkt));
+    }
+
+    #[test]
+    fn cubo_de_la_voz() {
+        let mut v = VoiceBucket::new();
+        let n = (0..150).filter(|_| v.take(325)).count();
+        assert_eq!(n, VOICE_BURST as usize);
+        // por bytes: 24 000 de ráfaga dan para 23 paquetes de 1 025
+        let mut v = VoiceBucket::new();
+        let n = (0..150).filter(|_| v.take(1025)).count();
+        assert_eq!(n, (VOICE_BYTES_BURST / 1025.0) as usize);
+    }
+
+    #[test]
+    fn aire_del_dia_como_en_js() {
+        // sin aire del día (anfitriones anteriores): atmósfera estándar
+        let old = sanitize_conditions(json!({ "locationId": "lemt26" }).as_object().unwrap()).unwrap();
+        assert_eq!(old["isa"], json!(true));
+        assert_eq!(old["oatC"], json!(15));
+        assert_eq!(old["qnh"], json!(1013.25));
+        // ni viento del terreno: viento uniforme
+        assert_eq!(old["terrainWind"], json!(false));
+        let tw = sanitize_conditions(json!({ "locationId": "lemt26", "terrainWind": true }).as_object().unwrap()).unwrap();
+        assert_eq!(tw["terrainWind"], json!(true));
+        let c = sanitize_conditions(
+            json!({ "locationId": "lemt26", "isa": false, "oatC": 38, "qnh": 1009.4, "dewPointC": 9, "visibility": 999999, "precip": 1.5, "weatherCode": 61, "windGustKt": 18 })
+                .as_object()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(c["isa"], json!(false));
+        assert_eq!(c["oatC"], json!(38));
+        assert_eq!(c["qnh"], json!(1009.4));
+        assert_eq!(c["dewPointC"], json!(9));
+        assert_eq!(c["visibility"], json!(100000));
+        assert_eq!(c["precip"], json!(1.5));
+        assert_eq!(c["weatherCode"], json!(61));
+        assert_eq!(c["windGustKt"], json!(18));
     }
 }
